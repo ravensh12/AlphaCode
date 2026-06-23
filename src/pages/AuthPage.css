@@ -1,0 +1,129 @@
+.auth-top {
+  padding-top: 26px;
+}
+
+.auth-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px 56px;
+  gap: 18px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  overflow: hidden;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: var(--bd) solid var(--ink);
+}
+.auth-tab {
+  background: var(--surface-2);
+  border: none;
+  padding: 16px;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.auth-tab:first-child {
+  border-right: var(--bd) solid var(--ink);
+}
+.auth-tab:hover {
+  color: var(--ink);
+}
+.auth-tab.active {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.auth-body {
+  padding: 26px 26px 28px;
+  background: var(--surface);
+}
+
+.auth-title {
+  font-size: 26px;
+  font-weight: 700;
+}
+.auth-subtitle {
+  margin-top: 6px;
+  font-size: 14.5px;
+}
+
+.auth-notice {
+  margin-top: 16px;
+  background: var(--yellow-soft);
+  border: 2px solid var(--ink);
+  color: #6b4e00;
+  font-size: 13.5px;
+  line-height: 1.45;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+}
+
+.auth-success {
+  margin-top: 16px;
+  background: var(--lime-soft);
+  border: 2px solid var(--ink);
+  color: #0a6b4d;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 18px 0;
+  color: var(--ink-faint);
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: var(--ink);
+  opacity: 0.18;
+}
+.auth-divider span {
+  padding: 0 12px;
+}
+
+.auth-guest-note {
+  text-align: center;
+  font-size: 12.5px;
+  margin-top: 10px;
+}
+
+.auth-back a {
+  font-family: var(--display);
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.auth-back a:hover {
+  color: var(--primary);
+}

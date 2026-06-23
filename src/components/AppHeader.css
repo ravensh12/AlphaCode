@@ -1,0 +1,53 @@
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--paper);
+  border-bottom: var(--bd) solid var(--ink);
+}
+
+.app-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 66px;
+}
+
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-header-user {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-header-course {
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+.app-header-signout {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+@media (max-width: 520px) {
+  .app-header-user {
+    display: none;
+  }
+  .app-header-course-label {
+    display: none;
+  }
+  .app-header-course {
+    padding: 8px 11px;
+  }
+}

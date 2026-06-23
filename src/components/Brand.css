@@ -1,0 +1,32 @@
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 2.5px solid var(--ink);
+  background: var(--primary);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.brand-caret {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.brand-word-accent {
+  color: var(--primary);
+}
