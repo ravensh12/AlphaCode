@@ -11,6 +11,7 @@ import type {
   AttemptRecord,
   ExperienceLevel,
   LessonProgress,
+  LessonReview,
   ProgressState,
   StreakState,
 } from '../types/progress'
@@ -24,6 +25,7 @@ import {
   ensureProfile,
   insertAttemptCloud,
   loadCloud,
+  saveBadgesCloud,
   saveExperienceCloud,
   saveStreakCloud,
   upsertLessonCloud,
@@ -45,16 +47,49 @@ type ProgressContextValue = {
   totalLessonsCount: number
   allLessonsComplete: boolean
   activeLessonId: string | null
+  earnedBadges: string[]
   isLessonUnlocked: (lesson: LessonSummary) => boolean
   recordDailyActivity: () => void
   saveLessonProgress: (progress: LessonProgress) => void
+  saveLessonReview: (lessonId: string, review: LessonReview) => void
   logAttempt: (attempt: AttemptRecord) => void
+  awardBadges: (badgeIds: string[]) => void
   resetLesson: (lessonId: string) => void
 }
 
 const ProgressContext = createContext<ProgressContextValue | null>(null)
 
 const warn = (e: unknown) => console.warn('[progress] cloud write failed', e)
+
+/**
+ * Merge a new attempt into an already-completed lesson so reviewing/replaying
+ * can only improve (or hold) progress — never lose it. Best metrics win.
+ */
+function mergeCompleted(
+  existing: LessonProgress,
+  next: LessonProgress,
+): LessonProgress {
+  const completedStepIds = [
+    ...new Set([...existing.completedStepIds, ...next.completedStepIds]),
+  ]
+  return {
+    ...next,
+    status: 'completed',
+    completedStepIds,
+    correctCount: Math.max(existing.correctCount, next.correctCount),
+    correctFirstTry: Math.max(existing.correctFirstTry, next.correctFirstTry),
+    accuracy: Math.max(existing.accuracy, next.accuracy),
+    masteryScore: Math.max(existing.masteryScore, next.masteryScore),
+    unlockNextLesson: existing.unlockNextLesson || next.unlockNextLesson,
+    completedAt: existing.completedAt ?? next.completedAt,
+    wrongCount: existing.wrongCount + next.wrongCount,
+    totalAttempts: existing.totalAttempts + next.totalAttempts,
+    currentStepIndex: existing.currentStepIndex,
+    updatedAt: next.updatedAt ?? new Date().toISOString(),
+    // Keep the stored review snapshot unless a newer one is supplied.
+    lastReview: next.lastReview ?? existing.lastReview,
+  }
+}
 
 function nextStreak(streak: StreakState): StreakState {
   const today = todayKey()
@@ -155,9 +190,14 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
     const totalLessonsCount = LESSON_CATALOG.length
     const allLessonsComplete = completedLessonsCount >= totalLessonsCount
 
+    // Guests get a single-level preview; everything past lesson one needs an
+    // account, regardless of how well they did.
+    const isGuest = identityId === 'guest'
+
     const isUnlocked = (lesson: LessonSummary): boolean => {
       const req = lesson.unlockRequirements
       if (!req.previousLessonId) return true
+      if (isGuest) return false
       const prev = state.lessons[req.previousLessonId]
       if (!prev || prev.status !== 'completed') return false
       if (req.minimumMastery == null) return true
@@ -185,6 +225,7 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       totalLessonsCount,
       allLessonsComplete,
       activeLessonId,
+      earnedBadges: state.earnedBadges ?? [],
       getLessonProgress: (lessonId) => state.lessons[lessonId],
       isLessonUnlocked: isUnlocked,
 
@@ -204,20 +245,49 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
 
       saveLessonProgress: (progress) => {
         const prev = stateRef.current
+        const existing = prev.lessons[progress.lessonId]
+        // Once a lesson is completed, a later attempt (e.g. a review) can only
+        // raise its stats, never lower them.
+        const merged =
+          existing?.status === 'completed'
+            ? mergeCompleted(existing, progress)
+            : progress
         const streak = nextStreak(prev.streak)
         commit({
           ...prev,
           streak,
-          lessons: { ...prev.lessons, [progress.lessonId]: progress },
+          lessons: { ...prev.lessons, [progress.lessonId]: merged },
         })
         if (cloudActive && userId) {
-          upsertLessonCloud(userId, progress).catch(warn)
+          upsertLessonCloud(userId, merged).catch(warn)
           saveStreakCloud(userId, streak).catch(warn)
         }
       },
 
+      saveLessonReview: (lessonId, review) => {
+        const prev = stateRef.current
+        const existing = prev.lessons[lessonId]
+        if (!existing) return
+        const updated = { ...existing, lastReview: review }
+        commit({
+          ...prev,
+          lessons: { ...prev.lessons, [lessonId]: updated },
+        })
+        if (cloudActive && userId) upsertLessonCloud(userId, updated).catch(warn)
+      },
+
       logAttempt: (attempt) => {
         if (cloudActive && userId) insertAttemptCloud(userId, attempt).catch(warn)
+      },
+
+      awardBadges: (badgeIds) => {
+        if (!badgeIds.length) return
+        const prev = stateRef.current
+        const existing = prev.earnedBadges ?? []
+        const merged = [...new Set([...existing, ...badgeIds])]
+        if (merged.length === existing.length) return
+        commit({ ...prev, earnedBadges: merged })
+        if (cloudActive && userId) saveBadgesCloud(userId, merged).catch(warn)
       },
 
       resetLesson: (lessonId) => {

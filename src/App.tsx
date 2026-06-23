@@ -5,6 +5,7 @@ import { AuthPage } from './pages/AuthPage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { CourseHomePage } from './pages/CourseHomePage'
 import { LessonPage } from './pages/LessonPage'
+import { ReviewPage } from './pages/ReviewPage'
 import { StartRedirect } from './pages/StartRedirect'
 
 export default function App() {
@@ -41,6 +42,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <LessonPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/review/:lessonId"
+        element={
+          <ProtectedRoute>
+            <ReviewPage />
           </ProtectedRoute>
         }
       />

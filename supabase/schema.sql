@@ -13,9 +13,14 @@ create table if not exists public.profiles (
   streak_current int not null default 0,
   streak_longest int not null default 0,
   last_activity_date date,
+  badges text[] not null default '{}',
   created_at timestamptz not null default now(),
   last_active_at timestamptz not null default now()
 );
+
+-- Add badges to existing profiles tables (safe to re-run).
+alter table public.profiles
+  add column if not exists badges text[] not null default '{}';
 
 alter table public.profiles enable row level security;
 
@@ -49,8 +54,13 @@ create table if not exists public.lesson_progress (
   unlock_next_lesson boolean not null default false,
   completed_at timestamptz,
   updated_at timestamptz not null default now(),
+  last_review jsonb,
   primary key (user_id, lesson_id)
 );
+
+-- Add the review snapshot column to existing tables (safe to re-run).
+alter table public.lesson_progress
+  add column if not exists last_review jsonb;
 
 alter table public.lesson_progress enable row level security;
 

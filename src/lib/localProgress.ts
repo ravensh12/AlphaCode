@@ -1,7 +1,7 @@
 import type { ProgressState } from '../types/progress'
 
 export function emptyState(): ProgressState {
-  return { streak: { current: 0, longest: 0 }, lessons: {} }
+  return { streak: { current: 0, longest: 0 }, lessons: {}, earnedBadges: [] }
 }
 
 const keyFor = (identityId: string) => `codetracer.progress.${identityId}`

@@ -18,9 +18,9 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <div className="container app-header-inner">
-        <Brand to="/home" />
+        <Brand to={isGuest ? '/start' : '/home'} />
         <div className="app-header-right">
-          {!onCoursePage && (
+          {!onCoursePage && !isGuest && (
             <Link className="btn ghost app-header-course" to="/home">
               <IconGrid size={16} />
               <span className="app-header-course-label">Course</span>

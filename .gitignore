@@ -12,8 +12,20 @@ dist
 dist-ssr
 *.local
 
+# Env files (keep the example template tracked)
+.env
+.env.*
+!.env.example
+
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Installed agent skills (managed via `npx skills`, not app code)
+.agents/
+skills-lock.json
+
+# Cursor MCP config (contains a Supabase access token)
+.cursor/mcp.json
 
 # Editor directories and files
 .vscode/*

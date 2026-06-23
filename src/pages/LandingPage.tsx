@@ -35,7 +35,8 @@ export function LandingPage() {
         <div className="landing-hero-copy">
           <span className="pill brand">Beginner Python · Learn by doing</span>
           <h1 className="landing-title">
-            Learn Python by tracing what the computer does.
+            Learn Python by <span className="hl">tracing</span> what the computer
+            does.
           </h1>
           <p className="landing-lede">
             Code Tracer turns the invisible part of programming into a puzzle. Step
@@ -57,7 +58,15 @@ export function LandingPage() {
           </ul>
         </div>
 
-        <DemoCard />
+        <div className="landing-visual">
+          <img
+            className="landing-hero-img"
+            src="/landing-hero.png"
+            alt="A friendly robot watching the value 7 drop into a labelled variable box as Python code runs"
+            width={1024}
+            height={768}
+          />
+        </div>
       </main>
 
       <footer className="landing-footer">
@@ -65,55 +74,6 @@ export function LandingPage() {
           <span className="muted">Code Tracer — a Brilliant-style way to learn how code runs.</span>
         </div>
       </footer>
-    </div>
-  )
-}
-
-function DemoCard() {
-  return (
-    <div className="demo-card card" aria-hidden="true">
-      <div className="demo-code">
-        <div className="demo-code-line">
-          <span className="demo-ln">1</span>
-          <code>
-            <span className="tok-var">x</span> = <span className="tok-num">4</span>
-          </code>
-        </div>
-        <div className="demo-code-line active">
-          <span className="demo-ln">2</span>
-          <code>
-            <span className="tok-var">y</span> = <span className="tok-var">x</span> +{' '}
-            <span className="tok-num">3</span>
-          </code>
-        </div>
-        <div className="demo-code-line">
-          <span className="demo-ln">3</span>
-          <code>
-            <span className="tok-var">x</span> = <span className="tok-var">y</span> -{' '}
-            <span className="tok-num">2</span>
-          </code>
-        </div>
-      </div>
-
-      <div className="demo-vars">
-        <div className="demo-var">
-          <span className="demo-var-name">x</span>
-          <span className="demo-var-box">4</span>
-        </div>
-        <div className="demo-var">
-          <span className="demo-var-name">y</span>
-          <span className="demo-var-box pulse">?</span>
-        </div>
-      </div>
-
-      <div className="demo-prompt">
-        <strong>What is stored in <code>y</code>?</strong>
-        <div className="demo-tiles">
-          <span className="demo-tile">5</span>
-          <span className="demo-tile correct">7</span>
-          <span className="demo-tile">12</span>
-        </div>
-      </div>
     </div>
   )
 }

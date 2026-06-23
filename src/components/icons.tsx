@@ -64,6 +64,14 @@ export function IconCheck({ size = 22, className }: IconProps) {
   )
 }
 
+export function IconX({ size = 22, className }: IconProps) {
+  return (
+    <svg {...base(size, className)}>
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  )
+}
+
 export function IconArrowRight({ size = 22, className }: IconProps) {
   return (
     <svg {...base(size, className)}>

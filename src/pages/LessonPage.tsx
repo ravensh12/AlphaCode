@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
 import { generateLesson, hasLesson } from '../content/lessons'
 import { LESSON_CATALOG } from '../content/catalog'
+import { getBadge } from '../content/badges'
 import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
 import { useLessonEngine } from '../hooks/useLessonEngine'
@@ -18,28 +19,44 @@ import { Loader } from '../components/Loader'
 import { IconArrowLeft } from '../components/icons'
 import './LessonPage.css'
 
-function genTiles(step: LessonStep): number[] {
-  const corrects = step.targetVariables
-    .map((v) => step.expectedState[v])
-    .filter((v): v is number => typeof v === 'number')
-  const set = new Set<number>(corrects)
-  for (const n of corrects) {
-    for (const d of [n - 1, n + 1, n + 2, n - 2]) {
-      if (d >= 0) set.add(d)
-    }
-  }
-  let k = 3
-  const base = corrects[0] ?? 5
-  while (set.size < 6) {
-    if (base + k >= 0) set.add(base + k)
-    k++
-  }
-  const arr = [...set]
+const TILE_COUNT = 8
+
+function shuffleInPlace<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
     ;[arr[i], arr[j]] = [arr[j], arr[i]]
   }
-  return arr.slice(0, 8)
+  return arr
+}
+
+function genTiles(step: LessonStep): number[] {
+  const corrects = step.targetVariables
+    .map((v) => step.expectedState[v])
+    .filter((v): v is number => typeof v === 'number')
+  const correctSet = new Set<number>(corrects)
+
+  // Build distractors that never collide with a correct answer.
+  const distractors = new Set<number>()
+  for (const n of corrects) {
+    for (const d of [n - 1, n + 1, n + 2, n - 2, n + 3, n - 3]) {
+      if (d >= 0 && !correctSet.has(d)) distractors.add(d)
+    }
+  }
+  let k = 4
+  const base = corrects[0] ?? 5
+  while (correctSet.size + distractors.size < TILE_COUNT) {
+    const cand = base + k
+    if (cand >= 0 && !correctSet.has(cand)) distractors.add(cand)
+    k++
+  }
+
+  // Always include every correct answer, then fill up with distractors.
+  const tiles = [...correctSet]
+  for (const d of shuffleInPlace([...distractors])) {
+    if (tiles.length >= TILE_COUNT) break
+    tiles.push(d)
+  }
+  return shuffleInPlace(tiles)
 }
 
 export function LessonPage() {
@@ -93,7 +110,7 @@ export function LessonPage() {
   )
 }
 
-function LessonNotice({ title, message }: { title: string; message: string }) {
+export function LessonNotice({ title, message }: { title: string; message: string }) {
   return (
     <div className="page">
       <AppHeader />
@@ -131,20 +148,42 @@ function LessonRunner({
   onNext?: () => void
   onExit: () => void
 }) {
-  // `round` bumps on replay/restart so a brand-new randomized lesson is built.
+  // `round` bumps on replay so a brand-new randomized lesson is built.
   const [round, setRound] = useState(0)
-  const lesson = useMemo(() => {
+  // When set, we re-run only these step ids (a "redo missed" review pass) using
+  // the SAME generated questions from the current round.
+  const [reviewIds, setReviewIds] = useState<string[] | null>(null)
+
+  const baseLesson = useMemo(() => {
     void round // re-generate fresh questions whenever the round changes
     return generateLesson(lessonId)!
   }, [lessonId, round])
-  const replay = useCallback(() => setRound((r) => r + 1), [])
+
+  const lesson = useMemo(() => {
+    if (!reviewIds) return baseLesson
+    const steps = baseLesson.steps.filter(
+      (s) => s.type !== 'intro' && reviewIds.includes(s.id),
+    )
+    return { ...baseLesson, steps }
+  }, [baseLesson, reviewIds])
+
+  const replay = useCallback(() => {
+    setReviewIds(null)
+    setRound((r) => r + 1)
+  }, [])
+  const redoMissed = useCallback((ids: string[]) => {
+    if (ids.length) setReviewIds(ids)
+  }, [])
+
+  const isReview = !!reviewIds
 
   return (
     <LessonRound
-      key={round}
+      key={`${round}:${reviewIds?.join('|') ?? 'all'}`}
       lesson={lesson}
-      // Only resume saved progress on the first round; replays start clean.
-      initial={round === 0 ? initial : undefined}
+      isReview={isReview}
+      // Only resume saved progress on a fresh first round; replays/reviews start clean.
+      initial={round === 0 && !isReview ? initial : undefined}
       onSave={onSave}
       onAttempt={onAttempt}
       streakCurrent={streakCurrent}
@@ -153,12 +192,14 @@ function LessonRunner({
       onNext={onNext}
       onExit={onExit}
       onReplay={replay}
+      onRedoMissed={redoMissed}
     />
   )
 }
 
-function LessonRound({
+export function LessonRound({
   lesson,
+  isReview,
   initial,
   onSave,
   onAttempt,
@@ -168,8 +209,10 @@ function LessonRound({
   onNext,
   onExit,
   onReplay,
+  onRedoMissed,
 }: {
   lesson: Lesson
+  isReview: boolean
   initial?: LessonProgress
   onSave: (p: LessonProgress) => void
   onAttempt: (a: AttemptRecord) => void
@@ -179,10 +222,12 @@ function LessonRound({
   onNext?: () => void
   onExit: () => void
   onReplay: () => void
+  onRedoMissed: (ids: string[]) => void
 }) {
   // Guests are in "preview" mode: each visit/refresh starts fresh instead of
   // resuming a half-finished level. Accounts keep their saved place.
   const { isGuest } = useAuth()
+  const { awardBadges, saveLessonReview } = useProgress()
 
   function handleSave(p: LessonProgress) {
     // Never downgrade a completed lesson back to in-progress.
@@ -192,10 +237,33 @@ function LessonRound({
 
   const engine = useLessonEngine(lesson, {
     initialProgress: initial,
-    resume: !isGuest,
+    // A review pass starts fresh; it still saves, but progress can only improve
+    // (the merge in ProgressContext never downgrades a completed lesson).
+    resume: !isGuest && !isReview,
     onSave: handleSave,
     onAttempt,
   })
+
+  // Persist badges + the review snapshot once, when the lesson completes.
+  const completionSaved = useRef(false)
+  useEffect(() => {
+    if (engine.isComplete && engine.result && !completionSaved.current) {
+      completionSaved.current = true
+      awardBadges(engine.result.badges)
+      // Only a full playthrough records the review snapshot (not redo passes).
+      if (!isReview) {
+        const interactive = lesson.steps.filter((s) => s.type !== 'intro')
+        const missedStepIds = engine.result.stepReviews
+          .filter((s) => s.missed)
+          .map((s) => s.id)
+        saveLessonReview(lesson.id, {
+          steps: interactive,
+          missedStepIds,
+          recordedAt: new Date().toISOString(),
+        })
+      }
+    }
+  }, [isReview, lesson, engine.isComplete, engine.result, awardBadges, saveLessonReview])
 
   // step object reference is stable per step, so tiles re-roll only on step change
   const tiles = useMemo(() => genTiles(engine.step), [engine.step])
@@ -212,9 +280,18 @@ function LessonRound({
             nextLessonTitle={nextLessonTitle}
             isLastLesson={isLastLesson}
             isGuest={isGuest}
+            isReview={isReview}
+            badges={engine.result.badges}
             onNext={onNext}
             onReturn={onExit}
             onReplay={onReplay}
+            onRedoMissed={() =>
+              onRedoMissed(
+                engine.result!.stepReviews
+                  .filter((s) => s.missed)
+                  .map((s) => s.id),
+              )
+            }
           />
         </main>
       </div>
@@ -352,6 +429,10 @@ function StepView({
             onSetBox={engine.setBox}
           />
 
+          {phase === 'solved' && engine.lastStepBadge && (
+            <SpeedBadgeFlash tier={engine.lastStepBadge} />
+          )}
+
           {engine.feedback && <FeedbackPanel feedback={engine.feedback} />}
 
           {phase === 'answering' ? (
@@ -376,6 +457,20 @@ function StepView({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function SpeedBadgeFlash({ tier }: { tier: 'lightning' | 'quick' }) {
+  const badge = getBadge(tier)
+  if (!badge) return null
+  const { Icon, label } = badge
+  return (
+    <div className={`speed-flash tone-${badge.tone}`} role="status">
+      <Icon size={18} />
+      <span>
+        {label} <strong>badge!</strong>
+      </span>
     </div>
   )
 }

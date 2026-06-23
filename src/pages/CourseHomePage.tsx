@@ -4,6 +4,7 @@ import { AppHeader } from '../components/AppHeader'
 import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
 import { LESSON_CATALOG, MASTERY_UNLOCK_THRESHOLD } from '../content/catalog'
+import { BADGE_ORDER, BADGES } from '../content/badges'
 import type { LessonSummary } from '../types/lesson'
 import type { ExperienceLevel } from '../types/progress'
 import { masteryBand, bandLabel } from '../lib/mastery'
@@ -36,6 +37,7 @@ export function CourseHomePage() {
     experienceLevel,
     lessons,
     cloudEnabled,
+    earnedBadges,
   } = useProgress()
 
   const firstLesson = lessons[LESSON_CATALOG[0].id]
@@ -128,6 +130,35 @@ export function CourseHomePage() {
             </Link>
           </div>
         )}
+
+        <section className="course-badges">
+          <div className="course-badges-head">
+            <h2 className="course-path-title">Badges</h2>
+            <span className="course-badges-count muted">
+              {earnedBadges.length}/{BADGE_ORDER.length} earned
+            </span>
+          </div>
+          <p className="muted course-badges-hint">
+            Answer fast and clean to collect them all.
+          </p>
+          <div className="badge-row">
+            {BADGE_ORDER.map((id) => {
+              const badge = BADGES[id]
+              const earned = earnedBadges.includes(id)
+              const { Icon, label, description } = badge
+              return (
+                <div
+                  key={id}
+                  className={`badge-chip tone-${badge.tone} ${earned ? '' : 'locked'}`}
+                  title={earned ? description : `Locked — ${description}`}
+                >
+                  <Icon size={18} />
+                  <span>{label}</span>
+                </div>
+              )
+            })}
+          </div>
+        </section>
 
         <section className="course-path">
           <h2 className="course-path-title">Learning path</h2>
@@ -240,8 +271,11 @@ function LessonCard({
     )
   }
 
+  // Completed lessons open the review screen; everything else jumps into play.
+  const target = completed ? `/review/${lesson.id}` : `/lesson/${lesson.id}`
+
   return (
-    <Link to={`/lesson/${lesson.id}`} className={`lesson-card card ${stateClass}`}>
+    <Link to={target} className={`lesson-card card ${stateClass}`}>
       {inner}
     </Link>
   )

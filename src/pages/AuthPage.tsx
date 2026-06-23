@@ -42,7 +42,7 @@ export function AuthPage() {
           displayName.trim() || 'Learner',
         )
         if (result === 'active') {
-          navigate('/onboarding')
+          navigate('/start')
         } else {
           setMode('login')
           setNotice(
@@ -62,7 +62,7 @@ export function AuthPage() {
 
   function handleGuest() {
     continueAsGuest()
-    navigate('/home')
+    navigate('/start')
   }
 
   return (
@@ -185,7 +185,8 @@ export function AuthPage() {
               Continue as guest
             </button>
             <p className="auth-guest-note muted">
-              Guest progress is saved on this device only.
+              Guest mode previews the first level only. Sign up to unlock the full
+              course and save your progress.
             </p>
           </div>
         </div>

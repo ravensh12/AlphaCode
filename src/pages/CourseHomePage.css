@@ -228,6 +228,31 @@
   color: var(--primary);
 }
 
+/* ---------- Badges collection ---------- */
+.course-badges {
+  margin-top: 28px;
+}
+.course-badges-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.course-badges-count {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+}
+.course-badges-hint {
+  margin: 4px 0 14px;
+  font-size: 14px;
+}
+.course-badges .badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 @media (max-width: 640px) {
   .course-stats {
     width: 100%;

@@ -292,6 +292,54 @@ button {
   }
 }
 
+/* ---------- Badges (shared) ---------- */
+.badge-chip {
+  --tone: var(--primary);
+  --tone-soft: var(--surface-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: var(--bd) solid var(--ink);
+  background: var(--tone-soft);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+.badge-chip .icon {
+  color: var(--tone);
+}
+.badge-chip.locked {
+  opacity: 0.45;
+  box-shadow: none;
+  background: var(--surface-2);
+  filter: grayscale(1);
+}
+.badge-chip.locked .icon {
+  color: var(--ink-faint);
+}
+
+.tone-yellow {
+  --tone: #d8a200;
+  --tone-soft: var(--yellow-soft);
+}
+.tone-cyan {
+  --tone: #0bb6d6;
+  --tone-soft: var(--cyan-soft);
+}
+.tone-lime {
+  --tone: var(--lime);
+  --tone-soft: var(--lime-soft);
+}
+.tone-violet {
+  --tone: var(--primary);
+  --tone-soft: #e7e0ff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.001ms !important;

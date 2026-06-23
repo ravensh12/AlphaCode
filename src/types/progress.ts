@@ -1,6 +1,17 @@
-import type { ConceptId, VariableValue } from './lesson'
+import type { ConceptId, LessonStep, VariableValue } from './lesson'
 
 export type LessonStatus = 'notStarted' | 'inProgress' | 'completed'
+
+/**
+ * Snapshot of the most recent full playthrough, so the learner can review what
+ * they got right/wrong and redo missed questions without replaying everything.
+ * Stores full steps (questions are procedurally generated, so we keep them).
+ */
+export type LessonReview = {
+  steps: LessonStep[]
+  missedStepIds: string[]
+  recordedAt: string
+}
 
 export type LessonProgress = {
   lessonId: string
@@ -17,6 +28,8 @@ export type LessonProgress = {
   unlockNextLesson: boolean
   completedAt?: string
   updatedAt?: string
+  /** Most recent full-playthrough breakdown, for the Review screen. */
+  lastReview?: LessonReview
 }
 
 export type ConceptMastery = {
@@ -51,4 +64,6 @@ export type ProgressState = {
   experienceLevel?: ExperienceLevel
   streak: StreakState
   lessons: Record<string, LessonProgress>
+  /** Distinct badge ids the user has earned across all lessons. */
+  earnedBadges: string[]
 }

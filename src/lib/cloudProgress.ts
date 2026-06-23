@@ -4,6 +4,7 @@ import type {
   AttemptRecord,
   ExperienceLevel,
   LessonProgress,
+  LessonReview,
   LessonStatus,
   ProgressState,
   StreakState,
@@ -24,7 +25,12 @@ type LessonProgressRow = {
   unlock_next_lesson: boolean
   completed_at: string | null
   updated_at: string | null
+  last_review?: LessonReview | null
 }
+
+/** Columns guaranteed to exist in the original schema. */
+const CORE_LESSON_COLUMNS =
+  'lesson_id, status, current_step_index, completed_step_ids, correct_count, wrong_count, total_attempts, correct_first_try, accuracy, mastery_score, unlock_next_lesson, completed_at, updated_at'
 
 function client() {
   if (!supabase) throw new Error('Supabase is not configured')
@@ -48,6 +54,7 @@ function rowToLessonProgress(row: LessonProgressRow): LessonProgress {
     unlockNextLesson: row.unlock_next_lesson,
     completedAt: row.completed_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
+    lastReview: row.last_review ?? undefined,
   }
 }
 
@@ -69,22 +76,23 @@ export async function ensureProfile(user: User): Promise<void> {
 export async function loadCloud(userId: string): Promise<ProgressState> {
   const sb = client()
 
-  const [{ data: profile }, { data: rows }] = await Promise.all([
-    sb
-      .from('profiles')
-      .select('experience_level, streak_current, streak_longest, last_activity_date')
-      .eq('id', userId)
-      .maybeSingle(),
-    sb
-      .from('lesson_progress')
-      .select(
-        'lesson_id, status, current_step_index, completed_step_ids, correct_count, wrong_count, total_attempts, correct_first_try, accuracy, mastery_score, unlock_next_lesson, completed_at, updated_at',
-      )
-      .eq('user_id', userId),
-  ])
+  // Core load — must succeed. Errors here trigger a local fallback upstream.
+  const profileRes = await sb
+    .from('profiles')
+    .select('experience_level, streak_current, streak_longest, last_activity_date')
+    .eq('id', userId)
+    .maybeSingle()
+  if (profileRes.error) throw profileRes.error
+
+  const rowsRes = await sb
+    .from('lesson_progress')
+    .select(CORE_LESSON_COLUMNS)
+    .eq('user_id', userId)
+  if (rowsRes.error) throw rowsRes.error
 
   const state: ProgressState = emptyState()
 
+  const profile = profileRes.data
   if (profile) {
     state.experienceLevel =
       (profile.experience_level as ExperienceLevel | null) ?? undefined
@@ -95,8 +103,38 @@ export async function loadCloud(userId: string): Promise<ProgressState> {
     }
   }
 
-  for (const row of (rows ?? []) as LessonProgressRow[]) {
+  for (const row of (rowsRes.data ?? []) as LessonProgressRow[]) {
     state.lessons[row.lesson_id] = rowToLessonProgress(row)
+  }
+
+  // Best-effort extras — these columns may not exist on older databases, so a
+  // failure here must never break core progress loading.
+  try {
+    const { data, error } = await sb
+      .from('profiles')
+      .select('badges')
+      .eq('id', userId)
+      .maybeSingle()
+    if (!error && data && Array.isArray(data.badges)) {
+      state.earnedBadges = data.badges
+    }
+  } catch {
+    /* badges column not present yet */
+  }
+
+  try {
+    const { data, error } = await sb
+      .from('lesson_progress')
+      .select('lesson_id, last_review')
+      .eq('user_id', userId)
+    if (!error && data) {
+      for (const r of data as { lesson_id: string; last_review: LessonReview | null }[]) {
+        const lp = state.lessons[r.lesson_id]
+        if (lp && r.last_review) lp.lastReview = r.last_review
+      }
+    }
+  } catch {
+    /* last_review column not present yet */
   }
 
   return state
@@ -127,11 +165,22 @@ export async function saveStreakCloud(
     .eq('id', userId)
 }
 
+export async function saveBadgesCloud(
+  userId: string,
+  badges: string[],
+): Promise<void> {
+  await client()
+    .from('profiles')
+    .update({ badges, last_active_at: new Date().toISOString() })
+    .eq('id', userId)
+}
+
 export async function upsertLessonCloud(
   userId: string,
   p: LessonProgress,
 ): Promise<void> {
-  await client()
+  // Core write — must succeed for progress to persist.
+  const { error } = await client()
     .from('lesson_progress')
     .upsert(
       {
@@ -152,6 +201,17 @@ export async function upsertLessonCloud(
       },
       { onConflict: 'user_id,lesson_id' },
     )
+  if (error) throw error
+
+  // Best-effort: store the review snapshot if the column exists. A missing
+  // column returns an error object (not a throw), which we intentionally ignore.
+  if (p.lastReview) {
+    await client()
+      .from('lesson_progress')
+      .update({ last_review: p.lastReview })
+      .eq('user_id', userId)
+      .eq('lesson_id', p.lessonId)
+  }
 }
 
 export async function deleteLessonCloud(
