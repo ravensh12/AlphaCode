@@ -1,25 +1,65 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
 import { generateLesson, hasLesson } from '../content/lessons'
-import { LESSON_CATALOG } from '../content/catalog'
-import { getBadge } from '../content/badges'
+import { LESSON_CATALOG, MASTERY_UNLOCK_THRESHOLD } from '../content/catalog'
+import { emptyBadgeCounts, getBadge } from '../content/badges'
 import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
-import { useLessonEngine } from '../hooks/useLessonEngine'
-import type { Lesson, LessonStep } from '../types/lesson'
+import { canGuestAccessLesson, canGuestAccessSection } from '../lib/guestAccess'
+import { useLessonEngine, type LessonResult } from '../hooks/useLessonEngine'
+import { diagramChangedIndices } from '../lib/diagramDiff'
+import {
+  canAutoplayStep,
+  slideAutoplayMs,
+  useLessonAutoplay,
+} from '../hooks/useLessonAutoplay'
+import { useDiagramSequence } from '../hooks/useDiagramSequence'
+import type { Lesson, LessonStep, DiagramSpec } from '../types/lesson'
 import type { AttemptRecord, LessonProgress } from '../types/progress'
 import { CodePanel } from '../components/lesson/CodePanel'
 import { VariableBoxes } from '../components/lesson/VariableBoxes'
-import { AnswerTiles } from '../components/lesson/AnswerTiles'
+import { AnswerTiles, AnswerChoiceSlot } from '../components/lesson/AnswerTiles'
 import { FeedbackPanel } from '../components/lesson/FeedbackPanel'
+import { HintPanel } from '../components/lesson/HintPanel'
 import { LevelTracker } from '../components/lesson/LevelTracker'
+import { hasEverMastered, hasPendingMissedReview, markUnlockAchieved, meetsUnlockThreshold, applyReviewClear } from '../lib/mastery'
+import {
+  type CourseSection,
+  interactiveStepsForSection,
+  isLearnComplete,
+  sectionResumeIndex,
+  sectionResumeFrameIndex,
+  reviewResumeFrameIndex,
+  freshLessonProgress,
+  stepsForSection,
+} from '../lib/lessonSections'
+import { VisualDiagram } from '../components/lesson/VisualDiagram'
 import { CompletionView } from '../components/lesson/CompletionView'
+import { stepToReview } from '../components/lesson/ReviewBreakdown'
 import { Loader } from '../components/Loader'
-import { IconArrowLeft } from '../components/icons'
+import { IconArrowLeft, IconArrowRight } from '../components/icons'
 import './LessonPage.css'
 
 const TILE_COUNT = 8
+
+function savedQuizResult(progress: LessonProgress): LessonResult | null {
+  if (!progress.lastReview) return null
+  return {
+    accuracy: progress.accuracy,
+    masteryScore: progress.masteryScore,
+    totalAttempts: progress.totalAttempts,
+    correctFirstTry: progress.correctFirstTry,
+    unlockNext: meetsUnlockThreshold(progress.masteryScore),
+    badgeCounts: progress.lastQuizBadgeCounts ?? emptyBadgeCounts(),
+    badges: [],
+    stepReviews: progress.lastReview.steps
+      .filter((s) => s.targetVariables.length > 0)
+      .map((s) =>
+        stepToReview(s, progress.lastReview!.missedStepIds.includes(s.id)),
+      ),
+  }
+}
 
 function shuffleInPlace<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -29,13 +69,14 @@ function shuffleInPlace<T>(arr: T[]): T[] {
   return arr
 }
 
-function genTiles(step: LessonStep): number[] {
+function genTiles(step: LessonStep): (number | string)[] {
+  if (step.answerTiles?.length) return step.answerTiles
+
   const corrects = step.targetVariables
     .map((v) => step.expectedState[v])
     .filter((v): v is number => typeof v === 'number')
   const correctSet = new Set<number>(corrects)
 
-  // Build distractors that never collide with a correct answer.
   const distractors = new Set<number>()
   for (const n of corrects) {
     for (const d of [n - 1, n + 1, n + 2, n - 2, n + 3, n - 3]) {
@@ -50,7 +91,6 @@ function genTiles(step: LessonStep): number[] {
     k++
   }
 
-  // Always include every correct answer, then fill up with distractors.
   const tiles = [...correctSet]
   for (const d of shuffleInPlace([...distractors])) {
     if (tiles.length >= TILE_COUNT) break
@@ -59,11 +99,17 @@ function genTiles(step: LessonStep): number[] {
   return shuffleInPlace(tiles)
 }
 
+function parseSection(raw: string | undefined): CourseSection | null {
+  if (raw === 'learn' || raw === 'quiz') return raw
+  return null
+}
+
 export function LessonPage() {
-  const { lessonId } = useParams()
+  const { lessonId, section: sectionParam } = useParams()
   const navigate = useNavigate()
   const { ready, lessons, saveLessonProgress, logAttempt, streak, isLessonUnlocked } =
     useProgress()
+  const { isGuest } = useAuth()
 
   if (!lessonId || !hasLesson(lessonId)) {
     return (
@@ -74,14 +120,20 @@ export function LessonPage() {
     )
   }
 
+  const section = parseSection(sectionParam)
+  if (!section) {
+    return <Navigate to={`/lesson/${lessonId}/learn`} replace />
+  }
+
   if (!ready) {
     return <Loader label="Loading lesson" />
   }
 
+  const baseLesson = generateLesson(lessonId)!
+  const progress = lessons[lessonId]
   const catalogIndex = LESSON_CATALOG.findIndex((l) => l.id === lessonId)
   const summary = catalogIndex >= 0 ? LESSON_CATALOG[catalogIndex] : null
 
-  // Guard direct-URL access to a lesson that isn't unlocked yet.
   if (summary && !isLessonUnlocked(summary)) {
     return (
       <LessonNotice
@@ -91,26 +143,70 @@ export function LessonPage() {
     )
   }
 
+  if (isGuest && !canGuestAccessLesson(lessonId)) {
+    return (
+      <LessonNotice
+        title="Sign in to continue"
+        message="Guest preview covers the first interactive lesson only. Create a free account to unlock the quiz and the rest of the course."
+        action={{ label: 'Sign in', to: '/auth' }}
+      />
+    )
+  }
+
+  if (isGuest && !canGuestAccessSection(lessonId, section)) {
+    return (
+      <LessonNotice
+        title="Sign in to unlock the quiz"
+        message="You finished the preview lesson! Sign in to take the quiz, save progress, and unlock the full LeetCode prep course."
+        action={{ label: 'Sign in', to: '/auth' }}
+      />
+    )
+  }
+
+  if (section === 'quiz' && !isLearnComplete(progress, baseLesson)) {
+    return (
+      <LessonNotice
+        title="Finish the lesson first"
+        message="Complete the interactive lesson section before you take the quiz."
+        action={{ label: 'Go to lesson', to: `/lesson/${lessonId}/learn` }}
+      />
+    )
+  }
+
   const nextSummary = LESSON_CATALOG[catalogIndex + 1] ?? null
   const isLastLesson = catalogIndex === LESSON_CATALOG.length - 1
 
   return (
     <LessonRunner
-      key={lessonId}
+      key={`${lessonId}:${section}`}
       lessonId={lessonId}
-      initial={lessons[lessonId]}
+      section={section}
+      initial={progress}
       onSave={saveLessonProgress}
       onAttempt={logAttempt}
       streakCurrent={streak.current}
       nextLessonTitle={nextSummary?.title ?? null}
       isLastLesson={isLastLesson}
-      onNext={nextSummary ? () => navigate(`/lesson/${nextSummary.id}`) : undefined}
+      onNext={
+        nextSummary
+          ? () => navigate(`/lesson/${nextSummary.id}/learn`)
+          : undefined
+      }
+      onTakeQuiz={() => navigate(`/lesson/${lessonId}/quiz`)}
       onExit={() => navigate('/home')}
     />
   )
 }
 
-export function LessonNotice({ title, message }: { title: string; message: string }) {
+export function LessonNotice({
+  title,
+  message,
+  action,
+}: {
+  title: string
+  message: string
+  action?: { label: string; to: string }
+}) {
   return (
     <div className="page">
       <AppHeader />
@@ -118,9 +214,15 @@ export function LessonNotice({ title, message }: { title: string; message: strin
         <div className="card lp-missing-card">
           <h1>{title}</h1>
           <p className="muted">{message}</p>
-          <Link className="btn" to="/home">
-            Back to course
-          </Link>
+          {action ? (
+            <Link className="btn" to={action.to}>
+              {action.label}
+            </Link>
+          ) : (
+            <Link className="btn" to="/home">
+              Back to course
+            </Link>
+          )}
         </div>
       </main>
     </div>
@@ -129,6 +231,7 @@ export function LessonNotice({ title, message }: { title: string; message: strin
 
 function LessonRunner({
   lessonId,
+  section,
   initial,
   onSave,
   onAttempt,
@@ -136,9 +239,11 @@ function LessonRunner({
   nextLessonTitle,
   isLastLesson,
   onNext,
+  onTakeQuiz,
   onExit,
 }: {
   lessonId: string
+  section: CourseSection
   initial?: LessonProgress
   onSave: (p: LessonProgress) => void
   onAttempt: (a: AttemptRecord) => void
@@ -146,152 +251,195 @@ function LessonRunner({
   nextLessonTitle: string | null
   isLastLesson: boolean
   onNext?: () => void
+  onTakeQuiz: () => void
   onExit: () => void
 }) {
-  // `round` bumps on replay so a brand-new randomized lesson is built.
+  const { isGuest } = useAuth()
+  const { getLessonProgress, restartQuizProgress } = useProgress()
+  const liveProgress = getLessonProgress(lessonId) ?? initial
   const [round, setRound] = useState(0)
-  // When set, we re-run only these step ids (a "redo missed" review pass) using
-  // the SAME generated questions from the current round.
-  const [reviewIds, setReviewIds] = useState<string[] | null>(null)
+  const [reviewRound, setReviewRound] = useState(0)
+  const [reviewFinished, setReviewFinished] = useState(false)
+  const [reviewActive, setReviewActive] = useState(
+    () => section === 'quiz' && !!initial && hasPendingMissedReview(initial),
+  )
+  const [forceFullQuiz, setForceFullQuiz] = useState(false)
+  const quizResultRef = useRef<LessonResult | null>(null)
+
+  const missedStepIds = liveProgress?.lastReview?.missedStepIds ?? []
+  const isReview =
+    section === 'quiz' &&
+    reviewActive &&
+    !forceFullQuiz &&
+    missedStepIds.length > 0
 
   const baseLesson = useMemo(() => {
-    void round // re-generate fresh questions whenever the round changes
+    void round
     return generateLesson(lessonId)!
   }, [lessonId, round])
 
+  const sectionSteps = useMemo(
+    () => stepsForSection(baseLesson.steps, section),
+    [baseLesson, section],
+  )
+
   const lesson = useMemo(() => {
-    if (!reviewIds) return baseLesson
-    const steps = baseLesson.steps.filter(
-      (s) => s.type !== 'intro' && reviewIds.includes(s.id),
-    )
-    return { ...baseLesson, steps }
-  }, [baseLesson, reviewIds])
+    if (!isReview) {
+      return { ...baseLesson, steps: sectionSteps }
+    }
+    const idSet = new Set(missedStepIds)
+    return {
+      ...baseLesson,
+      steps: sectionSteps.filter((s) => idSet.has(s.id)),
+    }
+  }, [baseLesson, sectionSteps, isReview, missedStepIds.join('|')])
 
   const replay = useCallback(() => {
-    setReviewIds(null)
+    if (section === 'quiz') {
+      restartQuizProgress(lessonId)
+    }
+    quizResultRef.current = null
+    setReviewActive(false)
+    setForceFullQuiz(true)
+    setReviewRound(0)
+    setReviewFinished(false)
     setRound((r) => r + 1)
-  }, [])
-  const redoMissed = useCallback((ids: string[]) => {
-    if (ids.length) setReviewIds(ids)
-  }, [])
+  }, [section, lessonId, restartQuizProgress])
 
-  const isReview = !!reviewIds
-
-  return (
-    <LessonRound
-      key={`${round}:${reviewIds?.join('|') ?? 'all'}`}
-      lesson={lesson}
-      isReview={isReview}
-      // Only resume saved progress on a fresh first round; replays/reviews start clean.
-      initial={round === 0 && !isReview ? initial : undefined}
-      onSave={onSave}
-      onAttempt={onAttempt}
-      streakCurrent={streakCurrent}
-      nextLessonTitle={nextLessonTitle}
-      isLastLesson={isLastLesson}
-      onNext={onNext}
-      onExit={onExit}
-      onReplay={replay}
-      onRedoMissed={redoMissed}
-    />
-  )
-}
-
-export function LessonRound({
-  lesson,
-  isReview,
-  initial,
-  onSave,
-  onAttempt,
-  streakCurrent,
-  nextLessonTitle,
-  isLastLesson,
-  onNext,
-  onExit,
-  onReplay,
-  onRedoMissed,
-}: {
-  lesson: Lesson
-  isReview: boolean
-  initial?: LessonProgress
-  onSave: (p: LessonProgress) => void
-  onAttempt: (a: AttemptRecord) => void
-  streakCurrent: number
-  nextLessonTitle: string | null
-  isLastLesson: boolean
-  onNext?: () => void
-  onExit: () => void
-  onReplay: () => void
-  onRedoMissed: (ids: string[]) => void
-}) {
-  // Guests are in "preview" mode: each visit/refresh starts fresh instead of
-  // resuming a half-finished level. Accounts keep their saved place.
-  const { isGuest } = useAuth()
-  const { awardBadges, saveLessonReview } = useProgress()
-
-  function handleSave(p: LessonProgress) {
-    // Never downgrade a completed lesson back to in-progress.
-    if (initial?.status === 'completed' && p.status !== 'completed') return
-    onSave(p)
-  }
-
-  const engine = useLessonEngine(lesson, {
-    initialProgress: initial,
-    // A review pass starts fresh; it still saves, but progress can only improve
-    // (the merge in ProgressContext never downgrades a completed lesson).
-    resume: !isGuest && !isReview,
-    onSave: handleSave,
-    onAttempt,
-  })
-
-  // Persist badges + the review snapshot once, when the lesson completes.
-  const completionSaved = useRef(false)
-  useEffect(() => {
-    if (engine.isComplete && engine.result && !completionSaved.current) {
-      completionSaved.current = true
-      awardBadges(engine.result.badges)
-      // Only a full playthrough records the review snapshot (not redo passes).
-      if (!isReview) {
-        const interactive = lesson.steps.filter((s) => s.type !== 'intro')
-        const missedStepIds = engine.result.stepReviews
-          .filter((s) => s.missed)
-          .map((s) => s.id)
-        saveLessonReview(lesson.id, {
-          steps: interactive,
-          missedStepIds,
-          recordedAt: new Date().toISOString(),
+  const redoMissed = useCallback(
+    (ids: string[]) => {
+      if (!ids.length) return
+      const base = getLessonProgress(lessonId) ?? initial
+      if (base?.lastReview) {
+        onSave({
+          ...base,
+          lastReview: {
+            ...base.lastReview,
+            reviewStepIndex: 0,
+            reviewFrameIndex: 0,
+          },
+          updatedAt: new Date().toISOString(),
         })
       }
+      setReviewActive(true)
+      setForceFullQuiz(false)
+      setReviewFinished(false)
+      setReviewRound((r) => r + 1)
+    },
+    [lessonId, getLessonProgress, initial, onSave],
+  )
+
+  const onReviewMasteryReached = useCallback(() => {
+    setReviewActive(false)
+    setReviewFinished(true)
+  }, [])
+
+  useEffect(() => {
+    if (
+      section === 'quiz' &&
+      initial &&
+      hasPendingMissedReview(initial) &&
+      !quizResultRef.current
+    ) {
+      const saved = savedQuizResult(initial)
+      if (saved) quizResultRef.current = saved
     }
-  }, [isReview, lesson, engine.isComplete, engine.result, awardBadges, saveLessonReview])
+  }, [section, initial])
 
-  // step object reference is stable per step, so tiles re-roll only on step change
-  const tiles = useMemo(() => genTiles(engine.step), [engine.step])
+  if (reviewFinished) {
+    const saved = getLessonProgress(lessonId) ?? initial
+    const baseResult =
+      quizResultRef.current ?? (saved ? savedQuizResult(saved) : null)
+    if (saved) {
+      const displayResult: LessonResult = baseResult ?? {
+        accuracy: saved.accuracy,
+        masteryScore: saved.masteryScore,
+        totalAttempts: saved.totalAttempts,
+        correctFirstTry: saved.correctFirstTry,
+        unlockNext: meetsUnlockThreshold(saved.masteryScore),
+        badgeCounts: saved.lastQuizBadgeCounts ?? emptyBadgeCounts(),
+        badges: [],
+        stepReviews: [],
+      }
+      return (
+        <div className="page">
+          <AppHeader />
+          <main className="container lp lp-quiz">
+            <CompletionView
+              result={{
+                ...displayResult,
+                masteryScore: saved.masteryScore,
+                unlockNext: meetsUnlockThreshold(saved.masteryScore),
+              }}
+              streakCurrent={streakCurrent}
+              lessonId={lessonId}
+              lessonTitle={baseLesson.title}
+              nextLessonTitle={nextLessonTitle}
+              isLastLesson={isLastLesson}
+              isGuest={isGuest}
+              reviewCleared
+              badgeCounts={displayResult.badgeCounts}
+              onNext={onNext}
+              onReturn={onExit}
+              onReplay={replay}
+            />
+          </main>
+        </div>
+      )
+    }
+  }
 
-  if (engine.isComplete && engine.result) {
+  const showMasteredSummary =
+    section === 'quiz' &&
+    !forceFullQuiz &&
+    !reviewActive &&
+    !!liveProgress &&
+    hasEverMastered(liveProgress) &&
+    meetsUnlockThreshold(liveProgress.masteryScore) &&
+    !hasPendingMissedReview(liveProgress)
+
+  if (showMasteredSummary) {
+    const baseResult =
+      quizResultRef.current ?? savedQuizResult(liveProgress) ?? null
+    const displayResult: LessonResult = baseResult ?? {
+      accuracy: liveProgress.accuracy,
+      masteryScore: liveProgress.masteryScore,
+      totalAttempts: liveProgress.totalAttempts,
+      correctFirstTry: liveProgress.correctFirstTry,
+      unlockNext: true,
+      badgeCounts: liveProgress.lastQuizBadgeCounts ?? emptyBadgeCounts(),
+      badges: [],
+      stepReviews: liveProgress.lastReview
+        ? liveProgress.lastReview.steps
+            .filter((s) => s.targetVariables.length > 0)
+            .map((s) =>
+              stepToReview(
+                s,
+                liveProgress.lastReview!.missedStepIds.includes(s.id),
+              ),
+            )
+        : [],
+    }
     return (
       <div className="page">
         <AppHeader />
-        <main className="container lp">
+        <main className="container lp lp-quiz">
           <CompletionView
-            result={engine.result}
+            result={{
+              ...displayResult,
+              masteryScore: liveProgress.masteryScore,
+              unlockNext: true,
+            }}
             streakCurrent={streakCurrent}
-            lessonTitle={lesson.title}
+            lessonId={lessonId}
+            lessonTitle={baseLesson.title}
             nextLessonTitle={nextLessonTitle}
             isLastLesson={isLastLesson}
             isGuest={isGuest}
-            isReview={isReview}
-            badges={engine.result.badges}
+            badgeCounts={displayResult.badgeCounts}
             onNext={onNext}
             onReturn={onExit}
-            onReplay={onReplay}
-            onRedoMissed={() =>
-              onRedoMissed(
-                engine.result!.stepReviews
-                  .filter((s) => s.missed)
-                  .map((s) => s.id),
-              )
-            }
+            onReplay={replay}
           />
         </main>
       </div>
@@ -299,36 +447,680 @@ export function LessonRound({
   }
 
   return (
+    <LessonRound
+      key={`${round}:${reviewRound}:${isReview ? missedStepIds.join('|') : 'all'}`}
+      lesson={lesson}
+      section={section}
+      isReview={isReview}
+      initial={isReview ? liveProgress : round === 0 && !isReview ? initial : undefined}
+      quizResultRef={quizResultRef}
+      onSave={onSave}
+      onAttempt={onAttempt}
+      streakCurrent={streakCurrent}
+      nextLessonTitle={nextLessonTitle}
+      isLastLesson={isLastLesson}
+      onNext={onNext}
+      onTakeQuiz={onTakeQuiz}
+      onExit={onExit}
+      onReplay={replay}
+      onRedoMissed={redoMissed}
+      onReviewMasteryReached={onReviewMasteryReached}
+    />
+  )
+}
+
+export function LessonRound({
+  lesson,
+  section,
+  isReview,
+  initial,
+  quizResultRef,
+  onSave,
+  onAttempt,
+  streakCurrent,
+  nextLessonTitle,
+  isLastLesson,
+  onNext,
+  onTakeQuiz,
+  onExit,
+  onReplay,
+  onRedoMissed,
+  onReviewMasteryReached,
+}: {
+  lesson: Lesson
+  section: CourseSection
+  isReview: boolean
+  initial?: LessonProgress
+  quizResultRef: MutableRefObject<LessonResult | null>
+  onSave: (p: LessonProgress) => void
+  onAttempt: (a: AttemptRecord) => void
+  streakCurrent: number
+  nextLessonTitle: string | null
+  isLastLesson: boolean
+  onNext?: () => void
+  onTakeQuiz: () => void
+  onExit: () => void
+  onReplay: () => void
+  onRedoMissed: (ids: string[]) => void
+  onReviewMasteryReached: () => void
+}) {
+  const { isGuest } = useAuth()
+  const { getLessonProgress } = useProgress()
+  const fullLesson = useMemo(() => generateLesson(lesson.id)!, [lesson.id])
+  const savedProgress = getLessonProgress(lesson.id) ?? initial
+  const resumeIndex = sectionResumeIndex(
+    savedProgress ?? initial,
+    section,
+    fullLesson,
+  )
+  const [liveMastery, setLiveMastery] = useState<number | null>(null)
+  const engineRef = useRef<ReturnType<typeof useLessonEngine> | null>(null)
+
+  const displayMastery =
+    liveMastery ?? savedProgress?.masteryScore ?? 0
+  const remainingMissed =
+    savedProgress?.lastReview?.missedStepIds.length ?? 0
+
+  const persistReviewProgress = useCallback(
+    (
+      stepIndex: number,
+      frameIndex: number,
+      reviewPatch?: Partial<NonNullable<LessonProgress['lastReview']>>,
+      masteryScore?: number,
+    ) => {
+      const base = getLessonProgress(lesson.id) ?? initial
+      if (!base?.lastReview) return
+
+      const score = masteryScore ?? base.masteryScore
+      const lastReview = {
+        ...base.lastReview,
+        ...reviewPatch,
+        reviewStepIndex: reviewPatch?.reviewStepIndex ?? stepIndex,
+        reviewFrameIndex: reviewPatch?.reviewFrameIndex ?? frameIndex,
+      }
+
+      onSave({
+        ...base,
+        masteryScore: score,
+        unlockNextLesson: markUnlockAchieved(base, score),
+        lastReview,
+        updatedAt: new Date().toISOString(),
+      })
+    },
+    [getLessonProgress, lesson.id, initial, onSave],
+  )
+
+  const handleReviewStepCleared = useCallback(
+    (stepId: string) => {
+      const progress = getLessonProgress(lesson.id) ?? initial
+      if (!progress?.lastReview) return
+      const currentMissed = progress.lastReview.missedStepIds
+      if (!currentMissed.includes(stepId)) return
+
+      const remaining = currentMissed.filter((id) => id !== stepId)
+      const newMastery = applyReviewClear(
+        progress.masteryScore,
+        currentMissed.length,
+      )
+
+      const currentStepIndex =
+        engineRef.current?.stepIndex ??
+        progress.lastReview.reviewStepIndex ??
+        0
+      const nextReviewStepIndex =
+        remaining.length > 0
+          ? Math.min(currentStepIndex, remaining.length - 1)
+          : 0
+
+      persistReviewProgress(
+        nextReviewStepIndex,
+        0,
+        {
+          missedStepIds: remaining,
+          recordedAt: new Date().toISOString(),
+          reviewStepIndex: nextReviewStepIndex,
+          reviewFrameIndex: 0,
+        },
+        newMastery,
+      )
+
+      setLiveMastery(newMastery)
+
+      if (meetsUnlockThreshold(newMastery)) {
+        onReviewMasteryReached()
+      }
+    },
+    [
+      getLessonProgress,
+      lesson.id,
+      initial,
+      persistReviewProgress,
+      onReviewMasteryReached,
+    ],
+  )
+
+  const sectionInitial = useMemo((): LessonProgress | undefined => {
+    const base = isReview ? savedProgress : (savedProgress ?? initial)
+    if (!base) return undefined
+    if (isReview && base.lastReview) {
+      const step = Math.min(
+        base.lastReview.reviewStepIndex ?? 0,
+        Math.max(0, lesson.steps.length - 1),
+      )
+      return { ...base, currentStepIndex: step }
+    }
+    if (resumeIndex == null) return base
+    return { ...base, currentStepIndex: resumeIndex }
+  }, [isReview, savedProgress, initial, resumeIndex, lesson.steps.length])
+
+  function handleSave(p: LessonProgress) {
+    if (
+      section === 'quiz' &&
+      initial?.status === 'completed' &&
+      p.status !== 'completed' &&
+      !isReview
+    ) {
+      return
+    }
+
+    if (isReview) {
+      persistReviewProgress(
+        p.quizStepIndex ?? p.currentStepIndex ?? 0,
+        p.quizFrameIndex ?? 0,
+      )
+      return
+    }
+
+    const teachInteractive = interactiveStepsForSection(fullLesson.steps, 'learn')
+    const atLastTeachSlide = p.currentStepIndex >= lesson.steps.length - 1
+    const interactiveDone =
+      teachInteractive.length === 0 ||
+      teachInteractive.every(
+        (s) =>
+          p.completedStepIds.includes(s.id) ||
+          (initial?.completedStepIds ?? []).includes(s.id),
+      )
+    const markedLearnComplete =
+      section === 'learn' && atLastTeachSlide && interactiveDone
+
+    onSave({
+      ...p,
+      updatedAt: new Date().toISOString(),
+      ...(section === 'learn' && initial
+        ? {
+            masteryScore: initial.masteryScore ?? 0,
+            correctCount: initial.correctCount ?? 0,
+            wrongCount: initial.wrongCount ?? 0,
+            totalAttempts: initial.totalAttempts ?? 0,
+            correctFirstTry: initial.correctFirstTry ?? 0,
+            accuracy: initial.accuracy ?? 0,
+            unlockNextLesson: initial.unlockNextLesson ?? false,
+            lastReview: initial.lastReview,
+            completedAt: initial.completedAt,
+            status: initial.status === 'completed' ? 'completed' : 'inProgress',
+            quizStepIndex: initial.quizStepIndex,
+            quizFrameIndex: initial.quizFrameIndex,
+          }
+        : {}),
+      learnCompleted:
+        p.learnCompleted ||
+        initial?.learnCompleted ||
+        markedLearnComplete ||
+        (section === 'quiz' ? true : undefined),
+      learnStepIndex:
+        section === 'learn'
+          ? Math.max(
+              initial?.learnStepIndex ?? 0,
+              p.learnStepIndex ?? 0,
+              p.currentStepIndex,
+            )
+          : initial?.learnStepIndex,
+      learnFrameIndex:
+        section === 'learn'
+          ? (p.learnStepIndex ?? p.currentStepIndex) !== (initial?.learnStepIndex ?? -1)
+            ? (p.learnFrameIndex ?? 0)
+            : Math.max(initial?.learnFrameIndex ?? 0, p.learnFrameIndex ?? 0)
+          : initial?.learnFrameIndex,
+      quizStepIndex:
+        section === 'quiz'
+          ? Math.max(
+              initial?.quizStepIndex ?? 0,
+              p.quizStepIndex ?? p.currentStepIndex ?? 0,
+            )
+          : initial?.quizStepIndex,
+      quizFrameIndex:
+        section === 'quiz'
+          ? (p.quizStepIndex ?? p.currentStepIndex) !== (initial?.quizStepIndex ?? -1)
+            ? (p.quizFrameIndex ?? 0)
+            : Math.max(initial?.quizFrameIndex ?? 0, p.quizFrameIndex ?? 0)
+          : initial?.quizFrameIndex,
+      ...(section === 'quiz'
+        ? {
+            unlockNextLesson: markUnlockAchieved(
+              {
+                lessonId: lesson.id,
+                unlockNextLesson:
+                  initial?.unlockNextLesson ??
+                  savedProgress?.unlockNextLesson ??
+                  false,
+                masteryScore: p.masteryScore,
+              } as LessonProgress,
+              p.masteryScore,
+            ),
+          }
+        : {}),
+    })
+  }
+
+  const resumeFrameIndex = isReview
+    ? reviewResumeFrameIndex(savedProgress)
+    : sectionResumeFrameIndex(savedProgress ?? initial, section)
+
+  const engine = useLessonEngine(lesson, {
+    section,
+    initialProgress: sectionInitial,
+    initialFrameIndex:
+      !isGuest && (isReview || resumeIndex != null) ? resumeFrameIndex : 0,
+    resume: !isGuest && (isReview || resumeIndex != null),
+    completeAsLesson: section === 'quiz' && !isReview,
+    reviewMode: isReview
+      ? { onStepCleared: handleReviewStepCleared }
+      : undefined,
+    onSave: handleSave,
+    onAttempt,
+  })
+
+  engineRef.current = engine
+
+  const flushSectionProgress = useCallback(() => {
+    const eng = engineRef.current
+    if (!eng || eng.isComplete || isReview) return
+    const base = getLessonProgress(lesson.id) ?? initial ?? freshLessonProgress(lesson.id, section)
+    const snap = eng.progressSnapshot
+
+    handleSave({
+      ...base,
+      status: base.status === 'completed' ? 'completed' : 'inProgress',
+      currentStepIndex: eng.stepIndex,
+      completedStepIds: [
+        ...new Set([...(base.completedStepIds ?? []), ...snap.completedStepIds]),
+      ],
+      correctCount: snap.correctCount,
+      wrongCount: snap.wrongCount,
+      totalAttempts: snap.totalAttempts,
+      correctFirstTry: snap.correctFirstTry,
+      accuracy: snap.accuracy,
+      masteryScore: snap.masteryScore,
+      unlockNextLesson: base.unlockNextLesson ?? false,
+      ...(section === 'learn'
+        ? {
+            learnStepIndex: Math.max(base.learnStepIndex ?? 0, eng.stepIndex),
+            learnFrameIndex: eng.frameIndex,
+          }
+        : {
+            quizStepIndex: Math.max(base.quizStepIndex ?? 0, eng.stepIndex),
+            quizFrameIndex: eng.frameIndex,
+          }),
+      updatedAt: new Date().toISOString(),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSave reads latest progress via getLessonProgress.
+  }, [isReview, getLessonProgress, lesson.id, section])
+
+  const flushRef = useRef(flushSectionProgress)
+  flushRef.current = flushSectionProgress
+  const quizMarkedRef = useRef(false)
+
+  useEffect(() => {
+    if (quizMarkedRef.current || isGuest || isReview || section !== 'quiz') return
+    quizMarkedRef.current = true
+    const base = getLessonProgress(lesson.id) ?? initial
+    if (!base || base.status === 'completed' || base.quizStepIndex != null) return
+    handleSave({
+      ...base,
+      status: 'inProgress',
+      learnCompleted: true,
+      quizStepIndex: 0,
+      quizFrameIndex: 0,
+      currentStepIndex: 0,
+      updatedAt: new Date().toISOString(),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, isReview, isGuest, lesson.id])
+
+  useEffect(() => {
+    if (isGuest || isReview) return
+    const base = getLessonProgress(lesson.id) ?? initial
+    if (base) return
+    handleSave(freshLessonProgress(lesson.id, section))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGuest, isReview, lesson.id, section])
+
+  useEffect(() => {
+    const flush = () => flushRef.current()
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', flush)
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      window.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', flush)
+      window.removeEventListener('beforeunload', flush)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isReview || engine.isComplete) return
+    flushRef.current()
+  }, [engine.stepIndex, engine.frameIndex, isReview, engine.isComplete])
+
+  useEffect(() => {
+    return () => {
+      flushRef.current()
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (!isReview || !engineRef.current) return
+      const eng = engineRef.current
+      persistReviewProgress(eng.stepIndex, eng.frameIndex)
+    }
+  }, [isReview, persistReviewProgress])
+
+  const completionSaved = useRef(false)
+  useEffect(() => {
+    if (!engine.isComplete || !engine.result || completionSaved.current) return
+    completionSaved.current = true
+
+    if (section === 'learn' && !isReview) {
+      onSave({
+        lessonId: lesson.id,
+        status: 'inProgress',
+        currentStepIndex: lesson.steps.length - 1,
+        completedStepIds: [
+          ...new Set([
+            ...(initial?.completedStepIds ?? []),
+            ...engine.completedStepIds,
+          ]),
+        ],
+        correctCount: initial?.correctCount ?? 0,
+        wrongCount: initial?.wrongCount ?? 0,
+        totalAttempts: initial?.totalAttempts ?? 0,
+        correctFirstTry: initial?.correctFirstTry ?? 0,
+        accuracy: initial?.accuracy ?? 0,
+        masteryScore: initial?.masteryScore ?? 0,
+        unlockNextLesson: false,
+        learnCompleted: true,
+        learnStepIndex: lesson.steps.length - 1,
+        quizStepIndex: initial?.quizStepIndex,
+        updatedAt: new Date().toISOString(),
+      })
+      return
+    }
+
+    if (section === 'quiz' && !isReview) {
+      quizResultRef.current = engine.result
+      const runBadges = engine.result.badgeCounts
+      const interactive = stepsForSection(fullLesson.steps, 'quiz').filter(
+        (s) =>
+          s.type !== 'intro' &&
+          s.type !== 'concept' &&
+          s.type !== 'explore' &&
+          s.type !== 'quizIntro',
+      )
+      const base = getLessonProgress(lesson.id) ?? initial
+      if (base) {
+        onSave({
+          ...base,
+          status: 'completed',
+          masteryScore: engine.result.masteryScore,
+          unlockNextLesson: markUnlockAchieved(base, engine.result.masteryScore),
+          accuracy: engine.result.accuracy,
+          lastQuizBadgeCounts: runBadges,
+          pendingBadgeCounts: runBadges,
+          lastReview: {
+            steps: interactive,
+            missedStepIds: engine.result.stepReviews
+              .filter((s) => s.missed)
+              .map((s) => s.id),
+            recordedAt: new Date().toISOString(),
+            reviewStepIndex: 0,
+            reviewFrameIndex: 0,
+          },
+          updatedAt: new Date().toISOString(),
+        })
+      }
+    }
+  }, [
+    section,
+    isReview,
+    lesson,
+    fullLesson,
+    engine.isComplete,
+    engine.result,
+    getLessonProgress,
+    initial,
+    onSave,
+    quizResultRef,
+  ])
+
+  useEffect(() => {
+    if (!engine.isComplete || !engine.result || section !== 'quiz' || isReview)
+      return
+
+    const missedIds = engine.result.stepReviews
+      .filter((s) => s.missed)
+      .map((s) => s.id)
+    if (
+      engine.result.masteryScore < MASTERY_UNLOCK_THRESHOLD &&
+      missedIds.length > 0
+    ) {
+      quizResultRef.current = engine.result
+      onRedoMissed(missedIds)
+    }
+  }, [
+    engine.isComplete,
+    engine.result,
+    section,
+    isReview,
+    onRedoMissed,
+    quizResultRef,
+  ])
+
+  useEffect(() => {
+    if (!engine.isComplete || !engine.result || section !== 'quiz' || !isReview)
+      return
+
+    const progress = getLessonProgress(lesson.id) ?? initial
+    const mastery = progress?.masteryScore ?? 0
+    const remaining = progress?.lastReview?.missedStepIds.length ?? 0
+
+    if (meetsUnlockThreshold(mastery)) {
+      onReviewMasteryReached()
+      return
+    }
+
+    if (remaining > 0) {
+      onRedoMissed(progress!.lastReview!.missedStepIds)
+    }
+  }, [
+    engine.isComplete,
+    engine.result,
+    section,
+    isReview,
+    getLessonProgress,
+    lesson.id,
+    initial,
+    onReviewMasteryReached,
+    onRedoMissed,
+  ])
+
+  const tiles = useMemo(() => genTiles(engine.displayStep), [engine.displayStep])
+  const pageClass = section === 'learn' ? 'lp lp-learn' : 'lp lp-quiz'
+
+  if (engine.isComplete && engine.result) {
+    if (section === 'learn' && !isReview) {
+      return (
+        <div className="page">
+          <AppHeader />
+          <main className={`container ${pageClass}`}>
+            <LearnCompleteView
+              lessonTitle={lesson.title}
+              isGuest={isGuest}
+              onTakeQuiz={onTakeQuiz}
+              onExit={onExit}
+            />
+          </main>
+        </div>
+      )
+    }
+
+    if (section === 'quiz') {
+      const progress = getLessonProgress(lesson.id) ?? initial
+      const mastery = progress?.masteryScore ?? engine.result.masteryScore
+      const remainingMissed = progress?.lastReview?.missedStepIds.length ?? 0
+
+      if (
+        !isReview &&
+        mastery < MASTERY_UNLOCK_THRESHOLD &&
+        engine.result.stepReviews.some((s) => s.missed)
+      ) {
+        return (
+          <div className="page">
+            <AppHeader />
+            <main className={`container ${pageClass}`}>
+              <Loader label="Starting review" />
+            </main>
+          </div>
+        )
+      }
+
+      if (
+        isReview &&
+        !meetsUnlockThreshold(mastery) &&
+        remainingMissed > 0
+      ) {
+        return (
+          <div className="page">
+            <AppHeader />
+            <main className={`container ${pageClass}`}>
+              <Loader label="Continuing review" />
+            </main>
+          </div>
+        )
+      }
+
+      const saved = progress
+      const baseResult =
+        quizResultRef.current ??
+        (saved ? savedQuizResult(saved) : null) ??
+        engine.result
+      const displayResult: LessonResult = {
+        ...baseResult,
+        masteryScore: mastery,
+        unlockNext: meetsUnlockThreshold(mastery),
+      }
+      const reviewCleared =
+        isReview &&
+        meetsUnlockThreshold(mastery) &&
+        (quizResultRef.current?.stepReviews.some((s) => s.missed) ??
+          (saved?.lastReview?.missedStepIds.length ?? 0) > 0)
+
+      return (
+        <div className="page">
+          <AppHeader />
+          <main className={`container ${pageClass}`}>
+            <CompletionView
+              result={displayResult}
+              streakCurrent={streakCurrent}
+              lessonId={lesson.id}
+              lessonTitle={fullLesson.title}
+              nextLessonTitle={nextLessonTitle}
+              isLastLesson={isLastLesson}
+              isGuest={isGuest}
+              reviewCleared={reviewCleared}
+              badgeCounts={baseResult.badgeCounts}
+              onNext={onNext}
+              onReturn={onExit}
+              onReplay={onReplay}
+            />
+          </main>
+        </div>
+      )
+    }
+
+    return null
+  }
+
+  return (
     <div className="page">
       <AppHeader />
-      <main className="container lp">
+      <main className={`container ${pageClass}`}>
         <div className="lp-top">
-          <Link to="/home" className="lp-exit" aria-label="Exit lesson">
+          <button
+            type="button"
+            className="lp-exit"
+            aria-label="Exit to course"
+            onClick={onExit}
+          >
             <IconArrowLeft size={18} />
-          </Link>
-          {!engine.isIntro && (
-            <Link to="/home" className="levels-link" aria-label="View all levels">
+          </button>
+          {isReview && (
+            <ReviewMasteryBar
+              mastery={displayMastery}
+              remaining={remainingMissed}
+            />
+          )}
+          {!engine.isPassive && (
+            <div className="lp-progress" aria-label="Section progress">
               <LevelTracker
-                current={engine.progressCurrent}
+                segments={engine.progressSegments}
                 total={engine.progressTotal}
               />
-            </Link>
+            </div>
+          )}
+          {engine.isPassive && section === 'learn' && (
+            <span className="learn-slide-count muted">
+              Slide {engine.stepIndex + 1}/{engine.totalSteps}
+            </span>
+          )}
+          {section === 'quiz' && !engine.isPassive && (
+            <button
+              type="button"
+              className="btn ghost sm lp-restart-quiz"
+              onClick={onReplay}
+            >
+              Restart quiz
+            </button>
           )}
         </div>
 
-        {engine.isIntro ? (
-          <IntroView
+        <SectionHeader
+          section={section}
+          title={lesson.title}
+          isReview={isReview}
+        />
+
+        {engine.isPassive ? (
+          <PassiveView
+            section={section}
             title={lesson.title}
-            prompt={engine.step.prompt}
-            code={engine.step.code}
-            onStart={engine.next}
+            step={engine.step}
+            slideIndex={engine.stepIndex}
+            slideTotal={engine.totalSteps}
+            canGoPrevious={engine.canGoPrev}
+            onContinue={engine.next}
+            onPrevious={engine.prev}
           />
         ) : (
           <StepView
+            section={section}
             engine={engine}
             tiles={tiles}
             lessonStepCount={lesson.steps.length}
-            onReplay={onReplay}
+            isReview={isReview}
           />
         )}
       </main>
@@ -336,100 +1128,555 @@ export function LessonRound({
   )
 }
 
-function IntroView({
-  title,
-  prompt,
-  code,
-  onStart,
+function ReviewMasteryBar({
+  mastery,
+  remaining,
 }: {
+  mastery: number
+  remaining: number
+}) {
+  const pct = Math.min(100, Math.round((mastery / MASTERY_UNLOCK_THRESHOLD) * 100))
+  return (
+    <div className="review-mastery-bar" aria-label={`Mastery ${mastery} percent`}>
+      <div className="review-mastery-head">
+        <span className="review-mastery-label">Mastery</span>
+        <span className="review-mastery-value">
+          {mastery}%
+          <span className="review-mastery-target">
+            {' '}
+            / {MASTERY_UNLOCK_THRESHOLD}%
+          </span>
+        </span>
+      </div>
+      <div className="review-mastery-track">
+        <div
+          className="review-mastery-fill"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="review-mastery-hint muted">
+        {remaining > 0
+          ? `${remaining} missed left — each correct answer raises your score.`
+          : `Reach ${MASTERY_UNLOCK_THRESHOLD}% to unlock the next lesson.`}
+      </p>
+    </div>
+  )
+}
+
+function SectionHeader({
+  section,
+  title,
+  isReview,
+}: {
+  section: CourseSection
   title: string
-  prompt: string
-  code: string[]
-  onStart: () => void
+  isReview?: boolean
+}) {
+  const isLearn = section === 'learn'
+  return (
+    <header className={`section-header ${isLearn ? 'learn' : 'quiz'}`}>
+      <span className="section-header-eyebrow">
+        {isReview
+          ? 'Review missed questions'
+          : isLearn
+            ? 'Interactive lesson'
+            : 'Quiz section'}
+      </span>
+      <h1 className="section-header-title">{title}</h1>
+      <p className="section-header-sub muted">
+        {isReview
+          ? 'Get missed questions right to raise your score — each one you clear counts. Progress saves as you go.'
+          : isLearn
+            ? 'Learn the pattern with visuals and walkthroughs — practice checks every few slides gate your progress. Prove it in the quiz.'
+            : 'NeetCode-style practice — no new concepts, just prove you learned the pattern.'}
+      </p>
+    </header>
+  )
+}
+
+function LearnCompleteView({
+  lessonTitle,
+  isGuest,
+  onTakeQuiz,
+  onExit,
+}: {
+  lessonTitle: string
+  isGuest: boolean
+  onTakeQuiz: () => void
+  onExit: () => void
 }) {
   return (
-    <div className="stage intro-view">
-      <div className="stage-reveal stack-center">
-        <h1 className="intro-title">{title}</h1>
-        <p className="intro-prompt">{prompt}</p>
-        <CodePanel code={code} />
-        <button className="btn lg" onClick={onStart}>
-          Start
+    <div className="learn-complete stage-reveal stack-center">
+      <span className="learn-complete-badge" aria-hidden="true">
+        ✓
+      </span>
+      <h1 className="learn-complete-title">Lesson complete!</h1>
+      <p className="muted learn-complete-sub">
+        You finished the interactive lesson on <strong>{lessonTitle}</strong>.
+        {isGuest ? (
+          <>
+            {' '}
+            Sign in to take the quiz, save your progress, and unlock the full
+            course.
+          </>
+        ) : (
+          <>
+            {' '}
+            Take the quiz to prove the pattern — then see which NeetCode-style
+            problems you&apos;re ready for.
+          </>
+        )}
+      </p>
+      {isGuest ? (
+        <Link className="btn lg quiz-start" to="/auth">
+          Sign in to unlock quiz
+          <IconArrowRight size={18} />
+        </Link>
+      ) : (
+        <button className="btn lg quiz-start" onClick={onTakeQuiz}>
+          Take the quiz
+          <IconArrowRight size={18} />
         </button>
+      )}
+      <button className="btn ghost lg" onClick={onExit}>
+        Back to course
+      </button>
+    </div>
+  )
+}
+
+function LessonSlideNav({
+  canGoPrevious,
+  onPrevious,
+  primaryLabel,
+  onPrimary,
+  primaryClassName = 'btn lg',
+  primaryDisabled,
+}: {
+  canGoPrevious: boolean
+  onPrevious: () => void
+  primaryLabel: string
+  onPrimary: () => void
+  primaryClassName?: string
+  primaryDisabled?: boolean
+}) {
+  return (
+    <div className="lesson-slide-nav">
+      <button
+        type="button"
+        className="btn ghost lg lesson-slide-prev"
+        disabled={!canGoPrevious}
+        onClick={onPrevious}
+      >
+        <IconArrowLeft size={18} />
+        Previous
+      </button>
+      <button
+        type="button"
+        className={primaryClassName}
+        disabled={primaryDisabled}
+        onClick={onPrimary}
+      >
+        {primaryLabel}
+      </button>
+    </div>
+  )
+}
+
+function PassiveView({
+  section,
+  title,
+  step,
+  slideIndex,
+  slideTotal,
+  canGoPrevious,
+  onContinue,
+  onPrevious,
+}: {
+  section: CourseSection
+  title: string
+  step: LessonStep
+  slideIndex: number
+  slideTotal: number
+  canGoPrevious: boolean
+  onContinue: () => void
+  onPrevious: () => void
+}) {
+  const isQuizGate = step.type === 'quizIntro'
+  const isLearn = section === 'learn'
+  const isDemo = step.type === 'demonstration'
+  const isThink = step.type === 'thinkCheck'
+  const [revealed, setRevealed] = useState(false)
+  const isLastSlide = slideIndex >= slideTotal - 1
+
+  const sequenceFrames =
+    step.diagramSequence ?? (step.diagram ? [step.diagram] : undefined)
+  const {
+    diagram: liveDiagram,
+    prevDiagram,
+    frameIndex,
+    frameCount,
+    sequenceDurationMs,
+    changedIndices,
+  } = useDiagramSequence(sequenceFrames, step.id)
+
+  useEffect(() => {
+    setRevealed(false)
+  }, [step.id])
+
+  const autoplayAllowed = canAutoplayStep(section, step, revealed)
+  const durationMs = useMemo(
+    () => Math.max(slideAutoplayMs(step, isDemo), sequenceDurationMs),
+    [step, isDemo, sequenceDurationMs],
+  )
+  const { playing, progress, toggle, pause } = useLessonAutoplay({
+    enabled: autoplayAllowed,
+    stepId: step.id,
+    durationMs,
+    onAdvance: onContinue,
+  })
+
+  const continueLabel = isQuizGate
+    ? 'Start quiz'
+    : isThink && !revealed
+      ? 'Show answer'
+      : isLastSlide && isLearn
+        ? 'Finish lesson'
+        : playing && autoplayAllowed
+          ? 'Next slide…'
+          : 'Continue'
+
+  function handlePrevious() {
+    pause()
+    onPrevious()
+  }
+
+  function handlePrimary() {
+    if (isThink && !revealed) {
+      setRevealed(true)
+      return
+    }
+    onContinue()
+  }
+
+  return (
+    <div
+      className={`stage intro-view ${isLearn ? 'learn-passive' : 'quiz-passive'} ${isDemo ? 'demo-slide' : ''} ${playing && autoplayAllowed ? 'is-autoplaying' : ''}`}
+    >
+      {autoplayAllowed && (
+        <div className="lesson-autoplay-bar" aria-label="Lesson playback">
+          <button
+            type="button"
+            className="lesson-autoplay-toggle btn ghost sm"
+            onClick={toggle}
+            aria-pressed={playing}
+          >
+            {playing ? 'Pause' : 'Play'}
+          </button>
+          <div className="lesson-autoplay-track" aria-hidden="true">
+            <div
+              className="lesson-autoplay-fill"
+              style={{ width: `${Math.round(progress * 100)}%` }}
+            />
+          </div>
+          <span className="lesson-autoplay-label muted">
+            {playing ? 'Auto-advancing' : 'Paused'}
+          </span>
+        </div>
+      )}
+
+      <div className="stage-reveal stack-center" key={step.id}>
+        {step.phaseLabel && (
+          <span className={`phase-tag ${isLearn ? 'learn' : 'quiz'} lesson-slide-meta`}>
+            {step.phaseLabel}
+            {isLearn && slideTotal > 1 && (
+              <span className="trace-frame-count">
+                {' '}
+                · {slideIndex + 1}/{slideTotal}
+              </span>
+            )}
+          </span>
+        )}
+        {isLearn && !isQuizGate && !isDemo && !isThink && (
+          <h2 className="intro-title">{title}</h2>
+        )}
+        {isDemo && step.hook && (
+          <h2 className="intro-title demo-hook lesson-slide-meta">{step.hook}</h2>
+        )}
+        {isQuizGate && <h2 className="intro-title lesson-slide-meta">Ready for the quiz?</h2>}
+        {!isDemo && step.hook && !isThink && (
+          <p className="concept-hook">{step.hook}</p>
+        )}
+        {isThink && step.hook && <p className="concept-hook">{step.hook}</p>}
+        {liveDiagram && (
+          <div
+            className={`${isLearn ? 'learn-diagram-hero' : 'quiz-diagram'} lesson-diagram-wrap`}
+          >
+            {frameCount > 1 && (
+              <div className="diagram-sequence-progress muted" aria-live="polite">
+                Step {frameIndex + 1} of {frameCount}
+              </div>
+            )}
+            <VisualDiagram
+              diagram={liveDiagram}
+              prevDiagram={prevDiagram}
+              animated
+              motion
+              changedIndices={changedIndices}
+            />
+          </div>
+        )}
+        {step.code.length > 0 && (
+          <CodePanel
+            code={step.code}
+            currentLineIndex={step.currentLineIndex}
+            showRunHint={isDemo && step.currentLineIndex != null}
+            animated
+            motion={false}
+          />
+        )}
+        <p className={`intro-prompt lesson-slide-meta ${isDemo ? 'demo-prompt' : ''}`}>
+          {step.prompt}
+        </p>
+        {step.bullets && step.bullets.length > 0 && (
+          <ul className="demo-bullets">
+            {step.bullets.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+        )}
+        {step.callout && (!isThink || revealed) && (
+          <div className="demo-callout lesson-callout-enter lesson-slide-meta" role="note">
+            <span className="demo-callout-label">
+              {isThink ? 'Answer' : 'Key value'}
+            </span>
+            <p className="demo-callout-text">{isThink ? step.reveal : step.callout}</p>
+            {isThink && step.callout && revealed && (
+              <p className="demo-callout-sub muted">{step.callout}</p>
+            )}
+          </div>
+        )}
+        {isThink && !revealed && (
+          <p className="stage-hint muted think-hint">
+            Think for a moment — then reveal the answer. This is not scored.
+          </p>
+        )}
+        <LessonSlideNav
+          canGoPrevious={canGoPrevious}
+          onPrevious={handlePrevious}
+          primaryLabel={continueLabel}
+          onPrimary={handlePrimary}
+          primaryClassName={`btn lg ${isQuizGate ? 'quiz-start' : isLearn ? 'learn-continue' : ''}`}
+        />
       </div>
     </div>
   )
 }
 
+function stepUsesLineRun(step: LessonStep): boolean {
+  return (
+    step.type === 'traceVariables' ||
+    step.type === 'visualExample' ||
+    (step.traceFrames?.length ?? 0) > 0
+  )
+}
+
+function isDirectAnswer(type: LessonStep['type']): boolean {
+  return type === 'teachCheck' || type === 'reflection' || type === 'lessonPractice'
+}
+
+function isTileOnlyStep(step: LessonStep): boolean {
+  return (
+    step.targetVariables.length === 1 &&
+    step.targetVariables[0] === 'answer' &&
+    step.inputMode === 'text' &&
+    (step.answerTiles?.length ?? 0) > 0
+  )
+}
+
+function formatStepAnswer(step: LessonStep): string {
+  return step.targetVariables
+    .map((t) => String(step.expectedState[t]))
+    .join(', ')
+}
+
+function AnswerRevealCard({ answer }: { answer: string }) {
+  return (
+    <div className="answer-reveal-card" role="status">
+      <span className="answer-reveal-label">Correct answer</span>
+      <p className="answer-reveal-value">{answer}</p>
+    </div>
+  )
+}
+
 function StepView({
+  section,
   engine,
   tiles,
   lessonStepCount,
-  onReplay,
+  isReview,
 }: {
+  section: CourseSection
   engine: ReturnType<typeof useLessonEngine>
-  tiles: number[]
+  tiles: (number | string)[]
   lessonStepCount: number
-  onReplay: () => void
+  isReview?: boolean
 }) {
-  const { step, phase } = engine
-  const isTrace = step.type === 'traceVariables'
-  const isLast = engine.stepIndex === lessonStepCount - 1
+  const { step, displayStep, phase, frameIndex, frameCount, isTrace, progressCurrent, progressTotal } = engine
+  const prevDiagramRef = useRef<{ stepId: string; diagram?: DiagramSpec }>({
+    stepId: '',
+  })
+  const prevDiagram =
+    prevDiagramRef.current.stepId === step.id
+      ? prevDiagramRef.current.diagram
+      : undefined
 
-  const runLabel = isTrace ? 'Run line' : 'Run program'
-  const readyHint = isTrace
-    ? 'Run the highlighted line to see what changes.'
-    : 'Run the whole program to the end.'
+  useLayoutEffect(() => {
+    prevDiagramRef.current = { stepId: step.id, diagram: displayStep.diagram }
+  })
+
+  const diagramChanged = useMemo(
+    () => diagramChangedIndices(prevDiagram, displayStep.diagram),
+    [prevDiagram, displayStep.diagram],
+  )
+  const isLearn = section === 'learn'
+  const isCheckpoint = step.type === 'lessonPractice'
+  const isLineRun = stepUsesLineRun(step)
+  const directAnswer = isDirectAnswer(displayStep.type)
+  const tileOnly = isTileOnlyStep(displayStep)
+  const isLastStep = engine.stepIndex === lessonStepCount - 1
+  const isLastFrame = !isTrace || frameIndex >= frameCount - 1
+  const isLast = isLastStep && isLastFrame
+  const revealed = phase === 'solved' && engine.answerRevealed
+  const globalStep = Math.min(progressCurrent + 1, progressTotal)
+
+  const frame = step.traceFrames?.[frameIndex]
+  const runLabel = frame?.runLabel ?? (isLineRun ? 'Run line' : 'Try it')
+  const selectedTileValues = displayStep.targetVariables
+    .map((t) => engine.boxValues[t]?.trim())
+    .filter((v): v is string => !!v)
+  const tileOnlyAnswer = engine.boxValues.answer ?? ''
+  const readyHint = isCheckpoint
+    ? `Practice check — ${2 - engine.stepAttempts} ${engine.stepAttempts === 0 ? 'tries' : 'try'} left, no hints.`
+    : directAnswer
+    ? 'Pick the best answer — use what you just learned.'
+    : isLineRun
+      ? isTrace
+        ? 'Run the highlighted line, then answer — you will walk through every step.'
+        : 'Run the highlighted line to see what changes.'
+      : 'Work through the question, then fill in your answer.'
 
   return (
-    <div className="stage">
-      <CodePanel
-        code={step.code}
-        currentLineIndex={step.currentLineIndex}
-        showRunHint={isTrace && phase === 'ready'}
-      />
+    <div className={`stage ${isLearn ? 'learn-stage' : 'quiz-stage'}${isCheckpoint ? ' checkpoint-stage' : ''}`}>
+      {engine.rewindNotice && (
+        <p className="checkpoint-rewind-notice" role="status">
+          {engine.rewindNotice}
+        </p>
+      )}
+      {step.phaseLabel && (
+        <span className={`phase-tag ${isLearn ? 'learn' : 'quiz'}`}>
+          {step.phaseLabel}
+          {progressTotal > 1 && (
+            <span className="trace-frame-count">
+              {' '}
+              · {globalStep}/{progressTotal}
+            </span>
+          )}
+        </span>
+      )}
 
-      {phase === 'ready' && (
-        <div className="stage-reveal stack-center" key={`ready-${engine.stepIndex}`}>
-          <p className="stage-hint muted">{readyHint}</p>
-          <button className="btn lg" onClick={engine.runStep}>
-            {runLabel}
-          </button>
+      {isLearn && displayStep.diagram && phase !== 'solved' && (
+        <div className="learn-diagram-hero lesson-diagram-wrap">
+          <VisualDiagram
+            diagram={displayStep.diagram}
+            prevDiagram={prevDiagram}
+            animated
+            motion
+            changedIndices={diagramChanged}
+          />
         </div>
       )}
 
-      {phase === 'failed' && (
-        <div className="stage-reveal stack-center" key={`failed-${engine.stepIndex}`}>
-          <FeedbackPanel feedback={engine.feedback} />
-          <p className="failed-note muted">
-            Two misses in a row — retrace this line to lock it in.
-          </p>
-          <button className="btn lg" onClick={engine.restartStep}>
-            Retry level
-          </button>
-          <button className="btn-text" onClick={onReplay}>
-            Restart lesson
-          </button>
+      {step.code.length > 0 && (
+        <CodePanel
+          code={step.code}
+          currentLineIndex={displayStep.currentLineIndex}
+          showRunHint={isLineRun && (phase === 'ready' || phase === 'answering')}
+          animated
+          motion={isLineRun || isLearn}
+        />
+      )}
+
+      {!isLearn && displayStep.diagram && phase !== 'solved' && (
+        <div className="lesson-diagram-wrap">
+          <VisualDiagram
+            diagram={displayStep.diagram}
+            prevDiagram={prevDiagram}
+            animated
+            motion
+            changedIndices={diagramChanged}
+          />
+        </div>
+      )}
+
+      {step.hints && step.hints.length > 0 && phase === 'answering' && (
+        <HintPanel
+          key={`${engine.stepIndex}-${frameIndex}`}
+          hints={step.hints}
+          autoReveal={engine.stepAttempts >= 1 ? 1 : 0}
+        />
+      )}
+
+      {phase === 'ready' && !directAnswer && (
+        <div
+          className="stage-reveal stack-center"
+          key={`ready-${engine.stepIndex}-${frameIndex}`}
+        >
+          <p className="stage-hint muted">{readyHint}</p>
+          {displayStep.prompt && (
+            <p className="stage-question">{displayStep.prompt}</p>
+          )}
+          <LessonSlideNav
+            canGoPrevious={engine.canGoPrev}
+            onPrevious={engine.prev}
+            primaryLabel={runLabel}
+            onPrimary={engine.runStep}
+            primaryClassName={`btn lg ${isLearn ? 'learn-continue' : ''}`}
+          />
         </div>
       )}
 
       {(phase === 'answering' || phase === 'solved') && (
-        <div className="stage-reveal" key={`answer-${engine.stepIndex}-${phase}`}>
-          {phase === 'answering' && (
-            <p className="stage-question">{step.prompt}</p>
+        <div
+          className="stage-reveal answer-stage"
+          key={`answer-${engine.stepIndex}-${frameIndex}-${phase}`}
+        >
+          <p className="stage-question">{displayStep.prompt}</p>
+
+          {isCheckpoint && phase === 'answering' && (
+            <p className="stage-hint muted">
+              {engine.stepAttempts === 0 ? '2 tries · no hints' : '1 try left · no hints'}
+            </p>
           )}
 
-          <VariableBoxes
-            step={step}
-            boxValues={engine.boxValues}
-            activeVar={engine.activeVar}
-            errorVars={engine.errorVars}
-            locked={phase === 'solved'}
-            onSetActive={engine.setActiveVar}
-            onSetBox={engine.setBox}
-          />
+          {revealed && tileOnly ? (
+            <AnswerRevealCard answer={formatStepAnswer(displayStep)} />
+          ) : tileOnly && phase === 'answering' ? (
+            <AnswerChoiceSlot value={tileOnlyAnswer} />
+          ) : !tileOnly ? (
+            <VariableBoxes
+              step={displayStep}
+              boxValues={engine.boxValues}
+              activeVar={engine.activeVar}
+              errorVars={engine.errorVars}
+              locked={phase === 'solved'}
+              answerRevealed={engine.answerRevealed}
+              onSetActive={engine.setActiveVar}
+              onSetBox={engine.setBox}
+            />
+          ) : null}
 
-          {phase === 'solved' && engine.lastStepBadge && (
+          {phase === 'solved' && engine.lastStepBadge && !engine.answerRevealed && (
             <SpeedBadgeFlash tier={engine.lastStepBadge} />
           )}
 
@@ -440,6 +1687,8 @@ function StepView({
               <AnswerTiles
                 tiles={tiles}
                 disabled={false}
+                selectedValue={tileOnly ? tileOnlyAnswer : null}
+                selectedValues={tileOnly ? undefined : selectedTileValues}
                 onPick={engine.fillActive}
               />
               <button
@@ -449,11 +1698,39 @@ function StepView({
               >
                 Check
               </button>
+              {engine.canGoPrev && (
+                <button
+                  type="button"
+                  className="btn ghost lesson-slide-prev-inline"
+                  onClick={engine.prev}
+                >
+                  <IconArrowLeft size={16} />
+                  Previous slide
+                </button>
+              )}
             </div>
           ) : (
-            <button className="btn lg lime full" onClick={engine.next}>
-              {isLast ? 'Finish lesson' : 'Continue'}
-            </button>
+            <LessonSlideNav
+              canGoPrevious={engine.canGoPrev}
+              onPrevious={engine.prev}
+              primaryLabel={
+                engine.answerRevealed
+                  ? 'Continue'
+                  : isLast
+                    ? section === 'learn'
+                      ? 'Finish lesson'
+                      : isReview
+                        ? 'Next question'
+                        : 'Finish quiz'
+                    : isTrace && !isLastFrame
+                      ? 'Next line'
+                      : 'Continue'
+              }
+              onPrimary={engine.next}
+              primaryClassName={`btn lg ${
+                engine.answerRevealed ? 'ghost' : isLearn ? 'learn-continue lime' : 'lime'
+              }`}
+            />
           )}
         </div>
       )}

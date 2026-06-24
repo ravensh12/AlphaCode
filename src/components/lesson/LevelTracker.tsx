@@ -1,21 +1,44 @@
+export type ProgressSegmentState = 'todo' | 'now' | 'correct' | 'wrong'
+
 export function LevelTracker({
+  segments,
   current,
   total,
 }: {
-  current: number
+  /** Per-segment state — preferred when tracking correct vs wrong. */
+  segments?: ProgressSegmentState[]
+  /** Fallback when segments not provided. */
+  current?: number
   total: number
 }) {
-  const levelNow = Math.min(current + 1, total)
+  const states: ProgressSegmentState[] =
+    segments ??
+    Array.from({ length: total }, (_, i) => {
+      const c = current ?? 0
+      if (i < c) return 'correct'
+      if (i === c) return 'now'
+      return 'todo'
+    })
+
+  const correct = states.filter((s) => s === 'correct').length
+  const wrong = states.filter((s) => s === 'wrong').length
+  const nowIdx = states.findIndex((s) => s === 'now')
+  const levelNow = nowIdx >= 0 ? nowIdx + 1 : correct + wrong + 1
+
+  const ariaParts = [`Step ${Math.min(levelNow, total)} of ${total}`]
+  if (correct + wrong > 0) {
+    ariaParts.push(`${correct} correct`, `${wrong} missed`)
+  }
+
   return (
     <div
       className="levels"
-      aria-label={`Level ${levelNow} of ${total}`}
-      title={`Level ${levelNow} of ${total}`}
+      aria-label={ariaParts.join(', ')}
+      title={ariaParts.join(' · ')}
     >
-      {Array.from({ length: total }).map((_, i) => {
-        const state = i < current ? 'done' : i === current ? 'now' : 'todo'
-        return <span key={i} className={`level-seg ${state}`} />
-      })}
+      {states.map((state, i) => (
+        <span key={i} className={`level-seg ${state}`} />
+      ))}
     </div>
   )
 }

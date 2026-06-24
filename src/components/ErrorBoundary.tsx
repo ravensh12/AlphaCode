@@ -14,7 +14,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
-    console.error('[CodeTracer] render error', error, info)
+    console.error('[AlphaCode] render error', error, info)
   }
 
   render() {
@@ -28,7 +28,7 @@ export class ErrorBoundary extends Component<Props, State> {
             The app hit an unexpected error. Reloading usually fixes it.
           </p>
           <button className="btn" onClick={() => window.location.assign('/')}>
-            Reload Code Tracer
+            Reload AlphaCode
           </button>
         </div>
       </div>

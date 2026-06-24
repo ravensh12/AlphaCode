@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
 import { Loader } from '../components/Loader'
@@ -11,6 +11,7 @@ import {
   stepToReview,
 } from '../components/lesson/ReviewBreakdown'
 import { LessonNotice, LessonRound } from './LessonPage'
+import type { LessonResult } from '../hooks/useLessonEngine'
 import type { Lesson } from '../types/lesson'
 import './LessonPage.css'
 
@@ -25,8 +26,9 @@ export function ReviewPage() {
     streak,
   } = useProgress()
 
-  // Which missed steps we're currently redoing (null = showing the summary).
-  const [redoIds, setRedoIds] = useState<string[] | null>(null)
+  const [reviewMode, setReviewMode] = useState(false)
+  const [reviewRound, setReviewRound] = useState(0)
+  const quizResultRef = useRef<LessonResult | null>(null)
 
   if (!lessonId || !hasLesson(lessonId)) {
     return (
@@ -43,6 +45,46 @@ export function ReviewPage() {
   const lessonTitle = summary?.title ?? 'Lesson'
   const progress = getLessonProgress(lessonId)
   const review = progress?.lastReview
+  const missedIds = review?.missedStepIds ?? []
+
+  if (reviewMode && missedIds.length > 0 && review) {
+    const steps = review.steps.filter((s) => missedIds.includes(s.id))
+    const redoLesson = {
+      id: lessonId,
+      title: lessonTitle,
+      description: '',
+      pattern: summary?.pattern ?? '',
+      estimatedMinutes: 0,
+      conceptTags: summary?.conceptTags ?? [],
+      unlockRequirements: {},
+      steps,
+    } satisfies Lesson
+    return (
+      <LessonRound
+        key={`${reviewRound}:${missedIds.join('|')}`}
+        lesson={redoLesson}
+        section="quiz"
+        isReview
+        initial={progress}
+        quizResultRef={quizResultRef}
+        onSave={saveLessonProgress}
+        onAttempt={logAttempt}
+        streakCurrent={streak.current}
+        nextLessonTitle={null}
+        isLastLesson={false}
+        onExit={() => navigate('/home')}
+        onTakeQuiz={() => navigate(`/lesson/${lessonId}/quiz`)}
+        onReplay={() => {
+          setReviewMode(false)
+          navigate(`/lesson/${lessonId}/quiz`)
+        }}
+        onRedoMissed={(ids) => {
+          if (ids.length) setReviewRound((r) => r + 1)
+        }}
+        onReviewMasteryReached={() => setReviewMode(false)}
+      />
+    )
+  }
 
   if (!progress || progress.status !== 'completed' || !review) {
     return (
@@ -60,7 +102,7 @@ export function ReviewPage() {
               Play <strong>{lessonTitle}</strong> once and your results will show
               up here so you can see what you got right and redo what you missed.
             </p>
-            <Link className="btn lg" to={`/lesson/${lessonId}`}>
+            <Link className="btn lg" to={`/lesson/${lessonId}/quiz`}>
               Play lesson
               <IconArrowRight size={18} />
             </Link>
@@ -70,39 +112,9 @@ export function ReviewPage() {
     )
   }
 
-  // Redo pass: replay just the missed questions from the stored snapshot.
-  if (redoIds && redoIds.length > 0) {
-    const steps = review.steps.filter((s) => redoIds.includes(s.id))
-    const redoLesson: Lesson = {
-      id: lessonId,
-      title: lessonTitle,
-      description: '',
-      estimatedMinutes: 0,
-      conceptTags: summary?.conceptTags ?? [],
-      unlockRequirements: {},
-      steps,
-    }
-    return (
-      <LessonRound
-        key={redoIds.join('|')}
-        lesson={redoLesson}
-        isReview
-        onSave={saveLessonProgress}
-        onAttempt={logAttempt}
-        streakCurrent={streak.current}
-        nextLessonTitle={null}
-        isLastLesson={false}
-        onExit={() => navigate('/home')}
-        onReplay={() => navigate(`/lesson/${lessonId}`)}
-        onRedoMissed={(ids) => setRedoIds(ids.length ? ids : null)}
-      />
-    )
-  }
-
   const reviews = review.steps.map((s) =>
     stepToReview(s, review.missedStepIds.includes(s.id)),
   )
-  const missedIds = review.missedStepIds
   const missedCount = missedIds.length
 
   return (
@@ -147,12 +159,12 @@ export function ReviewPage() {
 
           <div className="completion-actions">
             {missedCount > 0 && (
-              <button className="btn lg" onClick={() => setRedoIds(missedIds)}>
+              <button className="btn lg" onClick={() => setReviewMode(true)}>
                 Redo missed ({missedCount})
                 <IconArrowRight size={18} />
               </button>
             )}
-            <Link className="btn ghost lg" to={`/lesson/${lessonId}`}>
+            <Link className="btn ghost lg" to={`/lesson/${lessonId}/quiz`}>
               Replay full lesson
             </Link>
             <Link className="btn ghost lg" to="/home">

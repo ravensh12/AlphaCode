@@ -7,6 +7,7 @@ export function VariableBoxes({
   activeVar,
   errorVars,
   locked,
+  answerRevealed,
   onSetActive,
   onSetBox,
 }: {
@@ -15,6 +16,7 @@ export function VariableBoxes({
   activeVar: string | null
   errorVars: string[]
   locked: boolean
+  answerRevealed?: boolean
   onSetActive: (v: string) => void
   onSetBox: (v: string, value: string) => void
 }) {
@@ -31,6 +33,7 @@ export function VariableBoxes({
         const isTarget = step.targetVariables.includes(v)
         const error = errorVars.includes(v)
         const active = activeVar === v && isTarget && !locked
+        const textMode = step.inputMode === 'text'
 
         if (!isTarget) {
           const given = String(step.expectedState[v] ?? '')
@@ -51,14 +54,16 @@ export function VariableBoxes({
             <div
               className={`var-box target ${active ? 'active' : ''} ${
                 error ? 'error' : ''
-              } ${locked ? 'solved' : ''}`}
+              } ${boxValues[v]?.trim() ? 'filled' : ''} ${
+                answerRevealed ? 'revealed' : locked ? 'solved' : ''
+              }`}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => handleDrop(e, v)}
             >
               <input
                 className="var-input"
                 type="text"
-                inputMode="numeric"
+                inputMode={textMode ? 'text' : 'numeric'}
                 autoComplete="off"
                 aria-label={`value for ${v}`}
                 placeholder="?"
@@ -66,11 +71,16 @@ export function VariableBoxes({
                 disabled={locked}
                 onFocus={() => onSetActive(v)}
                 onChange={(e) =>
-                  onSetBox(v, e.target.value.replace(/[^\d-]/g, ''))
+                  onSetBox(
+                    v,
+                    textMode ? e.target.value : e.target.value.replace(/[^\d-]/g, ''),
+                  )
                 }
               />
             </div>
-            <span className="var-tag">{locked ? 'set' : 'solve'}</span>
+            <span className="var-tag">
+              {answerRevealed ? 'shown' : locked ? 'set' : 'solve'}
+            </span>
           </div>
         )
       })}

@@ -30,6 +30,57 @@
   font-weight: 700;
   line-height: 1.04;
 }
+
+.landing-brand-name {
+  font-size: clamp(52px, 8vw, 84px);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+}
+.landing-brand-accent {
+  color: var(--primary);
+}
+
+.landing-eyebrow {
+  margin: -4px 0 0;
+  font-family: var(--display);
+  font-size: clamp(14px, 1.8vw, 17px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+}
+
+.lede-brand {
+  font-weight: 800;
+  font-size: 1.15em;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+.lede-leetcode {
+  font-size: 0.88em;
+  font-weight: 500;
+  color: var(--ink-faint);
+}
+
+.landing-footer-brand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+.landing-footer-brand strong {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.landing-footer-tag {
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
 /* flat highlighter marker — a solid color band, not a gradient */
 .landing-title .hl {
   box-shadow: inset 0 -0.3em 0 var(--lime);

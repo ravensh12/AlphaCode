@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from './Brand'
 import { useAuth } from '../context/AuthContext'
 import { IconGrid } from './icons'
@@ -9,22 +9,35 @@ export function AppHeader() {
   const navigate = useNavigate()
   const location = useLocation()
   const onCoursePage = location.pathname === '/home'
+  const courseTarget = isGuest ? '/start' : '/home'
 
   async function handleSignOut() {
     await signOut()
     navigate('/')
   }
 
+  function goIntro() {
+    navigate('/')
+  }
+
+  function goCourse() {
+    navigate(courseTarget)
+  }
+
   return (
     <header className="app-header">
       <div className="container app-header-inner">
-        <Brand to={isGuest ? '/start' : '/home'} />
+        <Brand to="/" onNavigate={goIntro} />
         <div className="app-header-right">
           {!onCoursePage && !isGuest && (
-            <Link className="btn ghost app-header-course" to="/home">
+            <button
+              type="button"
+              className="btn ghost app-header-course"
+              onClick={goCourse}
+            >
               <IconGrid size={16} />
               <span className="app-header-course-label">Course</span>
-            </Link>
+            </button>
           )}
           <span className="app-header-user">
             {isGuest ? 'Guest' : displayName}

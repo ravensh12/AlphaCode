@@ -1,4 +1,5 @@
 import type { ConceptId, LessonStep, VariableValue } from './lesson'
+import type { BadgeCounts } from '../content/badges'
 
 export type LessonStatus = 'notStarted' | 'inProgress' | 'completed'
 
@@ -11,6 +12,9 @@ export type LessonReview = {
   steps: LessonStep[]
   missedStepIds: string[]
   recordedAt: string
+  /** Resume position within the current missed-question list. */
+  reviewStepIndex?: number
+  reviewFrameIndex?: number
 }
 
 export type LessonProgress = {
@@ -30,6 +34,17 @@ export type LessonProgress = {
   updatedAt?: string
   /** Most recent full-playthrough breakdown, for the Review screen. */
   lastReview?: LessonReview
+  /** Interactive teach section finished — unlocks the quiz. */
+  learnCompleted?: boolean
+  /** Index within the current step's trace frames (for multi-line walkthroughs). */
+  learnFrameIndex?: number
+  learnStepIndex?: number
+  quizFrameIndex?: number
+  quizStepIndex?: number
+  /** Badges earned on the most recent full quiz run (for completion UI). */
+  lastQuizBadgeCounts?: BadgeCounts
+  /** Queued once per quiz finish — merged into global totals on save. */
+  pendingBadgeCounts?: BadgeCounts
 }
 
 export type ConceptMastery = {
@@ -64,6 +79,6 @@ export type ProgressState = {
   experienceLevel?: ExperienceLevel
   streak: StreakState
   lessons: Record<string, LessonProgress>
-  /** Distinct badge ids the user has earned across all lessons. */
-  earnedBadges: string[]
+  /** Total times each badge type has been earned. */
+  badgeCounts: BadgeCounts
 }

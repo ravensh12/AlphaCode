@@ -33,15 +33,15 @@ export function LandingPage() {
 
       <main className="container landing-hero">
         <div className="landing-hero-copy">
-          <span className="pill brand">Beginner Python · Learn by doing</span>
-          <h1 className="landing-title">
-            Learn Python by <span className="hl">tracing</span> what the computer
-            does.
+          <h1 className="landing-title landing-brand-name">
+            Alpha<span className="landing-brand-accent">Code</span>
           </h1>
+          <p className="landing-eyebrow">LeetCode prep course</p>
           <p className="landing-lede">
-            Code Tracer turns the invisible part of programming into a puzzle. Step
-            through code one line at a time, watch variable boxes update, and prove
-            you understand how values change.
+            <span className="lede-brand">AlphaCode</span> is a{' '}
+            <span className="lede-leetcode">LeetCode</span> prep course for high
+            schoolers — interactive lessons, quizzes, and the core patterns before
+            interview-style problems.
           </p>
           <div className="landing-cta">
             <Link className="btn lg" to="/auth">
@@ -52,9 +52,9 @@ export function LandingPage() {
             </button>
           </div>
           <ul className="landing-points">
-            <li>Step through real Python, line by line</li>
-            <li>Instant, specific feedback on every answer</li>
-            <li>Unlock the next lesson by reaching 75% mastery</li>
+            <li>6 core patterns taught with visuals and guided tracing</li>
+            <li>Interactive lesson, then a quiz — learn before you&apos;re tested</li>
+            <li>See which NeetCode-style problems you&apos;re ready for next</li>
           </ul>
         </div>
 
@@ -71,7 +71,10 @@ export function LandingPage() {
 
       <footer className="landing-footer">
         <div className="container">
-          <span className="muted">Code Tracer — a Brilliant-style way to learn how code runs.</span>
+          <span className="landing-footer-brand">
+            <strong>AlphaCode</strong>
+            <span className="landing-footer-tag">LeetCode prep course</span>
+          </span>
         </div>
       </footer>
     </div>

@@ -112,6 +112,19 @@
   padding: 0 12px;
 }
 
+.auth-google {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+.auth-google:disabled {
+  opacity: 0.6;
+}
+
 .auth-guest-note {
   text-align: center;
   font-size: 12.5px;

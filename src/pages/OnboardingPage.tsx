@@ -17,19 +17,19 @@ const OPTIONS: {
   {
     id: 'new',
     title: 'I am brand new to Python',
-    sub: "We'll start from the very beginning.",
+    sub: "We'll build the core patterns before NeetCode-style problems.",
     Icon: IconSprout,
   },
   {
     id: 'some',
     title: 'I know a little Python',
-    sub: 'A quick refresher on how code runs.',
+    sub: 'Sharpen tracing skills before interview-style practice.',
     Icon: IconBolt,
   },
   {
     id: 'class',
     title: 'I am taking a Python class',
-    sub: 'Build the tracing skills your class assumes.',
+    sub: 'Build the pattern skills NeetCode 150 assumes you know.',
     Icon: IconCap,
   },
 ]

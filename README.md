@@ -1,10 +1,9 @@
-# Code Tracer
+# AlphaCode
 
-A Brilliant-style Python puzzle app where beginners learn how code runs by
-stepping through code, updating visual variable boxes, and getting instant
-feedback.
+**LeetCode prep course** for high schoolers — interactive lessons, quizzes, and
+core coding patterns before interview-style problems.
 
-> Learn Python by tracing what the computer does.
+> LeetCode prep course.
 
 Built with **React + TypeScript + Vite**, with **Supabase** for authentication
 and progress persistence.

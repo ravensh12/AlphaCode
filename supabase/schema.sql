@@ -1,4 +1,4 @@
--- Code Tracer — database schema
+-- AlphaCode — database schema
 -- Run this once in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
 -- It is safe to re-run (uses IF NOT EXISTS / CREATE OR REPLACE).
 
@@ -21,6 +21,9 @@ create table if not exists public.profiles (
 -- Add badges to existing profiles tables (safe to re-run).
 alter table public.profiles
   add column if not exists badges text[] not null default '{}';
+
+alter table public.profiles
+  add column if not exists badge_counts jsonb not null default '{}'::jsonb;
 
 alter table public.profiles enable row level security;
 
@@ -61,6 +64,22 @@ create table if not exists public.lesson_progress (
 -- Add the review snapshot column to existing tables (safe to re-run).
 alter table public.lesson_progress
   add column if not exists last_review jsonb;
+
+-- Learn / quiz section progress (safe to re-run).
+alter table public.lesson_progress
+  add column if not exists learn_completed boolean not null default false;
+
+alter table public.lesson_progress
+  add column if not exists learn_step_index int;
+
+alter table public.lesson_progress
+  add column if not exists quiz_step_index int;
+
+alter table public.lesson_progress
+  add column if not exists learn_frame_index int;
+
+alter table public.lesson_progress
+  add column if not exists quiz_frame_index int;
 
 alter table public.lesson_progress enable row level security;
 

@@ -2,55 +2,54 @@ import { Link } from 'react-router-dom'
 import type { LessonResult } from '../../hooks/useLessonEngine'
 import { masteryBand, bandLabel } from '../../lib/mastery'
 import { MASTERY_UNLOCK_THRESHOLD } from '../../content/catalog'
-import { getBadge, type BadgeId } from '../../content/badges'
+import { getNeetCodeReadiness } from '../../content/neetcodeReadiness'
+import { getBadge, BADGE_ORDER, type BadgeCounts } from '../../content/badges'
 import { IconTrophy, IconGauge, IconFlame, IconArrowRight } from '../icons'
 import { ReviewBreakdown } from './ReviewBreakdown'
+import { NeetCodeReadinessPanel } from './NeetCodeReadinessPanel'
 
 export function CompletionView({
   result,
   streakCurrent,
+  lessonId,
   lessonTitle,
   nextLessonTitle,
   isLastLesson,
   isGuest,
-  isReview,
-  badges,
+  reviewCleared,
+  badgeCounts,
   onNext,
   onReturn,
   onReplay,
-  onRedoMissed,
 }: {
   result: LessonResult
   streakCurrent: number
+  lessonId: string
   lessonTitle: string
   nextLessonTitle: string | null
   isLastLesson: boolean
   isGuest: boolean
-  isReview: boolean
-  badges: BadgeId[]
+  reviewCleared?: boolean
+  badgeCounts: BadgeCounts
   onNext?: () => void
   onReturn: () => void
   onReplay: () => void
-  onRedoMissed: () => void
 }) {
   const band = masteryBand(result.masteryScore)
   const unlocked = result.unlockNext
   const courseComplete = isLastLesson && unlocked
-  // Guests can't progress past the preview level — they get a sign-up CTA.
   const canAdvance = unlocked && !isLastLesson && !!onNext && !isGuest
 
   const reviews = result.stepReviews
-  const missedCount = reviews.filter((s) => s.missed).length
+  const readiness = getNeetCodeReadiness(lessonId)
 
-  const headline = isReview
-    ? missedCount === 0
-      ? 'All cleared!'
-      : 'Good practice'
+  const headline = reviewCleared
+    ? 'Review complete!'
     : courseComplete
       ? 'Course complete!'
       : band === 'strong'
         ? 'Great job!'
-        : 'Lesson complete!'
+        : 'Quiz complete!'
 
   return (
     <div className="completion">
@@ -59,14 +58,15 @@ export function CompletionView({
       </div>
       <h1 className="completion-title">{headline}</h1>
       <p className="muted completion-sub">
-        {isReview ? (
+        {reviewCleared ? (
           <>
-            You retried the questions you missed in{' '}
+            You cleared every missed question in{' '}
             <strong>{lessonTitle}</strong>.
           </>
         ) : (
           <>
-            You traced every line of <strong>{lessonTitle}</strong>.
+            You finished the quiz on <strong>{lessonTitle}</strong> — one core
+            pattern down.
           </>
         )}
       </p>
@@ -93,15 +93,14 @@ export function CompletionView({
         </div>
       </div>
 
-      {!isReview && (
-        <div className={`completion-band band-${band}`}>{bandLabel(band)}</div>
-      )}
+      <div className={`completion-band band-${band}`}>{bandLabel(band)}</div>
 
-      {badges.length > 0 && (
+      {Object.values(badgeCounts).some((n) => n > 0) && (
         <div className="completion-badges">
-          <p className="completion-badges-title">Badges earned</p>
+          <p className="completion-badges-title">Badges earned this run</p>
           <div className="badge-row">
-            {badges.map((id) => {
+            {BADGE_ORDER.filter((id) => badgeCounts[id] > 0).map((id) => {
+              const count = badgeCounts[id]
               const badge = getBadge(id)
               if (!badge) return null
               const { Icon, label, description } = badge
@@ -113,6 +112,7 @@ export function CompletionView({
                 >
                   <Icon size={18} />
                   <span>{label}</span>
+                  <span className="badge-count">×{count}</span>
                 </div>
               )
             })}
@@ -122,88 +122,76 @@ export function CompletionView({
 
       {reviews.length > 0 && <ReviewBreakdown reviews={reviews} />}
 
-      {!isReview && (
-        <div
-          className={`completion-unlock ${isGuest ? 'locked' : unlocked ? 'unlocked' : 'locked'}`}
-        >
-          {isGuest ? (
-            <p>
-              <strong>Preview complete!</strong> Sign up free to unlock{' '}
-              {nextLessonTitle ?? 'the rest of the course'} and the other levels.
-            </p>
-          ) : courseComplete ? (
-            <p>
-              <strong>You finished the whole course.</strong> You can trace
-              variables, output, conditions, loops, and bugs.
-            </p>
-          ) : unlocked ? (
-            <p>
-              <strong>Next unlocked:</strong>{' '}
-              {nextLessonTitle ?? 'the next lesson'}
-            </p>
-          ) : (
-            <p>
-              <strong>Review recommended.</strong> Reach{' '}
-              {MASTERY_UNLOCK_THRESHOLD}% mastery to unlock the next lesson —
-              you're at {result.masteryScore}%.
-            </p>
-          )}
-        </div>
-      )}
+      {readiness && <NeetCodeReadinessPanel readiness={readiness} />}
+
+      <div
+        className={`completion-unlock ${isGuest ? 'locked' : unlocked ? 'unlocked' : 'locked'}`}
+      >
+        {isGuest ? (
+          <p>
+            <strong>Preview complete!</strong> Sign up free to unlock{' '}
+            {nextLessonTitle ?? 'the rest of the course'} and the other levels.
+          </p>
+        ) : courseComplete ? (
+          <p>
+            <strong>You finished all 6 core patterns.</strong> You&apos;re ready
+            to start NeetCode 150 — AlphaCode taught you the thinking; NeetCode
+            gives you the reps.
+          </p>
+        ) : unlocked ? (
+          <p>
+            <strong>Next unlocked:</strong>{' '}
+            {nextLessonTitle ?? 'the next lesson'}
+          </p>
+        ) : (
+          <p>
+            <strong>Keep reviewing.</strong> You&apos;re at {result.masteryScore}
+            % — reach {MASTERY_UNLOCK_THRESHOLD}% by getting missed questions
+            right. Each one you clear raises your score.
+          </p>
+        )}
+      </div>
 
       <div className="completion-actions">
-        {missedCount > 0 && (
-          <button className="btn lg" onClick={onRedoMissed}>
-            Redo missed ({missedCount})
-            <IconArrowRight size={18} />
-          </button>
-        )}
-
-        {isReview ? (
-          <button className="btn ghost lg" onClick={onReturn}>
-            Back to course
-          </button>
-        ) : isGuest ? (
+        {isGuest ? (
           <>
-            {missedCount === 0 && (
+            {canAdvance && (
               <Link className="btn lg lime" to="/auth">
                 Sign up to unlock
                 <IconArrowRight size={18} />
               </Link>
             )}
             <button className="btn ghost lg" onClick={onReplay}>
-              Play again
+              Restart quiz
+            </button>
+            <button className="btn ghost lg" onClick={onReturn}>
+              Back to course
             </button>
           </>
         ) : canAdvance ? (
           <>
-            {missedCount === 0 && (
-              <button className="btn lg lime" onClick={onNext}>
-                Next lesson
-                <IconArrowRight size={18} />
-              </button>
-            )}
+            <button className="btn lg lime" onClick={onNext}>
+              Next lesson
+              <IconArrowRight size={18} />
+            </button>
+            <button className="btn ghost lg" onClick={onReplay}>
+              Restart quiz
+            </button>
             <button className="btn ghost lg" onClick={onReturn}>
               Back to course
             </button>
           </>
         ) : (
           <>
-            <button className="btn ghost lg" onClick={onReturn}>
-              Return to course
-            </button>
             <button className="btn ghost lg" onClick={onReplay}>
-              Play again
+              Restart quiz
+            </button>
+            <button className="btn ghost lg" onClick={onReturn}>
+              Back to course
             </button>
           </>
         )}
       </div>
-
-      {!isReview && canAdvance && missedCount > 0 && (
-        <button className="btn-text" onClick={onNext}>
-          Skip review · go to {nextLessonTitle ?? 'next lesson'}
-        </button>
-      )}
 
       {isGuest && (
         <p className="completion-guest muted">

@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -17,7 +18,22 @@ import type {
 } from '../types/progress'
 import type { LessonSummary } from '../types/lesson'
 import { FIRST_LESSON_ID, LESSON_CATALOG } from '../content/catalog'
-import { meetsUnlockThreshold } from '../lib/mastery'
+import {
+  badgesUnlockedCount,
+  emptyBadgeCounts,
+  mergeBadgeCounts,
+  totalBadgeCount,
+  type BadgeCounts,
+} from '../content/badges'
+import { generateLesson } from '../content/lessons'
+import {
+  interactiveStepsForSection,
+  isLearnComplete,
+  normalizeLessonProgress,
+  withLearnCompletedFlag,
+} from '../lib/lessonSections'
+import { canUnlockNextLesson, hasEverMastered, markUnlockAchieved } from '../lib/mastery'
+import { mergeCompleted, mergeInProgress, mergeProgressStates } from '../lib/progressMerge'
 import { daysBetween, todayKey } from '../lib/dates'
 import { emptyState, loadLocal, removeLocal, saveLocal } from '../lib/localProgress'
 import {
@@ -47,48 +63,64 @@ type ProgressContextValue = {
   totalLessonsCount: number
   allLessonsComplete: boolean
   activeLessonId: string | null
-  earnedBadges: string[]
+  badgeCounts: BadgeCounts
+  totalBadgeCount: number
+  badgesUnlockedCount: number
   isLessonUnlocked: (lesson: LessonSummary) => boolean
   recordDailyActivity: () => void
   saveLessonProgress: (progress: LessonProgress) => void
   saveLessonReview: (lessonId: string, review: LessonReview) => void
   logAttempt: (attempt: AttemptRecord) => void
-  awardBadges: (badgeIds: string[]) => void
+  awardBadges: (counts: Partial<BadgeCounts>) => void
   resetLesson: (lessonId: string) => void
+  restartQuizProgress: (lessonId: string) => void
 }
 
 const ProgressContext = createContext<ProgressContextValue | null>(null)
 
 const warn = (e: unknown) => console.warn('[progress] cloud write failed', e)
 
-/**
- * Merge a new attempt into an already-completed lesson so reviewing/replaying
- * can only improve (or hold) progress — never lose it. Best metrics win.
- */
-function mergeCompleted(
-  existing: LessonProgress,
-  next: LessonProgress,
-): LessonProgress {
-  const completedStepIds = [
-    ...new Set([...existing.completedStepIds, ...next.completedStepIds]),
-  ]
-  return {
-    ...next,
-    status: 'completed',
-    completedStepIds,
-    correctCount: Math.max(existing.correctCount, next.correctCount),
-    correctFirstTry: Math.max(existing.correctFirstTry, next.correctFirstTry),
-    accuracy: Math.max(existing.accuracy, next.accuracy),
-    masteryScore: Math.max(existing.masteryScore, next.masteryScore),
-    unlockNextLesson: existing.unlockNextLesson || next.unlockNextLesson,
-    completedAt: existing.completedAt ?? next.completedAt,
-    wrongCount: existing.wrongCount + next.wrongCount,
-    totalAttempts: existing.totalAttempts + next.totalAttempts,
-    currentStepIndex: existing.currentStepIndex,
-    updatedAt: next.updatedAt ?? new Date().toISOString(),
-    // Keep the stored review snapshot unless a newer one is supplied.
-    lastReview: next.lastReview ?? existing.lastReview,
+function backfillLearnCompleted(state: ProgressState): ProgressState {
+  const lessons: ProgressState['lessons'] = {}
+  for (const [lessonId, progress] of Object.entries(state.lessons)) {
+    const normalized = normalizeLessonProgress(progress)
+    const lesson = generateLesson(lessonId)
+    if (!lesson) {
+      lessons[lessonId] = normalized
+      continue
+    }
+    lessons[lessonId] =
+      !normalized.learnCompleted && isLearnComplete(normalized, lesson)
+        ? { ...normalized, learnCompleted: true }
+        : normalized
   }
+  return { ...state, lessons }
+}
+
+/** Merge any quiz runs that saved badges before totals were updated. */
+function applyPendingLessonBadges(state: ProgressState): ProgressState {
+  let badgeCounts = state.badgeCounts ?? emptyBadgeCounts()
+  let changed = false
+  const lessons: ProgressState['lessons'] = {}
+  for (const [lessonId, progress] of Object.entries(state.lessons)) {
+    const pending = progress.pendingBadgeCounts
+    if (pending && totalBadgeCount(pending) > 0) {
+      badgeCounts = mergeBadgeCounts(badgeCounts, pending)
+      lessons[lessonId] = { ...progress, pendingBadgeCounts: undefined }
+      changed = true
+    } else {
+      lessons[lessonId] = progress
+    }
+  }
+  return changed ? { ...state, badgeCounts, lessons } : state
+}
+
+function hydrateProgressState(
+  state: ProgressState,
+  localBackup?: ProgressState,
+): ProgressState {
+  const next = localBackup ? mergeProgressStates(state, localBackup) : state
+  return applyPendingLessonBadges(backfillLearnCompleted(next))
 }
 
 function nextStreak(streak: StreakState): StreakState {
@@ -137,15 +169,23 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
         try {
           await ensureProfile(user)
           const cloud = await loadCloud(user.id)
+          const localBackup = loadLocal(user.id)
+          const hydrated = hydrateProgressState(cloud, localBackup)
           if (!cancelled) {
-            setState(cloud)
+            setState(hydrated)
             setReady(true)
+            if (
+              totalBadgeCount(hydrated.badgeCounts) >
+              totalBadgeCount(cloud.badgeCounts)
+            ) {
+              saveBadgesCloud(user.id, hydrated.badgeCounts).catch(warn)
+            }
           }
         } catch (e) {
           warn(e)
           if (!cancelled) {
             setCloudFailed(true)
-            setState(loadLocal(identityId))
+            setState(hydrateProgressState(loadLocal(identityId)))
             setReady(true)
           }
         } finally {
@@ -158,7 +198,7 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
         setState(emptyState())
         setReady(true)
       } else {
-        setState(loadLocal(identityId))
+        setState(hydrateProgressState(loadLocal(identityId)))
         setReady(true)
       }
     }
@@ -169,29 +209,34 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
     }
   }, [identityId, wantsCloud, user])
 
+  const getLessonProgress = useCallback(
+    (lessonId: string) => stateRef.current.lessons[lessonId],
+    [],
+  )
+
   const value = useMemo<ProgressContextValue>(() => {
     function commit(next: ProgressState) {
       stateRef.current = next
       setState(next)
-      if (!cloudActive && identityId) saveLocal(identityId, next)
+      if (identityId) saveLocal(identityId, next)
     }
 
     const variablesMastery = state.lessons[FIRST_LESSON_ID]?.masteryScore ?? 0
-    const completedLessons = Object.values(state.lessons).filter(
-      (l) => l.status === 'completed',
+    const masteredLessons = LESSON_CATALOG.map((l) => state.lessons[l.id]).filter(
+      (p): p is LessonProgress => !!p && hasEverMastered(p),
     )
-    const completedLessonsCount = completedLessons.length
+    const completedLessonsCount = masteredLessons.length
     const averageMastery = completedLessonsCount
       ? Math.round(
-          completedLessons.reduce((sum, l) => sum + l.masteryScore, 0) /
+          masteredLessons.reduce((sum, l) => sum + l.masteryScore, 0) /
             completedLessonsCount,
         )
       : 0
     const totalLessonsCount = LESSON_CATALOG.length
     const allLessonsComplete = completedLessonsCount >= totalLessonsCount
 
-    // Guests get a single-level preview; everything past lesson one needs an
-    // account, regardless of how well they did.
+    // Guests preview the first lesson's interactive section only; quiz and
+    // later lessons require an account.
     const isGuest = identityId === 'guest'
 
     const isUnlocked = (lesson: LessonSummary): boolean => {
@@ -199,18 +244,22 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       if (!req.previousLessonId) return true
       if (isGuest) return false
       const prev = state.lessons[req.previousLessonId]
-      if (!prev || prev.status !== 'completed') return false
+      if (!prev) return false
+      const prevLesson = generateLesson(req.previousLessonId)
+      if (prevLesson && !isLearnComplete(prev, prevLesson)) return false
       if (req.minimumMastery == null) return true
-      return meetsUnlockThreshold(prev.masteryScore)
+      return canUnlockNextLesson(prev)
     }
 
     const activeLessonId =
-      LESSON_CATALOG.find(
-        (l) =>
-          l.playable &&
-          isUnlocked(l) &&
-          state.lessons[l.id]?.status !== 'completed',
-      )?.id ?? null
+      LESSON_CATALOG.find((l) => {
+        if (!l.playable || !isUnlocked(l)) return false
+        const p = state.lessons[l.id]
+        const generated = generateLesson(l.id)
+        if (!generated) return false
+        if (!isLearnComplete(p, generated)) return true
+        return p?.status !== 'completed'
+      })?.id ?? null
 
     return {
       ready,
@@ -225,8 +274,10 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       totalLessonsCount,
       allLessonsComplete,
       activeLessonId,
-      earnedBadges: state.earnedBadges ?? [],
-      getLessonProgress: (lessonId) => state.lessons[lessonId],
+      badgeCounts: state.badgeCounts ?? emptyState().badgeCounts,
+      totalBadgeCount: totalBadgeCount(state.badgeCounts ?? emptyState().badgeCounts),
+      badgesUnlockedCount: badgesUnlockedCount(state.badgeCounts ?? emptyState().badgeCounts),
+      getLessonProgress,
       isLessonUnlocked: isUnlocked,
 
       setExperienceLevel: (level) => {
@@ -245,30 +296,60 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
 
       saveLessonProgress: (progress) => {
         const prev = stateRef.current
-        const existing = prev.lessons[progress.lessonId]
+        let progressToSave = progress
+        let badgeCounts = prev.badgeCounts ?? emptyBadgeCounts()
+        let badgesChanged = false
+
+        if (
+          progress.pendingBadgeCounts &&
+          totalBadgeCount(progress.pendingBadgeCounts) > 0
+        ) {
+          badgeCounts = mergeBadgeCounts(badgeCounts, progress.pendingBadgeCounts)
+          badgesChanged = true
+          const { pendingBadgeCounts: _pending, ...rest } = progress
+          progressToSave = rest as LessonProgress
+        }
+
+        const existing = prev.lessons[progressToSave.lessonId]
         // Once a lesson is completed, a later attempt (e.g. a review) can only
         // raise its stats, never lower them.
-        const merged =
+        const mergedRaw =
           existing?.status === 'completed'
-            ? mergeCompleted(existing, progress)
-            : progress
+            ? mergeCompleted(existing, progressToSave)
+            : existing
+              ? mergeInProgress(existing, progressToSave)
+              : progressToSave
+        const lesson = generateLesson(progressToSave.lessonId)
+        const merged = lesson
+          ? withLearnCompletedFlag(normalizeLessonProgress(mergedRaw), lesson)
+          : normalizeLessonProgress(mergedRaw)
         const streak = nextStreak(prev.streak)
         commit({
           ...prev,
+          badgeCounts,
           streak,
-          lessons: { ...prev.lessons, [progress.lessonId]: merged },
+          lessons: { ...prev.lessons, [progressToSave.lessonId]: merged },
         })
         if (cloudActive && userId) {
           upsertLessonCloud(userId, merged).catch(warn)
           saveStreakCloud(userId, streak).catch(warn)
+          if (badgesChanged) saveBadgesCloud(userId, badgeCounts).catch(warn)
         }
       },
 
       saveLessonReview: (lessonId, review) => {
         const prev = stateRef.current
         const existing = prev.lessons[lessonId]
+        const lesson = generateLesson(lessonId)
         if (!existing) return
-        const updated = { ...existing, lastReview: review }
+        const withReview: LessonProgress = {
+          ...existing,
+          lastReview: review,
+          unlockNextLesson: markUnlockAchieved(existing),
+        }
+        const updated = lesson
+          ? withLearnCompletedFlag(withReview, lesson)
+          : withReview
         commit({
           ...prev,
           lessons: { ...prev.lessons, [lessonId]: updated },
@@ -280,13 +361,12 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
         if (cloudActive && userId) insertAttemptCloud(userId, attempt).catch(warn)
       },
 
-      awardBadges: (badgeIds) => {
-        if (!badgeIds.length) return
+      awardBadges: (counts) => {
+        const add = mergeBadgeCounts(emptyState().badgeCounts, counts)
+        if (totalBadgeCount(add) === 0) return
         const prev = stateRef.current
-        const existing = prev.earnedBadges ?? []
-        const merged = [...new Set([...existing, ...badgeIds])]
-        if (merged.length === existing.length) return
-        commit({ ...prev, earnedBadges: merged })
+        const merged = mergeBadgeCounts(prev.badgeCounts ?? emptyState().badgeCounts, counts)
+        commit({ ...prev, badgeCounts: merged })
         if (cloudActive && userId) saveBadgesCloud(userId, merged).catch(warn)
       },
 
@@ -297,8 +377,50 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
         commit({ ...prev, lessons })
         if (cloudActive && userId) deleteLessonCloud(userId, lessonId).catch(warn)
       },
+
+      restartQuizProgress: (lessonId) => {
+        const prev = stateRef.current
+        const existing = prev.lessons[lessonId]
+        const lesson = generateLesson(lessonId)
+        if (!existing || !lesson || !isLearnComplete(existing, lesson)) return
+
+        const learnStepIds = new Set(
+          interactiveStepsForSection(lesson.steps, 'learn').map((s) => s.id),
+        )
+
+        const everMastered = markUnlockAchieved(existing)
+
+        const reset: LessonProgress = {
+          ...existing,
+          learnCompleted: true,
+          status: 'inProgress',
+          currentStepIndex: 0,
+          completedStepIds: existing.completedStepIds.filter((id) =>
+            learnStepIds.has(id),
+          ),
+          correctCount: 0,
+          wrongCount: 0,
+          totalAttempts: 0,
+          correctFirstTry: 0,
+          accuracy: 0,
+          masteryScore: 0,
+          unlockNextLesson: everMastered,
+          completedAt: undefined,
+          lastReview: undefined,
+          pendingBadgeCounts: undefined,
+          quizStepIndex: 0,
+          quizFrameIndex: 0,
+          updatedAt: new Date().toISOString(),
+        }
+
+        commit({
+          ...prev,
+          lessons: { ...prev.lessons, [lessonId]: reset },
+        })
+        if (cloudActive && userId) upsertLessonCloud(userId, reset).catch(warn)
+      },
     }
-  }, [state, ready, syncing, cloudActive, userId, identityId])
+  }, [state, ready, syncing, cloudActive, userId, identityId, getLessonProgress])
 
   return (
     <ProgressContext.Provider value={value}>{children}</ProgressContext.Provider>

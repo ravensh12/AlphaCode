@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LandingPage } from './pages/LandingPage'
 import { AuthPage } from './pages/AuthPage'
+import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { CourseHomePage } from './pages/CourseHomePage'
 import { LessonPage } from './pages/LessonPage'
@@ -13,6 +14,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/auth" element={<AuthPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route
         path="/onboarding"
         element={
@@ -38,7 +40,15 @@ export default function App() {
         }
       />
       <Route
-        path="/lesson/:lessonId"
+        path="/lesson/:lessonId/:section"
+      element={
+        <ProtectedRoute>
+          <LessonPage />
+        </ProtectedRoute>
+      }
+    />
+    <Route
+      path="/lesson/:lessonId"
         element={
           <ProtectedRoute>
             <LessonPage />

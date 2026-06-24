@@ -10,6 +10,13 @@ import type {
   StreakState,
 } from '../types/progress'
 import { emptyState } from './localProgress'
+import { generateLesson } from '../content/lessons'
+import { isLearnComplete, normalizeLessonProgress, withLearnCompletedFlag } from './lessonSections'
+import {
+  badgeCountsFromEarnedList,
+  normalizeBadgeCounts,
+  type BadgeCounts,
+} from '../content/badges'
 
 type LessonProgressRow = {
   lesson_id: string
@@ -26,11 +33,22 @@ type LessonProgressRow = {
   completed_at: string | null
   updated_at: string | null
   last_review?: LessonReview | null
+  learn_completed?: boolean | null
+  learn_step_index?: number | null
+  quiz_step_index?: number | null
+  learn_frame_index?: number | null
+  quiz_frame_index?: number | null
 }
 
 /** Columns guaranteed to exist in the original schema. */
 const CORE_LESSON_COLUMNS =
   'lesson_id, status, current_step_index, completed_step_ids, correct_count, wrong_count, total_attempts, correct_first_try, accuracy, mastery_score, unlock_next_lesson, completed_at, updated_at'
+
+const SECTION_LESSON_COLUMNS =
+  `${CORE_LESSON_COLUMNS}, learn_completed, learn_step_index, quiz_step_index, learn_frame_index, quiz_frame_index`
+
+const SECTION_BASE_COLUMNS =
+  `${CORE_LESSON_COLUMNS}, learn_completed, learn_step_index, quiz_step_index`
 
 function client() {
   if (!supabase) throw new Error('Supabase is not configured')
@@ -55,6 +73,11 @@ function rowToLessonProgress(row: LessonProgressRow): LessonProgress {
     completedAt: row.completed_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
     lastReview: row.last_review ?? undefined,
+    learnCompleted: row.learn_completed ?? undefined,
+    learnStepIndex: row.learn_step_index ?? undefined,
+    quizStepIndex: row.quiz_step_index ?? undefined,
+    learnFrameIndex: row.learn_frame_index ?? undefined,
+    quizFrameIndex: row.quiz_frame_index ?? undefined,
   }
 }
 
@@ -84,12 +107,6 @@ export async function loadCloud(userId: string): Promise<ProgressState> {
     .maybeSingle()
   if (profileRes.error) throw profileRes.error
 
-  const rowsRes = await sb
-    .from('lesson_progress')
-    .select(CORE_LESSON_COLUMNS)
-    .eq('user_id', userId)
-  if (rowsRes.error) throw rowsRes.error
-
   const state: ProgressState = emptyState()
 
   const profile = profileRes.data
@@ -103,8 +120,33 @@ export async function loadCloud(userId: string): Promise<ProgressState> {
     }
   }
 
-  for (const row of (rowsRes.data ?? []) as LessonProgressRow[]) {
-    state.lessons[row.lesson_id] = rowToLessonProgress(row)
+  const rowsRes = await sb
+    .from('lesson_progress')
+    .select(SECTION_LESSON_COLUMNS)
+    .eq('user_id', userId)
+  if (rowsRes.error) {
+    const sectionRes = await sb
+      .from('lesson_progress')
+      .select(SECTION_BASE_COLUMNS)
+      .eq('user_id', userId)
+    if (sectionRes.error) {
+      const fallback = await sb
+        .from('lesson_progress')
+        .select(CORE_LESSON_COLUMNS)
+        .eq('user_id', userId)
+      if (fallback.error) throw fallback.error
+      for (const row of (fallback.data ?? []) as LessonProgressRow[]) {
+        state.lessons[row.lesson_id] = rowToLessonProgress(row)
+      }
+    } else {
+      for (const row of (sectionRes.data ?? []) as LessonProgressRow[]) {
+        state.lessons[row.lesson_id] = rowToLessonProgress(row)
+      }
+    }
+  } else {
+    for (const row of (rowsRes.data ?? []) as LessonProgressRow[]) {
+      state.lessons[row.lesson_id] = rowToLessonProgress(row)
+    }
   }
 
   // Best-effort extras — these columns may not exist on older databases, so a
@@ -112,14 +154,19 @@ export async function loadCloud(userId: string): Promise<ProgressState> {
   try {
     const { data, error } = await sb
       .from('profiles')
-      .select('badges')
+      .select('badges, badge_counts')
       .eq('id', userId)
       .maybeSingle()
-    if (!error && data && Array.isArray(data.badges)) {
-      state.earnedBadges = data.badges
+    if (!error && data) {
+      const row = data as { badges?: string[] | null; badge_counts?: BadgeCounts | null }
+      if (row.badge_counts && typeof row.badge_counts === 'object') {
+        state.badgeCounts = normalizeBadgeCounts(row.badge_counts)
+      } else if (Array.isArray(row.badges)) {
+        state.badgeCounts = badgeCountsFromEarnedList(row.badges)
+      }
     }
   } catch {
-    /* badges column not present yet */
+    /* badge columns not present yet */
   }
 
   try {
@@ -135,6 +182,18 @@ export async function loadCloud(userId: string): Promise<ProgressState> {
     }
   } catch {
     /* last_review column not present yet */
+  }
+
+  // Backfill learnCompleted for rows saved before section flags existed.
+  for (const lessonId of Object.keys(state.lessons)) {
+    const lesson = generateLesson(lessonId)
+    if (!lesson) continue
+    const progress = normalizeLessonProgress(state.lessons[lessonId])
+    if (!progress.learnCompleted && isLearnComplete(progress, lesson)) {
+      state.lessons[lessonId] = { ...progress, learnCompleted: true }
+    } else {
+      state.lessons[lessonId] = progress
+    }
   }
 
   return state
@@ -167,40 +226,91 @@ export async function saveStreakCloud(
 
 export async function saveBadgesCloud(
   userId: string,
-  badges: string[],
+  counts: BadgeCounts,
 ): Promise<void> {
-  await client()
+  const normalized = normalizeBadgeCounts(counts)
+  const { error } = await client()
     .from('profiles')
-    .update({ badges, last_active_at: new Date().toISOString() })
+    .update({
+      badge_counts: normalized,
+      last_active_at: new Date().toISOString(),
+    })
     .eq('id', userId)
+
+  if (error) {
+    // Fallback for databases without badge_counts column yet.
+    const legacyIds = (Object.entries(normalized) as [keyof BadgeCounts, number][])
+      .flatMap(([id, n]) => Array.from({ length: n }, () => id))
+    await client()
+      .from('profiles')
+      .update({ badges: legacyIds, last_active_at: new Date().toISOString() })
+      .eq('id', userId)
+  }
 }
 
 export async function upsertLessonCloud(
   userId: string,
   p: LessonProgress,
 ): Promise<void> {
+  const lesson = generateLesson(p.lessonId)
+  const normalized = lesson ? withLearnCompletedFlag(p, lesson) : p
+
+  const payload = {
+    user_id: userId,
+    lesson_id: normalized.lessonId,
+    status: normalized.status,
+    current_step_index: normalized.currentStepIndex,
+    completed_step_ids: normalized.completedStepIds,
+    correct_count: normalized.correctCount,
+    wrong_count: normalized.wrongCount,
+    total_attempts: normalized.totalAttempts,
+    correct_first_try: normalized.correctFirstTry,
+    accuracy: normalized.accuracy,
+    mastery_score: normalized.masteryScore,
+    unlock_next_lesson: normalized.unlockNextLesson,
+    completed_at: normalized.completedAt ?? null,
+    updated_at: new Date().toISOString(),
+    learn_completed: normalized.learnCompleted === true,
+    learn_step_index: normalized.learnStepIndex ?? null,
+    quiz_step_index: normalized.quizStepIndex ?? null,
+    learn_frame_index: normalized.learnFrameIndex ?? null,
+    quiz_frame_index: normalized.quizFrameIndex ?? null,
+  }
+
   // Core write — must succeed for progress to persist.
-  const { error } = await client()
+  let { error } = await client()
     .from('lesson_progress')
-    .upsert(
-      {
-        user_id: userId,
-        lesson_id: p.lessonId,
-        status: p.status,
-        current_step_index: p.currentStepIndex,
-        completed_step_ids: p.completedStepIds,
-        correct_count: p.correctCount,
-        wrong_count: p.wrongCount,
-        total_attempts: p.totalAttempts,
-        correct_first_try: p.correctFirstTry,
-        accuracy: p.accuracy,
-        mastery_score: p.masteryScore,
-        unlock_next_lesson: p.unlockNextLesson,
-        completed_at: p.completedAt ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id,lesson_id' },
-    )
+    .upsert(payload, { onConflict: 'user_id,lesson_id' })
+
+  if (error) {
+    const { learn_frame_index, quiz_frame_index, ...withoutFrames } = payload
+    void learn_frame_index
+    void quiz_frame_index
+    ;({ error } = await client()
+      .from('lesson_progress')
+      .upsert(withoutFrames, { onConflict: 'user_id,lesson_id' }))
+  }
+
+  if (error) {
+    // Older databases may not have section columns yet — still save core progress.
+    const {
+      learn_completed,
+      learn_step_index,
+      quiz_step_index,
+      learn_frame_index,
+      quiz_frame_index,
+      ...core
+    } = payload
+    void learn_completed
+    void learn_step_index
+    void quiz_step_index
+    void learn_frame_index
+    void quiz_frame_index
+    ;({ error } = await client()
+      .from('lesson_progress')
+      .upsert(core, { onConflict: 'user_id,lesson_id' }))
+  }
+
   if (error) throw error
 
   // Best-effort: store the review snapshot if the column exists. A missing

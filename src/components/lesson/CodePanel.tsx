@@ -1,11 +1,9 @@
-import { Fragment } from 'react'
+import { Fragment, useLayoutEffect, useRef, useState } from 'react'
 
 type Token = { text: string; kind: 'var' | 'num' | 'op' | 'plain' }
 
 function tokenize(line: string): Token[] {
   const tokens: Token[] = []
-  // Order matters: multi-char operators first, then a catch-all so nothing
-  // (parentheses, colons, commas, etc.) is ever silently dropped.
   const re = /(\d+)|([A-Za-z_]\w*)|(==|!=|<=|>=|[=+\-*/%<>])|(\s+)|(.)/g
   let m: RegExpExecArray | null
   while ((m = re.exec(line)) !== null) {
@@ -21,14 +19,42 @@ function tokenize(line: string): Token[] {
 export function CodePanel({
   code,
   currentLineIndex,
+  prevLineIndex,
   showRunHint,
+  animated,
+  motion,
 }: {
   code: string[]
   currentLineIndex?: number
+  prevLineIndex?: number
   showRunHint?: boolean
+  animated?: boolean
+  motion?: boolean
 }) {
+  const lineRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [band, setBand] = useState<{ top: number; height: number } | null>(null)
+  const slideHighlight =
+    animated &&
+    currentLineIndex != null &&
+    prevLineIndex != null &&
+    prevLineIndex !== currentLineIndex
+
+  useLayoutEffect(() => {
+    if (currentLineIndex == null) {
+      setBand(null)
+      return
+    }
+    const line = lineRefs.current[currentLineIndex]
+    if (!line) return
+    setBand({ top: line.offsetTop, height: line.offsetHeight })
+  }, [currentLineIndex, code, showRunHint])
+
   return (
-    <div className="code-panel" role="img" aria-label="Python code">
+    <div
+      className={`code-panel ${animated ? 'code-panel-animated' : ''} ${motion ? 'code-panel-motion' : ''} ${slideHighlight ? 'code-panel-slide-highlight' : ''}`}
+      role="img"
+      aria-label="Python code"
+    >
       <div className="code-panel-bar" aria-hidden="true">
         <span className="code-dot" />
         <span className="code-dot" />
@@ -36,12 +62,22 @@ export function CodePanel({
         <span className="code-filename">main.py</span>
       </div>
       <pre className="code-lines">
+        {slideHighlight && band && (
+          <div
+            className="code-line-band"
+            aria-hidden="true"
+            style={{ top: band.top, height: band.height }}
+          />
+        )}
         {code.map((line, i) => {
           const active = i === currentLineIndex
           return (
             <div
               key={i}
-              className={`code-line ${active ? 'active' : ''}`}
+              ref={(el) => {
+                lineRefs.current[i] = el
+              }}
+              className={`code-line ${active ? 'active' : ''} ${animated && active ? 'active-animated' : ''}`}
             >
               <span className="code-ln">{i + 1}</span>
               <code className="code-text">

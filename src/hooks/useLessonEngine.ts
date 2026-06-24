@@ -1,15 +1,18 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { Lesson, LessonStep, VariableValue } from '../types/lesson'
 import type { AttemptRecord, LessonProgress } from '../types/progress'
-import { computeMastery, meetsUnlockThreshold } from '../lib/mastery'
+import { computeQuizMastery, meetsUnlockThreshold } from '../lib/mastery'
+import { resolveStepFrame } from '../content/lessons/traces'
 import {
+  BADGE_ORDER,
+  computeBadgeCounts,
   speedTier,
-  SPEED_DEMON_THRESHOLD,
+  type BadgeCounts,
   type BadgeId,
   type SpeedTier,
 } from '../content/badges'
 
-export type FeedbackKind = 'correct' | 'incorrect'
+export type FeedbackKind = 'correct' | 'incorrect' | 'revealed'
 export type Feedback = { kind: FeedbackKind; text: string } | null
 export type StepPhase = 'ready' | 'answering' | 'solved' | 'failed'
 
@@ -34,7 +37,9 @@ export type LessonResult = {
   totalAttempts: number
   correctFirstTry: number
   unlockNext: boolean
-  /** Distinct badges earned during this lesson run. */
+  /** Badges earned this run — counts per type. */
+  badgeCounts: BadgeCounts
+  /** Badge types earned this run (non-zero counts). */
   badges: BadgeId[]
   /** Per-step breakdown of correct vs. missed answers. */
   stepReviews: StepReview[]
@@ -51,25 +56,105 @@ type Aggregates = {
   quickCount: number
 }
 
-function computeBadges(a: Aggregates, interactiveTotal: number): BadgeId[] {
-  const badges: BadgeId[] = []
-  if (a.lightningCount > 0) badges.push('lightning')
-  if (a.quickCount > 0) badges.push('quick')
-  if (a.lightningCount >= SPEED_DEMON_THRESHOLD) badges.push('speed-demon')
-  if (interactiveTotal > 0 && a.correctFirstTry >= interactiveTotal) {
-    badges.push('flawless')
-  }
-  return badges
+function badgeIdsFromCounts(counts: BadgeCounts): BadgeId[] {
+  return BADGE_ORDER.filter((id) => counts[id] > 0)
 }
 
 function isMatch(expected: VariableValue, got: string): boolean {
-  return String(expected) === got.trim()
+  const a = String(expected).trim()
+  const b = got.trim()
+  if (typeof expected === 'string' && Number.isNaN(Number(expected))) {
+    return a.toLowerCase() === b.toLowerCase()
+  }
+  return a === b
+}
+
+function isPassiveStep(type: LessonStep['type']): boolean {
+  return (
+    type === 'intro' ||
+    type === 'concept' ||
+    type === 'explore' ||
+    type === 'demonstration' ||
+    type === 'thinkCheck' ||
+    type === 'quizIntro'
+  )
+}
+
+function isInteractiveStep(type: LessonStep['type']): boolean {
+  return !isPassiveStep(type)
+}
+
+function isTraceStep(step: LessonStep): boolean {
+  return (step.traceFrames?.length ?? 0) > 0
+}
+
+function interactiveUnits(step: LessonStep): number {
+  if (!isInteractiveStep(step.type)) return 0
+  return step.traceFrames?.length ?? 1
+}
+
+function isDirectAnswerStep(type: LessonStep['type']): boolean {
+  return type === 'teachCheck' || type === 'reflection' || type === 'lessonPractice'
+}
+
+function isCheckpointStep(step: LessonStep): boolean {
+  return step.type === 'lessonPractice'
 }
 
 function freshBoxes(step: LessonStep): Record<string, string> {
   const boxes: Record<string, string> = {}
   for (const v of step.targetVariables) boxes[v] = ''
   return boxes
+}
+
+function expectedBoxes(step: LessonStep): Record<string, string> {
+  const boxes: Record<string, string> = {}
+  for (const v of step.targetVariables) {
+    boxes[v] = String(step.expectedState[v])
+  }
+  return boxes
+}
+
+function formatExpectedAnswer(step: LessonStep): string {
+  return step.targetVariables
+    .map((t) => {
+      const val = step.expectedState[t]
+      if (step.targetVariables.length === 1 && t === 'answer') return String(val)
+      return `${t} = ${val}`
+    })
+    .join(', ')
+}
+
+function revealFeedback(step: LessonStep): Feedback {
+  return {
+    kind: 'revealed',
+    text: `The answer is ${formatExpectedAnswer(step)}. Counted as a miss — you'll see this in your review.`,
+  }
+}
+
+export type ProgressSegmentState = 'todo' | 'now' | 'correct' | 'wrong'
+
+function globalUnitIndex(
+  steps: LessonStep[],
+  stepIndex: number,
+  frameIndex: number,
+): number {
+  let idx = 0
+  for (let i = 0; i < stepIndex; i++) {
+    idx += interactiveUnits(steps[i])
+  }
+  return idx + frameIndex
+}
+
+function recordUnitOutcome(
+  prev: (('correct' | 'wrong') | null)[],
+  unitIdx: number,
+  missed: boolean,
+): (('correct' | 'wrong') | null)[] {
+  const next = [...prev]
+  while (next.length <= unitIdx) next.push(null)
+  next[unitIdx] = missed ? 'wrong' : 'correct'
+  return next
 }
 
 export type LessonEngine = {
@@ -79,7 +164,8 @@ export type LessonEngine = {
   /** 1-based count of completed interactive steps, for the progress bar. */
   progressCurrent: number
   progressTotal: number
-  isIntro: boolean
+  progressSegments: ProgressSegmentState[]
+  isPassive: boolean
   isComplete: boolean
   phase: StepPhase
   boxValues: Record<string, string>
@@ -87,10 +173,30 @@ export type LessonEngine = {
   errorVars: string[]
   feedback: Feedback
   stepAttempts: number
+  /** True when the step was completed after the answer was revealed. */
+  answerRevealed: boolean
   allFilled: boolean
   /** Speed badge earned on the step just solved (for an in-lesson flash). */
   lastStepBadge: SpeedTier
+  /** Resolved step for the current trace frame (or the step itself). */
+  displayStep: LessonStep
+  frameIndex: number
+  frameCount: number
+  isTrace: boolean
   result: LessonResult | null
+  completedStepIds: string[]
+  /** Shown after a checkpoint rewind — review the slides above. */
+  rewindNotice: string | null
+  /** Live run stats for persisting mid-section progress. */
+  progressSnapshot: {
+    correctCount: number
+    wrongCount: number
+    totalAttempts: number
+    correctFirstTry: number
+    completedStepIds: string[]
+    accuracy: number
+    masteryScore: number
+  }
   // actions
   runStep: () => void
   setActiveVar: (v: string) => void
@@ -98,6 +204,8 @@ export type LessonEngine = {
   fillActive: (value: string) => void
   check: () => void
   next: () => void
+  prev: () => void
+  canGoPrev: boolean
   restartStep: () => void
   restart: () => void
 }
@@ -105,43 +213,61 @@ export type LessonEngine = {
 export function useLessonEngine(
   lesson: Lesson,
   options?: {
+    /** Which section is running — used to persist frame position. */
+    section?: 'learn' | 'quiz'
     initialProgress?: LessonProgress
+    /** Frame to resume within the current step (for trace walkthroughs). */
+    initialFrameIndex?: number
     /** When false, always start at step 0 instead of resuming saved progress. */
     resume?: boolean
+    /** When false, finishing steps marks section done but not lesson completed. */
+    completeAsLesson?: boolean
+    /** When set, fires after each non-revealed correct answer during review. */
+    reviewMode?: {
+      onStepCleared: (stepId: string) => void
+    }
     onSave?: (progress: LessonProgress) => void
     onAttempt?: (attempt: AttemptRecord) => void
   },
 ): LessonEngine {
   const interactiveTotal = useMemo(
-    () => lesson.steps.filter((s) => s.type !== 'intro').length,
+    () => lesson.steps.reduce((sum, s) => sum + interactiveUnits(s), 0),
     [lesson],
   )
 
   const resume =
-    options?.resume !== false &&
-    options?.initialProgress &&
-    options.initialProgress.status === 'inProgress'
+    options?.resume !== false && options?.initialProgress
       ? options.initialProgress
       : undefined
 
   const [stepIndex, setStepIndex] = useState(resume?.currentStepIndex ?? 0)
-  const [phase, setPhase] = useState<StepPhase>('ready')
+  const [frameIndex, setFrameIndex] = useState(options?.initialFrameIndex ?? 0)
+  const startStep = lesson.steps[resume?.currentStepIndex ?? 0]
+  const startDisplay = startStep ? resolveStepFrame(startStep, 0) : startStep
+  const [phase, setPhase] = useState<StepPhase>(() =>
+    startDisplay && isDirectAnswerStep(startDisplay.type) ? 'answering' : 'ready',
+  )
   const [boxValues, setBoxValues] = useState<Record<string, string>>(() =>
-    freshBoxes(lesson.steps[resume?.currentStepIndex ?? 0]),
+    freshBoxes(startDisplay ?? lesson.steps[0]),
   )
   const [activeVar, setActiveVarState] = useState<string | null>(
-    () => lesson.steps[resume?.currentStepIndex ?? 0]?.targetVariables[0] ?? null,
+    () => startDisplay?.targetVariables[0] ?? null,
   )
   const [errorVars, setErrorVars] = useState<string[]>([])
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [stepAttempts, setStepAttempts] = useState(0)
+  const [answerRevealed, setAnswerRevealed] = useState(false)
   // true once the learner has had to retry this level — blocks first-try credit
   const [stepFailedOnce, setStepFailedOnce] = useState(false)
   const [lastStepBadge, setLastStepBadge] = useState<SpeedTier>(null)
   const [isComplete, setIsComplete] = useState(false)
   const [result, setResult] = useState<LessonResult | null>(null)
+  const [rewindNotice, setRewindNotice] = useState<string | null>(null)
+  const [unitOutcomes, setUnitOutcomes] = useState<(('correct' | 'wrong') | null)[]>([])
   // When the current answer UI became available — used to time responses.
-  const answerStartRef = useRef(0)
+  const answerStartRef = useRef(
+    startStep && isDirectAnswerStep(startStep.type) ? performance.now() : 0,
+  )
   // How many times each step was answered wrong, for the review breakdown.
   const wrongByStepRef = useRef<Record<string, number>>({})
   const [agg, setAgg] = useState<Aggregates>({
@@ -155,7 +281,13 @@ export function useLessonEngine(
   })
 
   const step = lesson.steps[stepIndex]
-  const isIntro = step?.type === 'intro'
+  const frameCount = step?.traceFrames?.length ?? 1
+  const displayStep = useMemo(
+    () => (step ? resolveStepFrame(step, frameIndex) : step),
+    [step, frameIndex],
+  )
+  const isTrace = isTraceStep(step ?? lesson.steps[0])
+  const isPassive = isPassiveStep(step?.type ?? 'intro')
 
   const buildResult = useCallback(
     (a: Aggregates): LessonResult => {
@@ -163,13 +295,9 @@ export function useLessonEngine(
         a.totalAttempts > 0
           ? Math.round((a.correctCount / a.totalAttempts) * 100)
           : 0
-      const masteryScore = computeMastery({
-        correctFirstTry: a.correctFirstTry,
-        completedSteps: a.completedStepIds.length,
-        wrongAttempts: a.wrongCount,
-      })
+      const masteryScore = computeQuizMastery(a.correctFirstTry, interactiveTotal)
       const stepReviews: StepReview[] = lesson.steps
-        .filter((s) => s.type !== 'intro')
+        .filter((s) => isInteractiveStep(s.type) && s.targetVariables.length > 0)
         .map((s) => ({
           id: s.id,
           prompt: s.prompt,
@@ -181,14 +309,18 @@ export function useLessonEngine(
           ),
           missed: (wrongByStepRef.current[s.id] ?? 0) > 0,
         }))
+      const missedAny = stepReviews.some((s) => s.missed)
+
+      const badgeCounts = computeBadgeCounts(a, interactiveTotal)
 
       return {
         accuracy,
         masteryScore,
         totalAttempts: a.totalAttempts,
         correctFirstTry: a.correctFirstTry,
-        unlockNext: meetsUnlockThreshold(masteryScore),
-        badges: computeBadges(a, interactiveTotal),
+        unlockNext: meetsUnlockThreshold(masteryScore) && !missedAny,
+        badgeCounts,
+        badges: badgeIdsFromCounts(badgeCounts),
         stepReviews,
       }
     },
@@ -196,10 +328,12 @@ export function useLessonEngine(
   )
 
   const persist = useCallback(
-    (a: Aggregates, nextIndex: number, complete: boolean) => {
+    (a: Aggregates, nextIndex: number, complete: boolean, nextFrameIndex?: number) => {
       if (!options?.onSave) return
       const r = buildResult(a)
       const now = new Date().toISOString()
+      const frameIdx = nextFrameIndex ?? frameIndex
+      const section = options?.section
       options.onSave({
         lessonId: lesson.id,
         status: complete ? 'completed' : 'inProgress',
@@ -214,25 +348,61 @@ export function useLessonEngine(
         unlockNextLesson: complete && r.unlockNext,
         completedAt: complete ? now : undefined,
         updatedAt: now,
+        ...(section === 'learn'
+          ? { learnFrameIndex: frameIdx, learnStepIndex: nextIndex }
+          : section === 'quiz'
+            ? { quizFrameIndex: frameIdx, quizStepIndex: nextIndex }
+            : {}),
       })
     },
-    [buildResult, lesson.id, options],
+    [buildResult, lesson.id, options, frameIndex],
   )
 
   const goToStep = useCallback(
-    (index: number) => {
+    (index: number, opts?: { notice?: string; frameIndex?: number }) => {
       const target = lesson.steps[index]
+      if (!target) return
+      const maxFrame = Math.max(0, (target.traceFrames?.length ?? 1) - 1)
+      const fi =
+        opts?.frameIndex != null
+          ? Math.min(Math.max(0, opts.frameIndex), maxFrame)
+          : 0
+      const resolved = resolveStepFrame(target, fi)
+      const directAnswer = isDirectAnswerStep(resolved.type)
       setStepIndex(index)
-      setPhase('ready')
-      setBoxValues(target ? freshBoxes(target) : {})
-      setActiveVarState(target?.targetVariables[0] ?? null)
+      setFrameIndex(fi)
+      setPhase(directAnswer ? 'answering' : 'ready')
+      setBoxValues(freshBoxes(resolved))
+      setActiveVarState(resolved.targetVariables[0] ?? null)
       setErrorVars([])
       setFeedback(null)
       setStepAttempts(0)
+      setAnswerRevealed(false)
       setStepFailedOnce(false)
       setLastStepBadge(null)
+      setRewindNotice(opts?.notice ?? null)
+      if (directAnswer) answerStartRef.current = performance.now()
     },
     [lesson],
+  )
+
+  const goToFrame = useCallback(
+    (index: number) => {
+      const resolved = resolveStepFrame(step, index)
+      const directAnswer = isDirectAnswerStep(resolved.type)
+      setFrameIndex(index)
+      setPhase(directAnswer ? 'answering' : 'ready')
+      setBoxValues(freshBoxes(resolved))
+      setActiveVarState(resolved.targetVariables[0] ?? null)
+      setErrorVars([])
+      setFeedback(null)
+      setStepAttempts(0)
+      setAnswerRevealed(false)
+      setStepFailedOnce(false)
+      setLastStepBadge(null)
+      if (directAnswer) answerStartRef.current = performance.now()
+    },
+    [step],
   )
 
   const runStep = useCallback(() => {
@@ -242,14 +412,15 @@ export function useLessonEngine(
 
   const restartStep = useCallback(() => {
     setPhase('ready')
-    setBoxValues(freshBoxes(step))
-    setActiveVarState(step.targetVariables[0] ?? null)
+    setBoxValues(freshBoxes(displayStep))
+    setActiveVarState(displayStep.targetVariables[0] ?? null)
     setErrorVars([])
     setFeedback(null)
     setStepAttempts(0)
+    setAnswerRevealed(false)
     setStepFailedOnce(true)
     setLastStepBadge(null)
-  }, [step])
+  }, [displayStep])
 
   const setActiveVar = useCallback((v: string) => setActiveVarState(v), [])
 
@@ -262,13 +433,12 @@ export function useLessonEngine(
   const fillActive = useCallback(
     (value: string) => {
       setBoxValues((prev) => {
-        const targets = step.targetVariables
+        const targets = displayStep.targetVariables
         const target =
           activeVar && targets.includes(activeVar)
             ? activeVar
             : (targets.find((t) => !prev[t]) ?? targets[0])
         const updated = { ...prev, [target]: value }
-        // advance focus to next empty target for a smooth flow
         const nextEmpty = targets.find((t) => !updated[t])
         if (nextEmpty) setActiveVarState(nextEmpty)
         return updated
@@ -276,24 +446,23 @@ export function useLessonEngine(
       setErrorVars([])
       setFeedback(null)
     },
-    [activeVar, step],
+    [activeVar, displayStep],
   )
 
   const allFilled = useMemo(
-    () => step?.targetVariables.every((t) => boxValues[t]?.trim().length) ?? false,
-    [step, boxValues],
+    () => displayStep?.targetVariables.every((t) => boxValues[t]?.trim().length) ?? false,
+    [displayStep, boxValues],
   )
 
   const check = useCallback(() => {
-    const wrong = step.targetVariables.filter(
-      (t) => !isMatch(step.expectedState[t], boxValues[t] ?? ''),
+    const wrong = displayStep.targetVariables.filter(
+      (t) => !isMatch(displayStep.expectedState[t], boxValues[t] ?? ''),
     )
     const allCorrect = wrong.length === 0
     if (!allCorrect) {
       wrongByStepRef.current[step.id] = (wrongByStepRef.current[step.id] ?? 0) + 1
     }
 
-    // Speed badge only counts when solved correctly on the first try.
     const firstTry = stepAttempts === 0 && !stepFailedOnce
     const tier: SpeedTier =
       allCorrect && firstTry
@@ -303,9 +472,9 @@ export function useLessonEngine(
     if (options?.onAttempt) {
       const submitted: Record<string, VariableValue> = {}
       const expected: Record<string, VariableValue> = {}
-      for (const t of step.targetVariables) {
+      for (const t of displayStep.targetVariables) {
         submitted[t] = boxValues[t] ?? ''
-        expected[t] = step.expectedState[t]
+        expected[t] = displayStep.expectedState[t]
       }
       options.onAttempt({
         lessonId: lesson.id,
@@ -317,6 +486,8 @@ export function useLessonEngine(
         createdAt: new Date().toISOString(),
       })
     }
+
+    const onLastFrame = !isTrace || frameIndex >= frameCount - 1
 
     setAgg((prev) => {
       const nextAgg: Aggregates = {
@@ -330,51 +501,184 @@ export function useLessonEngine(
         }
         if (tier === 'lightning') nextAgg.lightningCount = prev.lightningCount + 1
         else if (tier === 'quick') nextAgg.quickCount = prev.quickCount + 1
-        if (!prev.completedStepIds.includes(step.id)) {
+        if (onLastFrame && !prev.completedStepIds.includes(step.id)) {
           nextAgg.completedStepIds = [...prev.completedStepIds, step.id]
         }
       } else {
         nextAgg.wrongCount = prev.wrongCount + 1
+        const attemptsNow = stepAttempts + 1
+        if (
+          attemptsNow >= MISTAKES_BEFORE_RESTART &&
+          onLastFrame &&
+          !prev.completedStepIds.includes(step.id) &&
+          !isCheckpointStep(step)
+        ) {
+          nextAgg.completedStepIds = [...prev.completedStepIds, step.id]
+        }
       }
       return nextAgg
     })
 
     if (allCorrect) {
+      const unitIdx = globalUnitIndex(lesson.steps, stepIndex, frameIndex)
+      const missed = stepAttempts > 0 || stepFailedOnce
+      setUnitOutcomes((prev) => recordUnitOutcome(prev, unitIdx, missed))
+      setAnswerRevealed(false)
       setPhase('solved')
       setErrorVars([])
       setLastStepBadge(tier)
-      setFeedback({ kind: 'correct', text: step.feedback.correct })
+      setFeedback({ kind: 'correct', text: displayStep.feedback.correct })
       return
     }
 
     const attemptsNow = stepAttempts + 1
-    const text =
-      attemptsNow >= MISTAKES_BEFORE_RESTART && step.feedback.secondIncorrect
-        ? step.feedback.secondIncorrect
-        : step.feedback.incorrect
-    setFeedback({ kind: 'incorrect', text })
-    setErrorVars(wrong)
     setStepAttempts(attemptsNow)
-    if (attemptsNow >= MISTAKES_BEFORE_RESTART) setPhase('failed')
-  }, [step, boxValues, stepAttempts, stepFailedOnce, lesson.id, options])
+
+    if (attemptsNow >= MISTAKES_BEFORE_RESTART) {
+      if (isCheckpointStep(step) && step.checkpointStartStepId) {
+        const startIdx = lesson.steps.findIndex(
+          (s) => s.id === step.checkpointStartStepId,
+        )
+        setStepAttempts(attemptsNow)
+        setFeedback({
+          kind: 'incorrect',
+          text:
+            displayStep.feedback.secondIncorrect ??
+            'Review the slides above, then try this question again.',
+        })
+        if (startIdx >= 0) {
+          setAgg((currentAgg) => {
+            persist(currentAgg, startIdx, false, 0)
+            return currentAgg
+          })
+          goToStep(startIdx, {
+            notice:
+              displayStep.feedback.secondIncorrect ??
+              'Review the slides above, then try the practice question again.',
+          })
+        }
+        return
+      }
+
+      const unitIdx = globalUnitIndex(lesson.steps, stepIndex, frameIndex)
+      setUnitOutcomes((prev) => recordUnitOutcome(prev, unitIdx, true))
+      setBoxValues(expectedBoxes(displayStep))
+      setErrorVars(displayStep.targetVariables)
+      setAnswerRevealed(true)
+      setPhase('solved')
+      setFeedback(revealFeedback(displayStep))
+      return
+    }
+
+    setFeedback({ kind: 'incorrect', text: displayStep.feedback.incorrect })
+    setErrorVars(wrong)
+  }, [
+    displayStep,
+    step,
+    boxValues,
+    stepAttempts,
+    stepFailedOnce,
+    lesson.id,
+    options,
+    isTrace,
+    frameIndex,
+    frameCount,
+    goToStep,
+    lesson.steps,
+    persist,
+  ])
 
   const next = useCallback(() => {
+    if (isTrace && frameIndex < frameCount - 1) {
+      const nextFi = frameIndex + 1
+      goToFrame(nextFi)
+      setAgg((currentAgg) => {
+        persist(currentAgg, stepIndex, false, nextFi)
+        return currentAgg
+      })
+      return
+    }
+
+    if (options?.reviewMode && !answerRevealed && step) {
+      options.reviewMode.onStepCleared(step.id)
+    }
+
     const nextIndex = stepIndex + 1
     const willComplete = nextIndex >= lesson.steps.length
+    const markLessonComplete =
+      options?.completeAsLesson !== false && willComplete
 
     if (willComplete) {
-      const r = buildResult(agg)
-      setResult(r)
-      setIsComplete(true)
-      persist(agg, stepIndex, true)
+      setAgg((currentAgg) => {
+        const r = buildResult(currentAgg)
+        setResult(r)
+        setIsComplete(true)
+        persist(currentAgg, stepIndex, markLessonComplete, frameIndex)
+        return currentAgg
+      })
     } else {
-      persist(agg, nextIndex, false)
+      setAgg((currentAgg) => {
+        persist(currentAgg, nextIndex, false, 0)
+        return currentAgg
+      })
       goToStep(nextIndex)
     }
-  }, [stepIndex, lesson.steps.length, agg, goToStep, persist, buildResult])
+  }, [
+    isTrace,
+    frameIndex,
+    frameCount,
+    goToFrame,
+    stepIndex,
+    lesson.steps.length,
+    goToStep,
+    persist,
+    buildResult,
+    options?.completeAsLesson,
+    options?.reviewMode,
+    answerRevealed,
+    step,
+  ])
+
+  const canGoPrev = stepIndex > 0 || (isTrace && frameIndex > 0)
+
+  const prev = useCallback(() => {
+    if (isComplete || !canGoPrev) return
+
+    if (isTrace && frameIndex > 0) {
+      const prevFi = frameIndex - 1
+      goToFrame(prevFi)
+      setAgg((currentAgg) => {
+        persist(currentAgg, stepIndex, false, prevFi)
+        return currentAgg
+      })
+      return
+    }
+
+    const prevIndex = stepIndex - 1
+    const prevStep = lesson.steps[prevIndex]
+    const prevFrameCount = prevStep?.traceFrames?.length ?? 1
+    const landFrame = Math.max(0, prevFrameCount - 1)
+
+    setAgg((currentAgg) => {
+      persist(currentAgg, prevIndex, false, landFrame)
+      return currentAgg
+    })
+    goToStep(prevIndex, { frameIndex: landFrame })
+  }, [
+    isComplete,
+    canGoPrev,
+    isTrace,
+    frameIndex,
+    stepIndex,
+    lesson.steps,
+    goToFrame,
+    goToStep,
+    persist,
+  ])
 
   const restart = useCallback(() => {
     wrongByStepRef.current = {}
+    setUnitOutcomes([])
     setAgg({
       correctCount: 0,
       wrongCount: 0,
@@ -390,15 +694,59 @@ export function useLessonEngine(
   }, [goToStep])
 
   const progressTotal = interactiveTotal
-  const progressCurrent = agg.completedStepIds.length
+  const progressNowIndex = useMemo(() => {
+    let count = 0
+    for (let i = 0; i < stepIndex; i++) {
+      count += interactiveUnits(lesson.steps[i])
+    }
+    if (step && isInteractiveStep(step.type)) {
+      count += frameIndex
+    }
+    return count
+  }, [stepIndex, frameIndex, lesson.steps, step])
+
+  const progressCurrent = useMemo(() => {
+    if (step && isInteractiveStep(step.type)) {
+      return progressNowIndex + (phase === 'solved' ? 1 : 0)
+    }
+    return progressNowIndex
+  }, [progressNowIndex, phase, step])
+
+  const progressSegments = useMemo((): ProgressSegmentState[] => {
+    return Array.from({ length: progressTotal }, (_, i) => {
+      const outcome = unitOutcomes[i]
+      if (outcome === 'correct') return 'correct'
+      if (outcome === 'wrong') return 'wrong'
+      if (phase !== 'solved' && i === progressNowIndex) return 'now'
+      return 'todo'
+    })
+  }, [progressTotal, unitOutcomes, phase, progressNowIndex])
+
+  const progressSnapshot = useMemo(() => {
+    const r = buildResult(agg)
+    return {
+      correctCount: agg.correctCount,
+      wrongCount: agg.wrongCount,
+      totalAttempts: agg.totalAttempts,
+      correctFirstTry: agg.correctFirstTry,
+      completedStepIds: agg.completedStepIds,
+      accuracy: r.accuracy,
+      masteryScore: r.masteryScore,
+    }
+  }, [agg, buildResult])
 
   return {
     step,
+    displayStep,
+    frameIndex,
+    frameCount,
+    isTrace,
     stepIndex,
     totalSteps: lesson.steps.length,
     progressCurrent,
     progressTotal,
-    isIntro,
+    progressSegments,
+    isPassive,
     isComplete,
     phase,
     boxValues,
@@ -406,15 +754,21 @@ export function useLessonEngine(
     errorVars,
     feedback,
     stepAttempts,
+    answerRevealed,
     allFilled,
     lastStepBadge,
     result,
+    completedStepIds: agg.completedStepIds,
+    rewindNotice,
+    progressSnapshot,
     runStep,
     setActiveVar,
     setBox,
     fillActive,
     check,
     next,
+    prev,
+    canGoPrev,
     restartStep,
     restart,
   }

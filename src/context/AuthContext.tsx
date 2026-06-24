@@ -25,13 +25,14 @@ type AuthContextValue = {
     displayName: string,
   ) => Promise<'active' | 'confirm'>
   signIn: (email: string, password: string) => Promise<void>
+  signInWithGoogle: () => Promise<void>
   continueAsGuest: () => void
   signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const GUEST_FLAG = 'codetracer.guest'
+const GUEST_FLAG = 'alphacode.guest'
 
 function deriveName(user: User | null): string | null {
   if (!user) return null
@@ -110,6 +111,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsGuest(false)
     }
 
+    async function signInWithGoogle() {
+      if (!supabase) throw new Error('Connect Supabase to use Google sign-in.')
+      localStorage.removeItem(GUEST_FLAG)
+      // Redirects to Google, then back to /auth/callback where the session is restored.
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: { prompt: 'select_account' },
+        },
+      })
+      if (error) throw error
+    }
+
     function continueAsGuest() {
       localStorage.setItem(GUEST_FLAG, 'true')
       setIsGuest(true)
@@ -131,6 +146,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       hasBackend: hasSupabaseConfig,
       signUp,
       signIn,
+      signInWithGoogle,
       continueAsGuest,
       signOut,
     }

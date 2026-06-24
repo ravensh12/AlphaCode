@@ -54,6 +54,83 @@ export const BADGES: Record<BadgeId, Badge> = {
 /** Display order for badge collections. */
 export const BADGE_ORDER: BadgeId[] = ['lightning', 'quick', 'speed-demon', 'flawless']
 
+/** Total times each badge type has been earned. */
+export type BadgeCounts = Record<BadgeId, number>
+
+export function emptyBadgeCounts(): BadgeCounts {
+  return { lightning: 0, quick: 0, 'speed-demon': 0, flawless: 0 }
+}
+
+export function isBadgeId(id: string): id is BadgeId {
+  return id in BADGES
+}
+
+/** Merge legacy earned-id list into counts (each id += 1). */
+export function badgeCountsFromEarnedList(ids: string[]): BadgeCounts {
+  const counts = emptyBadgeCounts()
+  for (const id of ids) {
+    if (isBadgeId(id)) counts[id] += 1
+  }
+  return counts
+}
+
+export function normalizeBadgeCounts(raw: Partial<BadgeCounts> | null | undefined): BadgeCounts {
+  const counts = emptyBadgeCounts()
+  if (!raw) return counts
+  for (const id of BADGE_ORDER) {
+    const n = raw[id]
+    if (typeof n === 'number' && n > 0) counts[id] = Math.floor(n)
+  }
+  return counts
+}
+
+export function mergeBadgeCounts(base: BadgeCounts, add: Partial<BadgeCounts>): BadgeCounts {
+  const next = { ...base }
+  for (const id of BADGE_ORDER) {
+    const n = add[id]
+    if (typeof n === 'number' && n > 0) next[id] += n
+  }
+  return next
+}
+
+/** Keep the higher count per badge — recovers from partial cloud/local sync. */
+export function reconcileBadgeCounts(a: BadgeCounts, b: BadgeCounts): BadgeCounts {
+  const next = emptyBadgeCounts()
+  for (const id of BADGE_ORDER) {
+    next[id] = Math.max(a[id] ?? 0, b[id] ?? 0)
+  }
+  return next
+}
+
+export function totalBadgeCount(counts: BadgeCounts): number {
+  return BADGE_ORDER.reduce((sum, id) => sum + counts[id], 0)
+}
+
+export function badgesUnlockedCount(counts: BadgeCounts): number {
+  return BADGE_ORDER.filter((id) => counts[id] > 0).length
+}
+
+/** Count badges earned in a single lesson run. */
+export function computeBadgeCounts(
+  a: { lightningCount: number; quickCount: number; correctFirstTry: number },
+  interactiveTotal: number,
+): BadgeCounts {
+  const counts = emptyBadgeCounts()
+  if (a.lightningCount > 0) counts.lightning = a.lightningCount
+  if (a.quickCount > 0) counts.quick = a.quickCount
+  if (a.lightningCount >= SPEED_DEMON_THRESHOLD) counts['speed-demon'] = 1
+  if (interactiveTotal > 0 && a.correctFirstTry >= interactiveTotal) counts.flawless = 1
+  return counts
+}
+
+/** @deprecated use computeBadgeCounts — ids earned once per lesson run. */
+export function computeBadgeIds(
+  a: { lightningCount: number; quickCount: number; correctFirstTry: number },
+  interactiveTotal: number,
+): BadgeId[] {
+  return BADGE_ORDER.filter((id) => computeBadgeCounts(a, interactiveTotal)[id] > 0)
+}
+
 export type SpeedTier = 'lightning' | 'quick' | null
 
 /** Classify a single correct answer's response time. */

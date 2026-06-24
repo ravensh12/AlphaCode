@@ -1,0 +1,499 @@
+.viz {
+  width: 100%;
+  padding: 16px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.viz-caption {
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  margin-bottom: 12px;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.viz-sequence {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.viz-row-sequence {
+  position: relative;
+}
+
+.viz-pointer-rail {
+  position: relative;
+  height: 34px;
+  margin: 0 4px 2px;
+}
+
+.viz-pointer-badge {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 2px solid var(--ink);
+  background: var(--yellow-soft);
+  color: var(--ink);
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+}
+
+.viz-pointer-badge-motion {
+  transition: left 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.viz-pointers-caption {
+  margin-top: 10px;
+}
+
+.viz-cell-swapping .viz-cell-val {
+  opacity: 0.15;
+}
+
+.viz-swap-flyer {
+  position: absolute;
+  z-index: 6;
+  transform: translate(-50%, -50%);
+  min-width: 44px;
+  padding: 10px 8px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--yellow);
+  box-shadow: 4px 4px 0 var(--ink);
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+  animation: vizSwapFly 0.58s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes vizSwapFly {
+  0% {
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+  100% {
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1);
+  }
+}
+
+.viz-motion .viz-cell.pointed .viz-cell-val {
+  animation: vizCharFocus 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes vizCharFocus {
+  0% {
+    transform: scale(0.88);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.viz-cell {
+  min-width: 44px;
+  padding: 10px 8px 6px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  text-align: center;
+  display: grid;
+  gap: 4px;
+}
+
+.viz-cell-animated {
+  transition:
+    background 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    outline 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.viz-animated .viz-pointer {
+  transition: opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.viz-motion .viz-cell.highlight {
+  animation: vizHighlightPulse 1.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.viz-motion .viz-cell.pointed {
+  animation: vizPointGlow 1.1s ease-in-out infinite;
+}
+
+.viz-motion .viz-cell.in-range {
+  animation: vizRangeBreath 1.6s ease-in-out infinite;
+}
+
+.viz-motion .viz-binary .viz-cell.in-range {
+  animation: none;
+}
+
+.viz-motion .viz-binary .viz-cell.highlight {
+  animation: vizHighlightPulse 1.4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.viz-motion .viz-binary .viz-cell.viz-cell-changed {
+  animation: vizCellChanged 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.viz-motion .viz-pointer {
+  animation: vizPointerPop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.viz-motion .viz-binary .viz-bs-pointer-caption .viz-pointer {
+  animation: none;
+}
+
+.viz-pointer-badge.viz-bs-badge.low {
+  background: var(--cyan-soft);
+}
+
+.viz-pointer-badge.viz-bs-badge.mid {
+  background: var(--yellow-soft);
+}
+
+.viz-pointer-badge.viz-bs-badge.high {
+  background: var(--lime-soft);
+}
+
+.viz-bs-badge-moved {
+  animation: vizBsBadgePop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes vizBsBadgePop {
+  from {
+    opacity: 0.55;
+    transform: translateX(-50%) translateY(6px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+.viz-motion.viz-stack .viz-stack-item.top.viz-stack-push-in {
+  animation: vizStackPushIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.viz-motion.viz-stack .viz-stack-item.top.viz-stack-pop-settle {
+  animation: vizStackPopSettle 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.viz-motion.viz-stack .viz-stack-item.top:not(.viz-stack-push-in):not(.viz-stack-pop-settle) {
+  animation: stackTopBounce 1.2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.viz-cell-changed {
+  animation: vizCellChanged 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes vizCellChanged {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.65;
+  }
+  55% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes vizHighlightPulse {
+  0%,
+  100% {
+    transform: translate(-1px, -1px) scale(1.04);
+    box-shadow: var(--shadow-sm);
+  }
+  50% {
+    transform: translate(-3px, -4px) scale(1.08);
+    box-shadow: 5px 5px 0 var(--ink);
+  }
+}
+
+@keyframes vizPointGlow {
+  0%,
+  100% {
+    outline-color: var(--primary);
+    transform: scale(1);
+  }
+  50% {
+    outline-color: var(--cyan);
+    transform: scale(1.05);
+  }
+}
+
+@keyframes vizRangeBreath {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.72;
+  }
+}
+
+@keyframes vizPointerPop {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes stackTopBounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.lesson-diagram-live {
+  /* Legacy hook — in-slide diagram motion only; no slide entry animation. */
+}
+
+.viz-cell.highlight {
+  background: var(--yellow-soft);
+  box-shadow: var(--shadow-sm);
+  transform: translate(-1px, -1px) scale(1.04);
+}
+
+.viz-cell.pointed {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.viz-cell.in-range {
+  background: var(--lime-soft);
+}
+
+.viz-cell.out-range {
+  opacity: 0.35;
+}
+
+.viz-cell.visited {
+  opacity: 0.55;
+  background: var(--surface);
+}
+
+.viz-cell-val {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.viz-cell-idx {
+  font-family: var(--display);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+
+.viz-pointers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.viz-pointer {
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 2px solid var(--ink);
+  background: var(--cyan-soft);
+}
+
+.viz-map-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.viz-map-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 15px;
+}
+
+.viz-map-row-animated {
+  transition:
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.viz-map-row-new {
+  animation: vizMapRowIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes vizMapRowIn {
+  from {
+    opacity: 0;
+    transform: translateX(-12px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.viz-lookup-pulse {
+  animation: vizLookupPulse 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes vizLookupPulse {
+  from {
+    opacity: 0.4;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.viz-map-key {
+  padding: 6px 12px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--yellow-soft);
+  font-weight: 700;
+}
+
+.viz-map-arrow {
+  color: var(--ink-faint);
+}
+
+.viz-map-val {
+  padding: 6px 12px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--lime-soft);
+}
+
+.viz-lookup {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.viz-empty {
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.viz-stack-col {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 6px;
+  min-height: 80px;
+}
+
+.viz-stack-item {
+  position: relative;
+  min-width: 120px;
+  padding: 10px 16px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-weight: 700;
+  text-align: center;
+}
+
+.viz-stack-item-animated {
+  transition:
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.viz-stack-item.top {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.viz-stack-push-in {
+  animation: vizStackPushIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.viz-stack-pop-settle {
+  animation: vizStackPopSettle 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.viz-stack-top-changed {
+  animation: vizCellChanged 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes vizStackPushIn {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes vizStackPopSettle {
+  from {
+    transform: scale(1.08);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+.viz-pointer-moved {
+  animation: vizPointerPop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.viz-stack-tag {
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translate(100%, -50%);
+  font-family: var(--display);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}

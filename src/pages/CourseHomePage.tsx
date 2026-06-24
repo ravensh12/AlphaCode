@@ -4,10 +4,15 @@ import { AppHeader } from '../components/AppHeader'
 import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
 import { LESSON_CATALOG, MASTERY_UNLOCK_THRESHOLD } from '../content/catalog'
+import { generateLesson } from '../content/lessons'
+import {
+  hasQuizActivity,
+  isLearnComplete,
+} from '../lib/lessonSections'
+import { hasPendingMissedReview, hasEverMastered, meetsUnlockThreshold } from '../lib/mastery'
 import { BADGE_ORDER, BADGES } from '../content/badges'
 import type { LessonSummary } from '../types/lesson'
 import type { ExperienceLevel } from '../types/progress'
-import { masteryBand, bandLabel } from '../lib/mastery'
 import {
   IconFlame,
   IconTrophy,
@@ -20,9 +25,9 @@ import {
 import './CourseHomePage.css'
 
 const LEVEL_TAGLINE: Record<ExperienceLevel, string> = {
-  new: "You're starting from scratch — the perfect place to begin.",
-  some: "Let's sharpen the way you read code.",
-  class: "Let's get ahead of what your class assumes you know.",
+  new: "Perfect — we'll build the patterns NeetCode 150 assumes you know.",
+  some: "Let's sharpen how you trace code before real interview problems.",
+  class: 'Get ahead of what NeetCode-style problems expect from you.',
 }
 
 export function CourseHomePage() {
@@ -37,7 +42,9 @@ export function CourseHomePage() {
     experienceLevel,
     lessons,
     cloudEnabled,
-    earnedBadges,
+    badgeCounts,
+    totalBadgeCount,
+    badgesUnlockedCount,
   } = useProgress()
 
   const firstLesson = lessons[LESSON_CATALOG[0].id]
@@ -47,7 +54,7 @@ export function CourseHomePage() {
 
   const tagline = experienceLevel
     ? LEVEL_TAGLINE[experienceLevel]
-    : 'Trace code, update variable boxes, and prove you understand.'
+    : 'LeetCode prep course'
 
   return (
     <div className="page">
@@ -60,7 +67,14 @@ export function CourseHomePage() {
             <h1 className="course-greeting">
               {isGuest ? 'Hi there' : `Hi, ${displayName}`}
             </h1>
-            <p className="muted course-tagline">{tagline}</p>
+            {experienceLevel ? (
+              <p className="muted course-tagline">{tagline}</p>
+            ) : (
+              <p className="course-product-line">
+                <span className="course-brand-name">AlphaCode</span>
+                <span className="course-brand-sub">LeetCode prep course</span>
+              </p>
+            )}
           </div>
 
           <div className="course-stats">
@@ -93,10 +107,26 @@ export function CourseHomePage() {
             <div className="course-review-text">
               <strong>Course complete!</strong>
               <span className="muted">
-                You finished all {totalLessonsCount} lessons with {averageMastery}%
-                average mastery. Replay any lesson for a fresh set of puzzles.
+                You finished all {totalLessonsCount} core patterns with{' '}
+                {averageMastery}% average mastery. You&apos;re ready to start
+                NeetCode 150 — AlphaCode was your prep; NeetCode is your practice.
               </span>
             </div>
+          </div>
+        )}
+
+        {isGuest && (
+          <div className="course-setup-banner card">
+            <div className="course-review-text">
+              <strong>Guest preview</strong>
+              <span className="muted">
+                Try the first interactive lesson free. Sign in to unlock the quiz
+                and full course.
+              </span>
+            </div>
+            <Link className="btn subtle" to="/auth">
+              Sign in
+            </Link>
           </div>
         )}
 
@@ -125,7 +155,7 @@ export function CourseHomePage() {
                 {MASTERY_UNLOCK_THRESHOLD}% to unlock the next lesson.
               </span>
             </div>
-            <Link className="btn subtle" to={`/lesson/${LESSON_CATALOG[0].id}`}>
+            <Link className="btn subtle" to={`/lesson/${LESSON_CATALOG[0].id}/learn`}>
               Review now
             </Link>
           </div>
@@ -135,7 +165,7 @@ export function CourseHomePage() {
           <div className="course-badges-head">
             <h2 className="course-path-title">Badges</h2>
             <span className="course-badges-count muted">
-              {earnedBadges.length}/{BADGE_ORDER.length} earned
+              {totalBadgeCount} earned · {badgesUnlockedCount}/{BADGE_ORDER.length} types
             </span>
           </div>
           <p className="muted course-badges-hint">
@@ -144,16 +174,22 @@ export function CourseHomePage() {
           <div className="badge-row">
             {BADGE_ORDER.map((id) => {
               const badge = BADGES[id]
-              const earned = earnedBadges.includes(id)
+              const count = badgeCounts[id] ?? 0
+              const earned = count > 0
               const { Icon, label, description } = badge
               return (
                 <div
                   key={id}
                   className={`badge-chip tone-${badge.tone} ${earned ? '' : 'locked'}`}
-                  title={earned ? description : `Locked — ${description}`}
+                  title={
+                    earned
+                      ? `${description} · Earned ${count} time${count === 1 ? '' : 's'}`
+                      : `Locked — ${description}`
+                  }
                 >
                   <Icon size={18} />
                   <span>{label}</span>
+                  {earned && <span className="badge-count">×{count}</span>}
                 </div>
               )
             })}
@@ -162,9 +198,18 @@ export function CourseHomePage() {
 
         <section className="course-path">
           <h2 className="course-path-title">Learning path</h2>
-          <div className="course-lessons">
+          <p className="muted course-path-hint">
+            LeetCode prep course — interactive lesson, quiz, then readiness for
+            real-style problems.
+          </p>
+          <div className="course-modules">
             {LESSON_CATALOG.map((lesson, index) => (
-              <LessonCard key={lesson.id} lesson={lesson} index={index} />
+              <TopicModule
+                key={lesson.id}
+                lesson={lesson}
+                index={index}
+                nextLesson={LESSON_CATALOG[index + 1] ?? null}
+              />
             ))}
           </div>
         </section>
@@ -197,85 +242,183 @@ function Stat({
   )
 }
 
-function LessonCard({
+function TopicModule({
   lesson,
   index,
+  nextLesson,
 }: {
   lesson: LessonSummary
   index: number
+  nextLesson: LessonSummary | null
 }) {
+  const { isGuest } = useAuth()
   const { getLessonProgress, isLessonUnlocked } = useProgress()
   const progress = getLessonProgress(lesson.id)
   const unlocked = isLessonUnlocked(lesson)
-  const status = progress?.status ?? 'notStarted'
+  const guestLocked = isGuest && index > 0
+  const locked = !unlocked || guestLocked
+  const fullLesson = generateLesson(lesson.id)!
+  const learnDone = isLearnComplete(progress, fullLesson)
+  const quizStarted = hasQuizActivity(progress)
+  const everMastered = hasEverMastered(progress)
+  const mastery = quizStarted ? (progress?.masteryScore ?? 0) : 0
+  const quizInProgress =
+    learnDone &&
+    quizStarted &&
+    !meetsUnlockThreshold(mastery) &&
+    (progress?.status === 'inProgress' || hasPendingMissedReview(progress))
+  const needsContinue =
+    learnDone && quizStarted && !meetsUnlockThreshold(mastery) && hasPendingMissedReview(progress)
+  const fullyDone = learnDone && everMastered
 
-  const completed = status === 'completed'
-  const inProgress = status === 'inProgress'
-  const locked = !unlocked
-  const isPreview = lesson.playable === false
+  return (
+    <article className={`course-module card ${guestLocked || !unlocked ? 'locked' : ''}`}>
+      <div className="module-head">
+        <div className="module-index" aria-hidden="true">
+          {fullyDone ? <IconCheck size={20} /> : locked ? <IconLock size={18} /> : index + 1}
+        </div>
+        <div className="module-copy">
+          <h3 className="module-title">{lesson.title}</h3>
+          <p className="muted module-sub">{lesson.subtitle}</p>
+          <span className="module-practice muted">
+            Quiz practice: {lesson.practiceGoal}
+          </span>
+          <span className="module-pattern muted">{lesson.pattern}</span>
+        </div>
+      </div>
 
-  let stateClass = 'available'
-  if (locked) stateClass = 'locked'
-  else if (completed) stateClass = 'completed'
-  else if (isPreview) stateClass = 'preview'
+      <div className="module-sections">
+        <SectionCard
+          type="learn"
+          lessonId={lesson.id}
+          locked={locked}
+          completed={learnDone}
+          inProgress={!learnDone && (progress?.learnStepIndex ?? 0) > 0}
+          isGuest={isGuest}
+        />
+        <SectionCard
+          type="quiz"
+          lessonId={lesson.id}
+          locked={locked || !learnDone || isGuest}
+          mastered={everMastered}
+          needsContinue={needsContinue}
+          inProgress={quizInProgress}
+          mastery={mastery}
+          isGuest={isGuest}
+          learnDone={learnDone}
+        />
+      </div>
 
-  const tagText = locked
-    ? `Locked · needs ${lesson.unlockRequirements.minimumMastery ?? MASTERY_UNLOCK_THRESHOLD}% mastery`
-    : isPreview
-      ? 'Unlocked · coming soon'
-      : completed
-        ? `Completed · ${progress?.masteryScore ?? 0}% mastery`
-        : inProgress
-          ? 'In progress'
-          : 'Available now'
+      {everMastered && nextLesson && !isGuest && (
+        <Link
+          to={`/lesson/${nextLesson.id}/learn`}
+          className="module-next-lesson btn subtle"
+        >
+          Next lesson: {nextLesson.title}
+          <IconArrowRight size={16} />
+        </Link>
+      )}
+    </article>
+  )
+}
+
+function SectionCard({
+  type,
+  lessonId,
+  locked,
+  completed,
+  mastered,
+  needsContinue,
+  inProgress,
+  mastery,
+  isGuest,
+  learnDone,
+}: {
+  type: 'learn' | 'quiz'
+  lessonId: string
+  locked: boolean
+  completed?: boolean
+  mastered?: boolean
+  needsContinue?: boolean
+  inProgress?: boolean
+  mastery?: number
+  isGuest?: boolean
+  learnDone?: boolean
+}) {
+  const isLearn = type === 'learn'
+  const label = isLearn ? 'Interactive lesson' : 'Quiz'
+  const desc = isLearn
+    ? 'Visuals, tracing, and guided practice — the pattern before the problems.'
+    : 'NeetCode-style quiz — prove the pattern, unlock your readiness list.'
+
+  const quizDone = !isLearn && mastered
+
+  let status = 'Not started'
+  if (locked && isGuest && !isLearn && learnDone) status = 'Sign in to unlock'
+  else if (locked && isGuest && isLearn) status = 'Sign in to unlock'
+  else if (locked && isLearn) status = 'Locked'
+  else if (locked) status = 'Finish lesson first'
+  else if (completed && isLearn) status = 'Lesson complete'
+  else if (!isLearn && mastered) status = `${mastery ?? 0}% mastery`
+  else if (!isLearn && needsContinue) status = `${mastery ?? 0}% mastery · review`
+  else if (!isLearn && inProgress) status = `${mastery ?? 0}% mastery · in progress`
+  else if (completed) status = 'Quiz complete'
+  else if (inProgress) status = 'In progress'
+  else status = 'Ready'
+
+  let action = 'Start'
+  if (!isLearn && needsContinue) action = 'Continue review'
+  else if (!isLearn && inProgress) action = 'Continue'
+  else if (!isLearn && mastered && meetsUnlockThreshold(mastery ?? 0)) action = 'Review'
+  else if (completed && isLearn) action = 'Review'
+  else if (completed) action = 'Review'
+  else if (inProgress) action = 'Resume'
+
+  const to = `/lesson/${lessonId}/${type}`
 
   const inner = (
     <>
-      <div className="lesson-index" aria-hidden="true">
-        {completed ? (
-          <IconCheck size={22} />
-        ) : locked ? (
-          <IconLock size={20} />
-        ) : (
-          index + 1
-        )}
+      <div className={`section-card-icon ${isLearn ? 'learn' : 'quiz'}`}>
+        {isLearn ? 'L' : 'Q'}
       </div>
-      <div className="lesson-body">
-        <div className="lesson-titlerow">
-          <h3>{lesson.title}</h3>
-          {completed && progress && (
-            <span
-              className={`pill ${masteryBand(progress.masteryScore) === 'review' || masteryBand(progress.masteryScore) === 'struggling' ? 'warn' : 'success'}`}
-            >
-              {bandLabel(masteryBand(progress.masteryScore))}
-            </span>
+      <div className="section-card-body">
+        <span className={`section-card-type ${isLearn ? 'learn' : 'quiz'}`}>
+          {label}
+        </span>
+        <p className="section-card-desc muted">{desc}</p>
+        <div className="section-card-meta">
+          {!isLearn && mastered && (
+            <span className="section-card-mastered">Mastered</span>
           )}
+          <span
+            className={`section-card-status ${locked ? 'locked' : quizDone || (completed && isLearn) ? 'done' : ''}`}
+          >
+            {status}
+          </span>
         </div>
-        <p className="muted lesson-sub">{lesson.subtitle}</p>
-        <span className={`lesson-tag ${stateClass}`}>{tagText}</span>
       </div>
-      {!locked && !isPreview && (
-        <div className="lesson-action">
-          {completed ? 'Review' : inProgress ? 'Resume' : 'Start'}
-          <IconArrowRight size={18} />
-        </div>
+      {!locked && (
+        <span className="section-card-action">
+          {action}
+          <IconArrowRight size={16} />
+        </span>
       )}
     </>
   )
 
-  if (locked || isPreview) {
+  if (locked) {
     return (
-      <div className={`lesson-card card ${stateClass}`} aria-disabled="true">
+      <div className={`section-card ${type} locked`} aria-disabled="true">
         {inner}
       </div>
     )
   }
 
-  // Completed lessons open the review screen; everything else jumps into play.
-  const target = completed ? `/review/${lesson.id}` : `/lesson/${lesson.id}`
-
   return (
-    <Link to={target} className={`lesson-card card ${stateClass}`}>
+    <Link
+      to={to}
+      className={`section-card ${type} ${quizDone || (completed && isLearn) ? 'completed' : ''}`}
+    >
       {inner}
     </Link>
   )
