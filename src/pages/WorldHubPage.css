@@ -1,0 +1,382 @@
+.world-page {
+  background:
+    radial-gradient(circle at 14% 6%, color-mix(in srgb, var(--world-accent) 16%, transparent), transparent 44%),
+    radial-gradient(circle at 90% 30%, color-mix(in srgb, var(--world-accent) 12%, transparent), transparent 46%),
+    var(--paper);
+}
+
+.world-main {
+  padding: 22px 20px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.world-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 8px 14px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.world-back:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+/* Banner */
+.world-banner {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 22px;
+  border-left: 10px solid var(--world-accent);
+}
+
+.world-banner-bot {
+  flex-shrink: 0;
+}
+
+.world-banner-copy {
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.world-eyebrow {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--world-accent-ink, var(--primary));
+}
+
+.world-title {
+  font-family: var(--display);
+  font-size: clamp(26px, 5vw, 38px);
+  margin: 0;
+}
+
+.world-blurb {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.world-bubble {
+  margin-top: 6px;
+  max-width: 560px;
+}
+
+.world-bubble p {
+  margin: 0;
+}
+
+/* Power chip */
+.world-power {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  background: var(--surface);
+}
+
+.world-power.is-earned {
+  background: var(--world-accent-soft, var(--lime-soft));
+}
+
+.world-power-icon {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-sm);
+  border: var(--bd) solid var(--ink);
+  background: var(--world-accent-soft, var(--surface-2));
+  color: var(--world-accent-ink, var(--ink));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.world-power-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.world-power-label {
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.world-power-name {
+  font-family: var(--display);
+  font-size: 18px;
+}
+
+.world-power-desc {
+  font-size: 13px;
+}
+
+/* Missions */
+.world-missions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.world-mission {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  background: var(--surface);
+  text-decoration: none;
+  color: inherit;
+  border-top: 8px solid var(--ink);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.world-mission--train {
+  border-top-color: var(--lime);
+}
+
+.world-mission--boss {
+  border-top-color: var(--coral);
+}
+
+a.world-mission:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.world-mission.is-locked {
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.world-mission.is-done {
+  border-top-color: var(--lime);
+}
+
+.world-mission-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.world-mission-kind {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.world-mission-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.world-mission-subtitle {
+  font-family: var(--display);
+  font-size: 19px;
+  margin: 0;
+}
+
+.world-mission-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  flex: 1;
+}
+
+.world-mission-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-top: 4px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--world-accent-soft, var(--yellow-soft));
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.world-mission--boss .world-mission-action {
+  background: var(--coral-soft);
+}
+
+.world-mission-guest {
+  position: absolute;
+  top: -12px;
+  right: 14px;
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: var(--yellow);
+  border: var(--bd) solid var(--ink);
+  border-radius: 999px;
+  padding: 3px 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Charge bar */
+.world-charge {
+  padding: 16px 18px;
+}
+
+.world-charge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.world-charge-label {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.world-charge-value {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--world-accent-ink, var(--primary));
+  display: inline-flex;
+  align-items: center;
+}
+
+.world-charge-track {
+  height: 16px;
+  border: var(--bd) solid var(--ink);
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.world-charge-fill {
+  height: 100%;
+  background: var(--world-accent, var(--primary));
+  border-radius: 999px;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.world-charge-fill.is-full {
+  background: var(--lime);
+}
+
+.world-charge-hint {
+  font-size: 13px;
+  margin: 10px 0 0;
+}
+
+/* Real missions */
+.world-missions-real {
+  padding: 18px;
+}
+
+.world-missions-real-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--world-accent-ink, var(--primary));
+}
+
+.world-missions-real-head h2 {
+  font-family: var(--display);
+  font-size: 18px;
+  margin: 0;
+}
+
+.world-missions-real-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.world-missions-real-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  background: var(--surface-2);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+/* Locked world */
+.world-locked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 32px 24px;
+}
+
+.world-locked-title {
+  font-family: var(--display);
+  font-size: 26px;
+  margin: 0;
+}
+
+@media (max-width: 620px) {
+  .world-missions {
+    grid-template-columns: 1fr;
+  }
+  .world-banner {
+    justify-content: center;
+    text-align: center;
+  }
+}

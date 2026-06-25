@@ -1,0 +1,347 @@
+.quest-page {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(109, 74, 254, 0.08), transparent 42%),
+    radial-gradient(circle at 88% 24%, rgba(45, 212, 238, 0.1), transparent 46%),
+    var(--paper);
+}
+
+.quest-main {
+  padding: 28px 20px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* Hero */
+.quest-hero {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.quest-hero-bot {
+  flex-shrink: 0;
+}
+
+.quest-hero-copy {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.quest-hero-bubble {
+  max-width: 540px;
+}
+
+.quest-hero-bubble p {
+  margin: 0;
+}
+
+.quest-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.quest-stat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 10px 14px;
+}
+
+.quest-stat-icon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+}
+
+.quest-stat-icon.tone-violet {
+  background: var(--primary);
+  color: #fff;
+}
+.quest-stat-icon.tone-yellow {
+  background: var(--yellow);
+}
+.quest-stat-icon.tone-lime {
+  background: var(--lime);
+}
+
+.quest-stat-body {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.quest-stat-value {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.quest-stat-label {
+  font-size: 12px;
+}
+
+.quest-resume {
+  align-self: flex-start;
+}
+
+.quest-overworld-link {
+  align-self: flex-start;
+}
+
+/* Checkpoint list */
+.quest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.quest-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quest-list-title {
+  font-family: var(--display);
+  font-size: 22px;
+  margin: 0;
+}
+
+.quest-list-progress {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.quest-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.quest-restart {
+  font-weight: 700;
+}
+
+.quest-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.quest-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 16px;
+  overflow: hidden;
+}
+
+/* accent stripe down the left edge */
+.quest-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--world-accent, var(--primary));
+}
+
+.quest-card-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: inherit;
+  width: 100%;
+  transition: transform 0.12s ease;
+}
+
+.quest-card-link:hover {
+  transform: translateX(3px);
+}
+
+.quest-card.is-active {
+  border-color: var(--world-accent, var(--primary));
+  box-shadow: 4px 4px 0 var(--world-accent, var(--primary));
+}
+
+.quest-card--locked {
+  opacity: 0.7;
+}
+
+.quest-card.is-game-locked {
+  opacity: 0.92;
+}
+
+.quest-card.is-game-locked .quest-card-link:hover {
+  transform: translateX(3px);
+}
+
+.quest-card--locked .quest-card-medallion {
+  background: var(--surface-2);
+}
+
+.quest-card-flag {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--world-accent, var(--primary));
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.quest-card-flag.is-clear {
+  background: var(--lime);
+  color: var(--ink);
+}
+
+.quest-card-medallion {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: var(--bd) solid var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.quest-card-number {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 24px;
+  color: var(--ink);
+}
+
+.quest-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.quest-card-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.quest-card-blurb {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.quest-card-pills {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.quest-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 1px 9px;
+}
+
+.quest-pill.is-done {
+  background: var(--lime);
+  color: var(--ink);
+}
+
+.quest-pill.is-todo {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.quest-pill.is-locked {
+  background: var(--surface-2);
+  color: var(--ink-faint);
+  border-color: var(--ink-faint);
+}
+
+.quest-card-status {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+.quest-skip-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--world-accent, var(--primary));
+  background: var(--surface);
+  border: 2px solid var(--world-accent, var(--primary));
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.quest-skip-btn:hover {
+  background: var(--world-accent, var(--primary));
+  color: #fff;
+}
+
+.quest-card-go {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--world-accent, var(--primary));
+}
+
+@media (max-width: 560px) {
+  .quest-cards {
+    grid-template-columns: 1fr;
+  }
+  .quest-hero {
+    justify-content: center;
+    text-align: center;
+  }
+}

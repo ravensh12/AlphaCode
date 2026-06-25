@@ -8,8 +8,8 @@ export function AppHeader() {
   const { displayName, isGuest, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const onCoursePage = location.pathname === '/home'
-  const courseTarget = isGuest ? '/start' : '/home'
+  const onCoursePage = location.pathname === '/quest'
+  const courseTarget = '/quest'
 
   async function handleSignOut() {
     await signOut()
@@ -29,14 +29,14 @@ export function AppHeader() {
       <div className="container app-header-inner">
         <Brand to="/" onNavigate={goIntro} />
         <div className="app-header-right">
-          {!onCoursePage && !isGuest && (
+          {!onCoursePage && (
             <button
               type="button"
               className="btn ghost app-header-course"
               onClick={goCourse}
             >
               <IconGrid size={16} />
-              <span className="app-header-course-label">Course</span>
+              <span className="app-header-course-label">Map</span>
             </button>
           )}
           <span className="app-header-user">

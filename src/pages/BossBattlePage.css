@@ -1,0 +1,477 @@
+.battle-page {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+}
+
+.battle-stage {
+  position: relative;
+  flex: 0 0 46vh;
+  min-height: 280px;
+  overflow: hidden;
+  border-bottom: var(--bd) solid var(--ink);
+}
+
+.battle-stage canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Full-bleed stage for intro / victory / review screens (no quiz panel below). */
+.battle-stage--full {
+  flex: 1 1 auto;
+  height: 100vh;
+  border-bottom: none;
+}
+
+/* Themed gradient backdrop behind the intro/result cards. */
+.battle-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% 12%, color-mix(in srgb, var(--accent) 42%, #1b1530) 0%, #1b1530 62%),
+    #161122;
+}
+
+.battle-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(70% 70% at 50% 50%, #000 30%, transparent 100%);
+}
+
+/* Quiz fills the screen now that the boss combat is a separate phase. */
+.battle-quiz-full {
+  flex: 1 1 auto;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.battle-stage.is-hurt {
+  animation: battleShake 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+@keyframes battleShake {
+  10%,
+  90% {
+    transform: translate(-2px, 1px);
+  }
+  20%,
+  80% {
+    transform: translate(4px, -2px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translate(-7px, 2px);
+  }
+  40%,
+  60% {
+    transform: translate(7px, -1px);
+  }
+}
+
+/* Boss HP */
+.battle-boss-hud {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 86%);
+  z-index: 4;
+  pointer-events: none;
+}
+
+.battle-boss-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  text-align: center;
+  letter-spacing: 0.02em;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+  margin-bottom: 5px;
+}
+
+.battle-hpbar {
+  height: 16px;
+  border: 2.5px solid var(--ink);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.battle-hpbar.player {
+  height: 13px;
+}
+
+.battle-hpfill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.battle-player .battle-hpfill,
+.battle-hpbar.player .battle-hpfill {
+  background: var(--lime);
+}
+
+/* Player HP */
+.battle-player-hud {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(26, 23, 48, 0.6);
+  border: 2.5px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius);
+  padding: 6px 12px 6px 6px;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.battle-player-face {
+  line-height: 0;
+}
+
+.battle-player-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 150px;
+}
+
+.battle-player-name {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 12px;
+  color: #fff;
+}
+
+/* Flee */
+.battle-flee {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 2.5px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.battle-flee:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+/* Phase overlays (intro / victory / defeat) */
+.battle-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(20, 16, 40, 0.55);
+  backdrop-filter: blur(2px);
+  animation: battleFade 0.3s ease both;
+}
+
+@keyframes battleFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Cards shared shell */
+.battle-intro-card,
+.battle-result-card {
+  position: relative;
+  width: min(440px, 92%);
+  text-align: center;
+  color: var(--ink);
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 22px 24px 24px;
+  animation: battleCardPop 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes battleCardPop {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.battle-intro-vs,
+.battle-result-tag {
+  display: inline-block;
+  font-family: var(--display);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-size: 12px;
+  color: var(--coral);
+}
+
+.battle-result-card.win .battle-result-tag {
+  color: var(--primary);
+}
+
+.battle-intro-card h1 {
+  font-family: var(--display);
+  font-size: clamp(26px, 6vw, 40px);
+  line-height: 1.05;
+  margin: 6px 0 10px;
+}
+
+.battle-result-card h2 {
+  font-family: var(--display);
+  font-size: clamp(20px, 5vw, 28px);
+  line-height: 1.1;
+  margin: 6px 0 10px;
+}
+
+.battle-intro-taunt {
+  font-size: 15px;
+  line-height: 1.45;
+  margin: 0 0 12px;
+  color: var(--ink);
+}
+
+.battle-intro-hint {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 18px;
+  color: var(--ink);
+  opacity: 0.85;
+}
+
+.battle-result-card p {
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0 0 18px;
+}
+
+/* Chunky buttons */
+.battle-btn {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.01em;
+  border: 3px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 11px 26px;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.battle-btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.battle-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.battle-btn-primary {
+  background: var(--yellow);
+  color: var(--ink);
+}
+
+.battle-btn-ghost {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.battle-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* Player HUD only pops during the fight */
+.battle-player-hud {
+  opacity: 0.55;
+  transition: opacity 0.3s ease;
+}
+
+.battle-player-hud.is-active {
+  opacity: 1;
+}
+
+/* Hit slash */
+.battle-slash {
+  position: absolute;
+  inset: -20%;
+  z-index: 5;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.95) 50%, transparent 58%);
+  animation: battleSlash 0.42s ease-out forwards;
+}
+
+@keyframes battleSlash {
+  0% {
+    opacity: 0;
+    transform: translateX(-40%) rotate(0deg);
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(40%) rotate(0deg);
+  }
+}
+
+/* Hurt vignette */
+.battle-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: inset 0 0 120px 30px rgba(255, 60, 70, 0.85);
+  animation: battleVignette 0.5s ease-out forwards;
+}
+
+@keyframes battleVignette {
+  0% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Defeated banner */
+.battle-defeated {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  background: var(--lime);
+  color: var(--ink);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 18px;
+  padding: 12px 22px;
+  text-align: center;
+  max-width: 86%;
+  animation: battlePop 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes battlePop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -40%) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* KO toast */
+.battle-ko {
+  position: absolute;
+  left: 50%;
+  bottom: 60px;
+  transform: translateX(-50%);
+  z-index: 6;
+  background: var(--coral);
+  color: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 999px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  padding: 8px 18px;
+  box-shadow: var(--shadow-sm);
+  animation: battleKo 1.6s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes battleKo {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Quiz area */
+.battle-quiz {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--paper);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .battle-stage.is-hurt,
+  .battle-slash,
+  .battle-vignette,
+  .battle-ko,
+  .battle-overlay,
+  .battle-intro-card,
+  .battle-result-card,
+  .battle-defeated {
+    animation: none;
+  }
+  .battle-btn:hover,
+  .battle-btn:active {
+    transform: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .battle-stage {
+    flex-basis: 38vh;
+  }
+}

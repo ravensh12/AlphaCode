@@ -365,14 +365,22 @@ export function lessonShell(
 }
 
 export function numTiles(correct: number, extras?: number[]): number[] {
-  const set = new Set<number>([correct, ...(extras ?? [])])
+  // The correct answer + any explicit extras must ALWAYS be present. We build the
+  // distractor pool separately, trim it to fit, then add the required values back
+  // so a shuffle/slice can never drop the right answer.
+  const required = [...new Set<number>([correct, ...(extras ?? [])])]
+  const distractors = new Set<number>()
   let k = 1
-  while (set.size < 8) {
-    set.add(Math.max(0, correct + k))
-    set.add(Math.max(0, correct - k))
+  while (required.length + distractors.size < 8) {
+    const up = correct + k
+    const down = correct - k
+    if (!required.includes(up)) distractors.add(up)
+    if (down >= 0 && !required.includes(down)) distractors.add(down)
     k++
+    if (k > 50) break
   }
-  return shuffle([...set]).slice(0, 8)
+  const fill = shuffle([...distractors]).slice(0, Math.max(0, 8 - required.length))
+  return shuffle([...required, ...fill])
 }
 
 export function isPassiveType(type: LessonStep['type']): boolean {

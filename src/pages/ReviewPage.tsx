@@ -72,7 +72,7 @@ export function ReviewPage() {
         streakCurrent={streak.current}
         nextLessonTitle={null}
         isLastLesson={false}
-        onExit={() => navigate('/home')}
+        onExit={() => navigate(`/world/${lessonId}`)}
         onTakeQuiz={() => navigate(`/lesson/${lessonId}/quiz`)}
         onReplay={() => {
           setReviewMode(false)
@@ -92,7 +92,7 @@ export function ReviewPage() {
         <AppHeader />
         <main className="container lp">
           <div className="lp-top">
-            <Link to="/home" className="lp-exit" aria-label="Back to course">
+            <Link to={`/world/${lessonId}`} className="lp-exit" aria-label="Back to world">
               <IconArrowLeft size={18} />
             </Link>
           </div>
@@ -122,7 +122,7 @@ export function ReviewPage() {
       <AppHeader />
       <main className="container lp">
         <div className="lp-top">
-          <Link to="/home" className="lp-exit" aria-label="Back to course">
+          <Link to={`/world/${lessonId}`} className="lp-exit" aria-label="Back to world">
             <IconArrowLeft size={18} />
           </Link>
         </div>
@@ -167,8 +167,8 @@ export function ReviewPage() {
             <Link className="btn ghost lg" to={`/lesson/${lessonId}/quiz`}>
               Replay full lesson
             </Link>
-            <Link className="btn ghost lg" to="/home">
-              Back to course
+            <Link className="btn ghost lg" to={`/world/${lessonId}`}>
+              Back to world
             </Link>
           </div>
         </div>

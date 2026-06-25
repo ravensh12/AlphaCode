@@ -1,0 +1,1138 @@
+.over3d-page {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.over3d-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 0 12px 12px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  background: #bfe0ff;
+}
+
+.over3d-stage canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  cursor: grab;
+}
+
+.over3d-stage canvas:active {
+  cursor: grabbing;
+}
+
+/* Guide companion side panel */
+.guide-panel {
+  position: absolute;
+  left: 14px;
+  bottom: 16px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  max-width: 300px;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 14px 10px 10px;
+  animation: guideIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes guideIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.guide-avatar {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2.5px solid var(--ink);
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18);
+  animation: guideBob 2.4s ease-in-out infinite;
+}
+
+@keyframes guideBob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-4deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(4deg);
+  }
+}
+
+.guide-eye {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #0c1230;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.9);
+}
+
+.guide-eye::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.guide-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.guide-name {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.guide-text p {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+/* Controls hint */
+.over3d-controls-hint {
+  position: absolute;
+  right: 14px;
+  bottom: 16px;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  justify-content: flex-end;
+  max-width: 280px;
+  background: rgba(26, 23, 48, 0.66);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  pointer-events: none;
+}
+
+.over3d-controls-hint kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 2px;
+}
+
+/* HUD */
+.over3d-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.over3d-hud-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.over3d-hud-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* Prominent level + checkpoint readout */
+.over3d-quest-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 14px;
+  background: var(--ink);
+  color: #fff;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  max-width: min(100%, 420px);
+}
+
+.over3d-quest-progress-label {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.over3d-quest-progress-sub {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.over3d-objective {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(26, 23, 48, 0.74);
+  color: #fff;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+}
+
+.over3d-stats {
+  display: flex;
+  gap: 7px;
+  pointer-events: auto;
+}
+
+.over3d-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 6px 10px;
+  color: var(--ink);
+}
+
+.over3d-chip-link {
+  text-decoration: none;
+  background: var(--yellow);
+}
+
+/* Enter prompt */
+.over3d-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 76px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  border: var(--bd) solid var(--ink);
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 15px;
+  box-shadow: var(--shadow);
+  z-index: 6;
+  max-width: 90%;
+}
+
+.over3d-prompt.is-locked {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.over3d-prompt kbd {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 6px;
+  padding: 2px 8px;
+  border: 2px solid var(--ink);
+}
+
+/* Click-to-play overlay */
+.over3d-lock-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(26, 23, 48, 0.55);
+  backdrop-filter: blur(3px);
+  z-index: 10;
+  padding: 20px;
+}
+
+.over3d-lock-card {
+  max-width: 440px;
+  width: 100%;
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.over3d-lock-card h2 {
+  font-family: var(--display);
+  font-size: 26px;
+  margin: 0;
+}
+
+.over3d-lock-card p {
+  margin: 0;
+  font-size: 15px;
+}
+
+.over3d-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: center;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.over3d-controls kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--surface-2);
+  border: 2px solid var(--ink);
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin-right: 2px;
+}
+
+.over3d-touch-note {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.over3d-touch-note:hover {
+  text-decoration: underline;
+}
+
+/* In-world labels (rendered via drei Html) */
+.cp-label {
+  transform: translateY(-50%);
+  background: var(--surface);
+  border: 2.5px solid var(--ink);
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 var(--ink);
+  padding: 4px 10px;
+  text-align: center;
+  font-family: var(--display);
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+}
+
+.cp-label-name {
+  display: block;
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--ink);
+  line-height: 1.1;
+}
+
+.cp-label-sub {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.cp-label.is-locked {
+  opacity: 0.8;
+}
+
+.cp-label.is-active {
+  border-color: var(--primary);
+  box-shadow: 3px 3px 0 var(--primary);
+}
+
+.cp-label.boss {
+  background: var(--coral-soft);
+}
+
+.cp-gate-label {
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-family: var(--display, inherit);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  color: #0b1322;
+  background: rgba(255, 255, 255, 0.92);
+  border: 2px solid #0b1322;
+  border-radius: 999px;
+  padding: 2px 9px;
+  box-shadow: 2px 2px 0 rgba(11, 19, 34, 0.6);
+}
+
+.cp-gate-label.is-current {
+  background: #fff3b0;
+}
+
+.cp-gate-label.is-passed {
+  background: #b7f0cf;
+  color: #0a5f3a;
+}
+
+/* Combat: aim crosshair (4 ticks + center dot) */
+.over3d-crosshair {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.over3d-crosshair .ch-line {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.ch-up {
+  width: 2px;
+  height: 9px;
+  transform: translate(-50%, -17px);
+}
+
+.ch-down {
+  width: 2px;
+  height: 9px;
+  transform: translate(-50%, 8px);
+}
+
+.ch-left {
+  width: 9px;
+  height: 2px;
+  transform: translate(-17px, -50%);
+}
+
+.ch-right {
+  width: 9px;
+  height: 2px;
+  transform: translate(8px, -50%);
+}
+
+.over3d-crosshair-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.5), 0 0 6px rgba(120, 220, 255, 0.7);
+}
+
+/* Combat: damage flash */
+.over3d-hurt {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 21;
+  opacity: 0;
+  transition: opacity 0.22s ease;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 0, 0, 0) 45%,
+    rgba(220, 30, 30, 0.55) 100%
+  );
+}
+
+.over3d-hurt.is-on {
+  opacity: 1;
+  transition: opacity 0.05s ease;
+}
+
+.over3d-chip-ko {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.over3d-chip-gun {
+  font-weight: 800;
+  background: var(--ink);
+  color: #fff;
+}
+
+.over3d-chip-music {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.over3d-chip-timer {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  background: #1f8f4e;
+  color: #fff;
+  min-width: 44px;
+  justify-content: center;
+}
+
+.over3d-chip-timer.is-low {
+  background: #d12626;
+  animation: timerPulse 0.6s ease-in-out infinite;
+}
+
+@keyframes timerPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .over3d-chip-timer.is-low {
+    animation: none;
+  }
+}
+
+/* Right-hand HUD column: health */
+.over3d-hud-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+/* Level badge + XP bar */
+.over3d-level {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 5px 11px 5px 5px;
+}
+
+.over3d-level-badge {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  border: 2.5px solid var(--ink);
+  background: var(--yellow);
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.over3d-level-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 116px;
+}
+
+.over3d-level-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.over3d-xp-track {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--surface-2, #e8e4f5);
+  border: 2px solid var(--ink);
+  overflow: hidden;
+}
+
+.over3d-xp-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--yellow));
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Health bar */
+.over3d-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(26, 23, 48, 0.74);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 5px 11px 5px 9px;
+}
+
+.over3d-health-heart {
+  color: #ff5a5f;
+  font-size: 15px;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.over3d-health-track {
+  width: 116px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.over3d-health-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff8a5c, #ff5a5f);
+  transition: width 0.25s ease, background 0.25s ease;
+}
+
+.over3d-health-fill.is-low {
+  background: linear-gradient(90deg, #ff4d4d, #c81e1e);
+  animation: hpLowPulse 0.9s ease-in-out infinite;
+}
+
+@keyframes hpLowPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.over3d-health-num {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 12px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Level-up toast */
+.over3d-levelup {
+  position: absolute;
+  top: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 16px;
+  animation: levelUpPop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.over3d-levelup-spark {
+  font-size: 22px;
+  line-height: 1;
+  animation: levelUpSpin 1.4s ease-in-out infinite;
+}
+
+.over3d-levelup strong {
+  display: block;
+  font-family: var(--display);
+  font-size: 15px;
+  color: var(--primary);
+}
+
+.over3d-levelup span {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+@keyframes levelUpPop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -14px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+@keyframes levelUpSpin {
+  0%,
+  100% {
+    transform: rotate(-12deg) scale(1);
+  }
+  50% {
+    transform: rotate(12deg) scale(1.15);
+  }
+}
+
+/* Death / restart screen */
+.over3d-death {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(60, 6, 10, 0.5) 30%,
+    rgba(20, 2, 4, 0.86) 100%
+  );
+  backdrop-filter: blur(3px);
+  animation: deathFade 0.45s ease both;
+}
+
+@keyframes deathFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.over3d-death-card {
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 28px 26px;
+  animation: deathPop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes deathPop {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.over3d-death-card h2 {
+  font-family: var(--display);
+  font-size: 27px;
+  margin: 0 0 8px;
+  color: #c81e1e;
+}
+
+.over3d-death-card p {
+  margin: 0 0 14px;
+  font-size: 14.5px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.over3d-death-stats {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-bottom: 18px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.over3d-death-stats strong {
+  color: var(--ink);
+}
+
+.over3d-death-btn {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 16px;
+  color: #fff;
+  background: var(--primary);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 26px;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.over3d-death-btn:hover {
+  transform: translateY(-2px);
+}
+
+.over3d-death-btn:active {
+  transform: translateY(0);
+}
+
+/* Quest purpose intro */
+.over3d-quest-intro {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(26, 23, 48, 0.55) 30%,
+    rgba(12, 10, 26, 0.82) 100%
+  );
+  backdrop-filter: blur(3px);
+  animation: deathFade 0.4s ease both;
+}
+
+.over3d-quest-card {
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 26px 28px;
+  animation: deathPop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.over3d-quest-tag {
+  display: inline-block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--primary);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 3px 12px;
+  margin-bottom: 10px;
+}
+
+.over3d-quest-card h2 {
+  font-family: var(--display);
+  font-size: 26px;
+  margin: 0 0 12px;
+  color: var(--ink);
+}
+
+.over3d-quest-card p {
+  margin: 0 0 12px;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.over3d-quest-steps {
+  text-align: left;
+  margin: 0 0 14px;
+  padding-left: 1.25rem;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.over3d-quest-steps li {
+  margin-bottom: 8px;
+}
+
+.over3d-quest-steps li:last-child {
+  margin-bottom: 0;
+}
+
+.over3d-quest-steps strong {
+  color: var(--ink);
+}
+
+.over3d-quest-hint {
+  font-size: 13px !important;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.over3d-quest-hint kbd {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: var(--surface-2, #e8e4f5);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin: 0 1px;
+}
+
+.over3d-quest-btn {
+  margin-top: 6px;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 16px;
+  color: #fff;
+  background: var(--primary);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 28px;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.over3d-quest-btn:hover {
+  transform: translateY(-2px);
+}
+
+.over3d-quest-btn:active {
+  transform: translateY(0);
+}
+
+/* Phase 4 finale */
+.over3d-finale {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(56, 39, 110, 0.55) 20%,
+    rgba(10, 8, 24, 0.88) 100%
+  );
+  backdrop-filter: blur(4px);
+  animation: deathFade 0.45s ease both;
+}
+
+.over3d-finale-card {
+  max-width: 520px;
+  width: 100%;
+  text-align: center;
+  background: var(--surface);
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 28px 30px;
+  animation: deathPop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.over3d-finale-crown {
+  display: block;
+  font-size: 40px;
+  line-height: 1;
+  margin-bottom: 6px;
+  animation: levelUpSpin 1.8s ease-in-out infinite;
+}
+
+.over3d-finale-tag {
+  display: inline-block;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #2a1d52;
+  background: linear-gradient(120deg, #ffd23f, #ff9f1c);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 3px 12px;
+  margin-bottom: 10px;
+}
+
+.over3d-finale-card h2 {
+  font-family: var(--display);
+  font-size: 28px;
+  margin: 0 0 12px;
+  color: var(--ink);
+}
+
+.over3d-finale-card p {
+  margin: 0 0 14px;
+  font-size: 14.5px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.over3d-finale-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+
+.over3d-finale-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface-2, #f1eefb);
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  padding: 10px 6px;
+}
+
+.over3d-finale-stat strong {
+  font-family: var(--display);
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.over3d-finale-stat span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.over3d-finale-hint {
+  font-size: 13px !important;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.over3d-finale-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.over3d-finale-link {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 1px;
+}
+
+.over3d-finale-link:hover {
+  color: var(--primary);
+}
+
+@media (max-width: 520px) {
+  .over3d-finale-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .over3d-finale,
+  .over3d-finale-card,
+  .over3d-finale-crown {
+    transition: none;
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .over3d-hurt,
+  .over3d-health-fill.is-low,
+  .over3d-levelup-spark,
+  .over3d-quest-intro,
+  .over3d-quest-card {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* Minimap */
+.over3d-minimap {
+  position: absolute;
+  top: 84px;
+  right: 18px;
+  width: 152px;
+  height: 152px;
+  border-radius: 50%;
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  overflow: hidden;
+  z-index: 30;
+  background: #1f2a3d;
+  pointer-events: none;
+}
+
+.over3d-minimap svg {
+  display: block;
+}
+
+.mm-active {
+  animation: mm-pulse 1.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes mm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (max-width: 720px) {
+  .over3d-minimap {
+    width: 112px;
+    height: 112px;
+    top: 72px;
+    right: 12px;
+  }
+}

@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
 import { generateLesson, hasLesson } from '../content/lessons'
+import { getWorld } from '../content/adventure'
 import { LESSON_CATALOG, MASTERY_UNLOCK_THRESHOLD } from '../content/catalog'
 import { emptyBadgeCounts, getBadge } from '../content/badges'
 import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
 import { canGuestAccessLesson, canGuestAccessSection } from '../lib/guestAccess'
+import { canAccessLessonPart } from '../lib/gameAccess'
+import { getWorldState } from '../lib/questState'
 import { useLessonEngine, type LessonResult } from '../hooks/useLessonEngine'
 import { diagramChangedIndices } from '../lib/diagramDiff'
 import {
@@ -104,9 +107,28 @@ function parseSection(raw: string | undefined): CourseSection | null {
   return null
 }
 
+/** The learn section is split into this many checkpoint parts in the overworld. */
+export const LESSON_PART_COUNT = 3
+
+/** Contiguous [start, end) bounds for one balanced part of `n` slides. */
+export function lessonPartBounds(n: number, part: number, count = LESSON_PART_COUNT): [number, number] {
+  const base = Math.floor(n / count)
+  const rem = n % count
+  let start = 0
+  for (let i = 0; i < part; i++) start += base + (i < rem ? 1 : 0)
+  const size = base + (part < rem ? 1 : 0)
+  return [start, start + size]
+}
+
 export function LessonPage() {
   const { lessonId, section: sectionParam } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
+  const partParam = new URLSearchParams(location.search).get('part')
+  const learnPart =
+    partParam != null
+      ? Math.max(0, Math.min(LESSON_PART_COUNT - 1, parseInt(partParam, 10) || 0))
+      : null
   const { ready, lessons, saveLessonProgress, logAttempt, streak, isLessonUnlocked } =
     useProgress()
   const { isGuest } = useAuth()
@@ -163,6 +185,34 @@ export function LessonPage() {
     )
   }
 
+  const world = getWorld(lessonId)
+  const worldState = summary ? getWorldState(lessonId, progress, !!summary && isLessonUnlocked(summary)) : undefined
+  const levelMastered = worldState?.mastered ?? false
+
+  if (section === 'quiz' && !levelMastered) {
+    return (
+      <LessonNotice
+        title="Boss quiz locked"
+        message="Reach the boss in Code City after clearing every checkpoint — you can't take the quiz from the list until you've beaten this level once."
+        action={{ label: 'Open Code City', to: '/quest' }}
+      />
+    )
+  }
+
+  if (
+    section === 'learn' &&
+    world &&
+    !canAccessLessonPart(world.index, learnPart, levelMastered)
+  ) {
+    return (
+      <LessonNotice
+        title="Checkpoint locked"
+        message="Travel to this checkpoint in Code City and press E at the building to start the lesson. List view unlocks after you clear the level."
+        action={{ label: 'Open Code City', to: '/quest' }}
+      />
+    )
+  }
+
   if (section === 'quiz' && !isLearnComplete(progress, baseLesson)) {
     return (
       <LessonNotice
@@ -176,11 +226,33 @@ export function LessonPage() {
   const nextSummary = LESSON_CATALOG[catalogIndex + 1] ?? null
   const isLastLesson = catalogIndex === LESSON_CATALOG.length - 1
 
+  function exitToQuest(opts?: { markPartDone?: boolean; part?: number; final?: boolean }) {
+    if (opts?.markPartDone && section === 'learn' && learnPart != null) {
+      const world = getWorld(lessonId!)
+      if (world) {
+        try {
+          sessionStorage.setItem(
+            'alphacode.partDone',
+            JSON.stringify({
+              world: world.index,
+              part: opts.part ?? learnPart,
+              final: opts.final ?? learnPart >= LESSON_PART_COUNT - 1,
+            }),
+          )
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    navigate('/quest')
+  }
+
   return (
     <LessonRunner
-      key={`${lessonId}:${section}`}
+      key={`${lessonId}:${section}:${learnPart ?? 'all'}`}
       lessonId={lessonId}
       section={section}
+      learnPart={section === 'learn' ? learnPart : null}
       initial={progress}
       onSave={saveLessonProgress}
       onAttempt={logAttempt}
@@ -189,11 +261,12 @@ export function LessonPage() {
       isLastLesson={isLastLesson}
       onNext={
         nextSummary
-          ? () => navigate(`/lesson/${nextSummary.id}/learn`)
+          ? () => navigate('/quest')
           : undefined
       }
-      onTakeQuiz={() => navigate(`/lesson/${lessonId}/quiz`)}
-      onExit={() => navigate('/home')}
+      onTakeQuiz={() => navigate('/quest')}
+      onExit={() => exitToQuest()}
+      onPartComplete={(part, final) => exitToQuest({ markPartDone: true, part, final })}
     />
   )
 }
@@ -219,8 +292,8 @@ export function LessonNotice({
               {action.label}
             </Link>
           ) : (
-            <Link className="btn" to="/home">
-              Back to course
+            <Link className="btn" to="/quest">
+              Back to map
             </Link>
           )}
         </div>
@@ -229,9 +302,10 @@ export function LessonNotice({
   )
 }
 
-function LessonRunner({
+export function LessonRunner({
   lessonId,
   section,
+  learnPart = null,
   initial,
   onSave,
   onAttempt,
@@ -241,9 +315,14 @@ function LessonRunner({
   onNext,
   onTakeQuiz,
   onExit,
+  onPartComplete,
+  onQuizComplete,
+  embedded,
 }: {
   lessonId: string
   section: CourseSection
+  /** When set (0-based), only this slice of the learn slides is shown. */
+  learnPart?: number | null
   initial?: LessonProgress
   onSave: (p: LessonProgress) => void
   onAttempt: (a: AttemptRecord) => void
@@ -253,6 +332,10 @@ function LessonRunner({
   onNext?: () => void
   onTakeQuiz: () => void
   onExit: () => void
+  onPartComplete?: (part: number, final: boolean) => void
+  /** Boss mode: fires once the quiz is fully finished (incl. review) → go fight. */
+  onQuizComplete?: () => void
+  embedded?: boolean
 }) {
   const { isGuest } = useAuth()
   const { getLessonProgress, restartQuizProgress } = useProgress()
@@ -283,8 +366,15 @@ function LessonRunner({
     [baseLesson, section],
   )
 
+  const usePart = section === 'learn' && learnPart != null && !isReview
+  const isFinalPart = learnPart != null && learnPart >= LESSON_PART_COUNT - 1
+
   const lesson = useMemo(() => {
     if (!isReview) {
+      if (usePart && learnPart != null) {
+        const [start, end] = lessonPartBounds(sectionSteps.length, learnPart)
+        return { ...baseLesson, steps: sectionSteps.slice(start, end) }
+      }
       return { ...baseLesson, steps: sectionSteps }
     }
     const idSet = new Set(missedStepIds)
@@ -292,7 +382,7 @@ function LessonRunner({
       ...baseLesson,
       steps: sectionSteps.filter((s) => idSet.has(s.id)),
     }
-  }, [baseLesson, sectionSteps, isReview, missedStepIds.join('|')])
+  }, [baseLesson, sectionSteps, isReview, usePart, learnPart, missedStepIds.join('|')])
 
   const replay = useCallback(() => {
     if (section === 'quiz') {
@@ -362,8 +452,7 @@ function LessonRunner({
         stepReviews: [],
       }
       return (
-        <div className="page">
-          <AppHeader />
+        <RoundShell embedded={embedded}>
           <main className="container lp lp-quiz">
             <CompletionView
               result={{
@@ -384,7 +473,7 @@ function LessonRunner({
               onReplay={replay}
             />
           </main>
-        </div>
+        </RoundShell>
       )
     }
   }
@@ -421,8 +510,7 @@ function LessonRunner({
         : [],
     }
     return (
-      <div className="page">
-        <AppHeader />
+      <RoundShell embedded={embedded}>
         <main className="container lp lp-quiz">
           <CompletionView
             result={{
@@ -442,16 +530,18 @@ function LessonRunner({
             onReplay={replay}
           />
         </main>
-      </div>
+      </RoundShell>
     )
   }
 
   return (
     <LessonRound
-      key={`${round}:${reviewRound}:${isReview ? missedStepIds.join('|') : 'all'}`}
+      key={`${round}:${reviewRound}:${isReview ? missedStepIds.join('|') : 'all'}:p${learnPart ?? 'x'}`}
       lesson={lesson}
       section={section}
       isReview={isReview}
+      learnPart={usePart ? learnPart : null}
+      isFinalPart={isFinalPart}
       initial={isReview ? liveProgress : round === 0 && !isReview ? initial : undefined}
       quizResultRef={quizResultRef}
       onSave={onSave}
@@ -462,10 +552,34 @@ function LessonRunner({
       onNext={onNext}
       onTakeQuiz={onTakeQuiz}
       onExit={onExit}
+      onPartComplete={onPartComplete}
+      onQuizComplete={onQuizComplete}
       onReplay={replay}
       onRedoMissed={redoMissed}
       onReviewMasteryReached={onReviewMasteryReached}
+      embedded={embedded}
     />
+  )
+}
+
+/**
+ * Wraps a round view. Normally renders the full page chrome (header); when
+ * `embedded` (e.g. inside a boss battle), it drops the header/page shell so the
+ * quiz can live inside another layout.
+ */
+function RoundShell({
+  embedded,
+  children,
+}: {
+  embedded?: boolean
+  children: ReactNode
+}) {
+  if (embedded) return <div className="lp-embedded">{children}</div>
+  return (
+    <div className="page">
+      <AppHeader />
+      {children}
+    </div>
   )
 }
 
@@ -473,6 +587,8 @@ export function LessonRound({
   lesson,
   section,
   isReview,
+  learnPart = null,
+  isFinalPart = true,
   initial,
   quizResultRef,
   onSave,
@@ -483,13 +599,19 @@ export function LessonRound({
   onNext,
   onTakeQuiz,
   onExit,
+  onPartComplete,
+  onQuizComplete,
   onReplay,
   onRedoMissed,
   onReviewMasteryReached,
+  embedded,
 }: {
   lesson: Lesson
   section: CourseSection
   isReview: boolean
+  /** 0-based part index when the learn section is split; null = full lesson. */
+  learnPart?: number | null
+  isFinalPart?: boolean
   initial?: LessonProgress
   quizResultRef: MutableRefObject<LessonResult | null>
   onSave: (p: LessonProgress) => void
@@ -500,19 +622,23 @@ export function LessonRound({
   onNext?: () => void
   onTakeQuiz: () => void
   onExit: () => void
+  onPartComplete?: (part: number, final: boolean) => void
+  onQuizComplete?: () => void
   onReplay: () => void
   onRedoMissed: (ids: string[]) => void
   onReviewMasteryReached: () => void
+  embedded?: boolean
 }) {
+  const isPart = learnPart != null && section === 'learn' && !isReview
   const { isGuest } = useAuth()
   const { getLessonProgress } = useProgress()
   const fullLesson = useMemo(() => generateLesson(lesson.id)!, [lesson.id])
   const savedProgress = getLessonProgress(lesson.id) ?? initial
-  const resumeIndex = sectionResumeIndex(
-    savedProgress ?? initial,
-    section,
-    fullLesson,
-  )
+  // Parts always start at the top of their slice — global resume indices don't
+  // map onto a sliced lesson.
+  const resumeIndex = isPart
+    ? null
+    : sectionResumeIndex(savedProgress ?? initial, section, fullLesson)
   const [liveMastery, setLiveMastery] = useState<number | null>(null)
   const engineRef = useRef<ReturnType<typeof useLessonEngine> | null>(null)
 
@@ -732,6 +858,18 @@ export function LessonRound({
 
   engineRef.current = engine
 
+  // Boss mode: the moment the quiz section is finished, jump straight to the
+  // fight — no review loop, no "next lesson" completion screen. Beating the boss
+  // is what clears the level now.
+  const quizDoneFired = useRef(false)
+  useEffect(() => {
+    if (!onQuizComplete || section !== 'quiz') return
+    if (engine.isComplete && engine.result && !quizDoneFired.current) {
+      quizDoneFired.current = true
+      onQuizComplete()
+    }
+  }, [engine.isComplete, engine.result, onQuizComplete, section])
+
   const flushSectionProgress = useCallback(() => {
     const eng = engineRef.current
     if (!eng || eng.isComplete || isReview) return
@@ -835,6 +973,9 @@ export function LessonRound({
     completionSaved.current = true
 
     if (section === 'learn' && !isReview) {
+      // A non-final part accumulates completed slides but does NOT finish the
+      // lesson — only the final part flips learnCompleted.
+      const completeLesson = !isPart || isFinalPart
       onSave({
         lessonId: lesson.id,
         status: 'inProgress',
@@ -852,8 +993,10 @@ export function LessonRound({
         accuracy: initial?.accuracy ?? 0,
         masteryScore: initial?.masteryScore ?? 0,
         unlockNextLesson: false,
-        learnCompleted: true,
-        learnStepIndex: lesson.steps.length - 1,
+        learnCompleted: completeLesson ? true : (initial?.learnCompleted ?? false),
+        learnStepIndex: completeLesson
+          ? Math.max(initial?.learnStepIndex ?? 0, lesson.steps.length - 1)
+          : (initial?.learnStepIndex ?? 0),
         quizStepIndex: initial?.quizStepIndex,
         updatedAt: new Date().toISOString(),
       })
@@ -896,6 +1039,8 @@ export function LessonRound({
   }, [
     section,
     isReview,
+    isPart,
+    isFinalPart,
     lesson,
     fullLesson,
     engine.isComplete,
@@ -960,20 +1105,65 @@ export function LessonRound({
   const tiles = useMemo(() => genTiles(engine.displayStep), [engine.displayStep])
   const pageClass = section === 'learn' ? 'lp lp-learn' : 'lp lp-quiz'
 
+  // Empty slice (very short lessons) — treat the part as already cleared.
+  if (isPart && lesson.steps.length === 0) {
+    return (
+      <RoundShell embedded={embedded}>
+        <main className={`container ${pageClass}`}>
+          {isFinalPart ? (
+            <PartCompleteView
+              part={learnPart ?? 0}
+              final
+              onContinue={() => onPartComplete?.(learnPart ?? 0, true)}
+            />
+          ) : (
+            <PartCompleteView
+              part={learnPart ?? 0}
+              onContinue={() => onPartComplete?.(learnPart ?? 0, false)}
+            />
+          )}
+        </main>
+      </RoundShell>
+    )
+  }
+
   if (engine.isComplete && engine.result) {
     if (section === 'learn' && !isReview) {
+      if (isPart && !isFinalPart) {
+        return (
+          <RoundShell embedded={embedded}>
+            <main className={`container ${pageClass}`}>
+              <PartCompleteView
+                part={learnPart ?? 0}
+                onContinue={() => onPartComplete?.(learnPart ?? 0, false)}
+              />
+            </main>
+          </RoundShell>
+        )
+      }
+      if (isPart && isFinalPart) {
+        return (
+          <RoundShell embedded={embedded}>
+            <main className={`container ${pageClass}`}>
+              <PartCompleteView
+                part={learnPart ?? 0}
+                final
+                onContinue={() => onPartComplete?.(learnPart ?? 0, true)}
+              />
+            </main>
+          </RoundShell>
+        )
+      }
       return (
-        <div className="page">
-          <AppHeader />
+        <RoundShell embedded={embedded}>
           <main className={`container ${pageClass}`}>
             <LearnCompleteView
               lessonTitle={lesson.title}
               isGuest={isGuest}
               onTakeQuiz={onTakeQuiz}
-              onExit={onExit}
             />
           </main>
-        </div>
+        </RoundShell>
       )
     }
 
@@ -988,12 +1178,11 @@ export function LessonRound({
         engine.result.stepReviews.some((s) => s.missed)
       ) {
         return (
-          <div className="page">
-            <AppHeader />
+          <RoundShell embedded={embedded}>
             <main className={`container ${pageClass}`}>
               <Loader label="Starting review" />
             </main>
-          </div>
+          </RoundShell>
         )
       }
 
@@ -1003,12 +1192,11 @@ export function LessonRound({
         remainingMissed > 0
       ) {
         return (
-          <div className="page">
-            <AppHeader />
+          <RoundShell embedded={embedded}>
             <main className={`container ${pageClass}`}>
               <Loader label="Continuing review" />
             </main>
-          </div>
+          </RoundShell>
         )
       }
 
@@ -1029,8 +1217,7 @@ export function LessonRound({
           (saved?.lastReview?.missedStepIds.length ?? 0) > 0)
 
       return (
-        <div className="page">
-          <AppHeader />
+        <RoundShell embedded={embedded}>
           <main className={`container ${pageClass}`}>
             <CompletionView
               result={displayResult}
@@ -1047,7 +1234,7 @@ export function LessonRound({
               onReplay={onReplay}
             />
           </main>
-        </div>
+        </RoundShell>
       )
     }
 
@@ -1055,8 +1242,7 @@ export function LessonRound({
   }
 
   return (
-    <div className="page">
-      <AppHeader />
+    <RoundShell embedded={embedded}>
       <main className={`container ${pageClass}`}>
         <div className="lp-top">
           <button
@@ -1110,7 +1296,7 @@ export function LessonRound({
             step={engine.step}
             slideIndex={engine.stepIndex}
             slideTotal={engine.totalSteps}
-            canGoPrevious={engine.canGoPrev}
+            canGoPrevious={section === 'learn' && engine.canGoPrev}
             onContinue={engine.next}
             onPrevious={engine.prev}
           />
@@ -1124,7 +1310,7 @@ export function LessonRound({
           />
         )}
       </main>
-    </div>
+    </RoundShell>
   )
 }
 
@@ -1198,12 +1384,10 @@ function LearnCompleteView({
   lessonTitle,
   isGuest,
   onTakeQuiz,
-  onExit,
 }: {
   lessonTitle: string
   isGuest: boolean
   onTakeQuiz: () => void
-  onExit: () => void
 }) {
   return (
     <div className="learn-complete stage-reveal stack-center">
@@ -1222,8 +1406,8 @@ function LearnCompleteView({
         ) : (
           <>
             {' '}
-            Take the quiz to prove the pattern — then see which NeetCode-style
-            problems you&apos;re ready for.
+            Now head back into the city and reach the <strong>Level Boss</strong> to take
+            on the quiz and the boss fight.
           </>
         )}
       </p>
@@ -1234,12 +1418,49 @@ function LearnCompleteView({
         </Link>
       ) : (
         <button className="btn lg quiz-start" onClick={onTakeQuiz}>
-          Take the quiz
+          Back to the city
           <IconArrowRight size={18} />
         </button>
       )}
-      <button className="btn ghost lg" onClick={onExit}>
-        Back to course
+    </div>
+  )
+}
+
+function PartCompleteView({
+  part,
+  onContinue,
+  final = false,
+}: {
+  part: number
+  onContinue: () => void
+  final?: boolean
+}) {
+  return (
+    <div className="learn-complete stage-reveal stack-center">
+      <span className="learn-complete-badge" aria-hidden="true">
+        ✓
+      </span>
+      <h1 className="learn-complete-title">
+        {final ? 'All checkpoints complete!' : `Checkpoint ${part + 1} complete!`}
+      </h1>
+      <p className="muted learn-complete-sub">
+        {final ? (
+          <>
+            That&rsquo;s all {LESSON_PART_COUNT} checkpoints in this level. Head back to the city
+            and reach the <strong>Level Boss</strong> before the timer runs out — quiz first, then
+            the fight!
+          </>
+        ) : (
+          <>
+            That&rsquo;s checkpoint {part + 1} of {LESSON_PART_COUNT} in this level. Head back to the
+            city and reach the <strong>next checkpoint</strong> before the timer runs out — zombies get
+            tougher and your hearts don&rsquo;t refill!
+          </>
+        )}
+      </p>
+      <button className="btn lg quiz-start" onClick={onContinue}>
+        Back to the city
+        <IconArrowRight size={18} />
       </button>
     </div>
   )
@@ -1540,6 +1761,8 @@ function StepView({
     [prevDiagram, displayStep.diagram],
   )
   const isLearn = section === 'learn'
+  // Quizzes are one-way: no going back to a previous slide once you're in.
+  const allowPrev = isLearn && engine.canGoPrev
   const isCheckpoint = step.type === 'lessonPractice'
   const isLineRun = stepUsesLineRun(step)
   const directAnswer = isDirectAnswer(displayStep.type)
@@ -1637,7 +1860,7 @@ function StepView({
             <p className="stage-question">{displayStep.prompt}</p>
           )}
           <LessonSlideNav
-            canGoPrevious={engine.canGoPrev}
+            canGoPrevious={allowPrev}
             onPrevious={engine.prev}
             primaryLabel={runLabel}
             onPrimary={engine.runStep}
@@ -1698,7 +1921,7 @@ function StepView({
               >
                 Check
               </button>
-              {engine.canGoPrev && (
+              {allowPrev && (
                 <button
                   type="button"
                   className="btn ghost lesson-slide-prev-inline"
@@ -1711,7 +1934,7 @@ function StepView({
             </div>
           ) : (
             <LessonSlideNav
-              canGoPrevious={engine.canGoPrev}
+              canGoPrevious={allowPrev}
               onPrevious={engine.prev}
               primaryLabel={
                 engine.answerRevealed

@@ -228,6 +228,8 @@ export function useLessonEngine(
     }
     onSave?: (progress: LessonProgress) => void
     onAttempt?: (attempt: AttemptRecord) => void
+    /** Fired on each correct answer — used to grant speed-based XP. */
+    onCorrect?: (info: { firstTry: boolean; responseMs: number }) => void
   },
 ): LessonEngine {
   const interactiveTotal = useMemo(
@@ -484,6 +486,13 @@ export function useLessonEngine(
         isCorrect: allCorrect,
         attemptNumber: stepAttempts + 1,
         createdAt: new Date().toISOString(),
+      })
+    }
+
+    if (allCorrect && options?.onCorrect) {
+      options.onCorrect({
+        firstTry,
+        responseMs: performance.now() - answerStartRef.current,
       })
     }
 

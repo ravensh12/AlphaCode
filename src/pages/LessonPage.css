@@ -8,6 +8,17 @@
   max-width: 560px;
 }
 
+/* Quiz embedded inside the boss battle (no page chrome). */
+.lp-embedded {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.lp-embedded .lp {
+  padding-top: 8px;
+}
+
 /* Top bar: exit (left) + subtle levels (right) */
 .lp-top {
   display: flex;
