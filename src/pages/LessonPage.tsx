@@ -41,7 +41,7 @@ import { VisualDiagram } from '../components/lesson/VisualDiagram'
 import { CompletionView } from '../components/lesson/CompletionView'
 import { stepToReview } from '../components/lesson/ReviewBreakdown'
 import { Loader } from '../components/Loader'
-import { IconArrowLeft, IconArrowRight } from '../components/icons'
+import { IconArrowLeft } from '../components/icons'
 import './LessonPage.css'
 
 const TILE_COUNT = 8
@@ -132,6 +132,9 @@ export function LessonPage() {
   const { ready, lessons, saveLessonProgress, logAttempt, streak, isLessonUnlocked } =
     useProgress()
   const { isGuest } = useAuth()
+  // The overworld entry token is one-time use — cache the access decision per
+  // (level, part) so re-renders don't re-consume it and lock the player out.
+  const lessonAccessRef = useRef<{ key: string; ok: boolean } | null>(null)
 
   if (!lessonId || !hasLesson(lessonId)) {
     return (
@@ -148,7 +151,7 @@ export function LessonPage() {
   }
 
   if (!ready) {
-    return <Loader label="Loading lesson" />
+    return <Loader label="Loading lesson" night />
   }
 
   const baseLesson = generateLesson(lessonId)!
@@ -199,18 +202,23 @@ export function LessonPage() {
     )
   }
 
-  if (
-    section === 'learn' &&
-    world &&
-    !canAccessLessonPart(world.index, learnPart, levelMastered)
-  ) {
-    return (
-      <LessonNotice
-        title="Checkpoint locked"
-        message="Travel to this checkpoint in Code City and press E at the building to start the lesson. List view unlocks after you clear the level."
-        action={{ label: 'Open Code City', to: '/quest' }}
-      />
-    )
+  if (section === 'learn' && world) {
+    const accessKey = `${world.index}:${learnPart}`
+    if (lessonAccessRef.current?.key !== accessKey) {
+      lessonAccessRef.current = {
+        key: accessKey,
+        ok: canAccessLessonPart(world.index, learnPart, levelMastered),
+      }
+    }
+    if (!lessonAccessRef.current.ok) {
+      return (
+        <LessonNotice
+          title="Checkpoint locked"
+          message="Travel to this checkpoint in Code City and press E at the building to start the lesson. List view unlocks after you clear the level."
+          action={{ label: 'Open Code City', to: '/quest' }}
+        />
+      )
+    }
   }
 
   if (section === 'quiz' && !isLearnComplete(progress, baseLesson)) {
@@ -436,7 +444,9 @@ export function LessonRunner({
     }
   }, [section, initial])
 
-  if (reviewFinished) {
+  // In boss mode (onQuizComplete provided) we always run the quiz, then hand off
+  // to the fight — never short-circuit to a "mastered"/review summary screen.
+  if (reviewFinished && !onQuizComplete) {
     const saved = getLessonProgress(lessonId) ?? initial
     const baseResult =
       quizResultRef.current ?? (saved ? savedQuizResult(saved) : null)
@@ -480,6 +490,7 @@ export function LessonRunner({
 
   const showMasteredSummary =
     section === 'quiz' &&
+    !onQuizComplete &&
     !forceFullQuiz &&
     !reviewActive &&
     !!liveProgress &&
@@ -870,6 +881,39 @@ export function LessonRound({
     }
   }, [engine.isComplete, engine.result, onQuizComplete, section])
 
+  // Learn checkpoint finished → jump straight back to Code City. The overworld
+  // milestone popup carries the "checkpoint complete" message, so we skip the
+  // redundant full-screen interstitial.
+  const cityReturnFired = useRef(false)
+  useEffect(() => {
+    if (section !== 'learn' || isReview || cityReturnFired.current) return
+
+    if (isPart && onPartComplete) {
+      const done =
+        lesson.steps.length === 0 || (engine.isComplete && !!engine.result)
+      if (!done) return
+      cityReturnFired.current = true
+      onPartComplete(learnPart ?? 0, isFinalPart)
+      return
+    }
+
+    if (!isPart && engine.isComplete && engine.result) {
+      cityReturnFired.current = true
+      onTakeQuiz()
+    }
+  }, [
+    section,
+    isReview,
+    isPart,
+    isFinalPart,
+    onPartComplete,
+    onTakeQuiz,
+    lesson.steps.length,
+    engine.isComplete,
+    engine.result,
+    learnPart,
+  ])
+
   const flushSectionProgress = useCallback(() => {
     const eng = engineRef.current
     if (!eng || eng.isComplete || isReview) return
@@ -1052,6 +1096,8 @@ export function LessonRound({
   ])
 
   useEffect(() => {
+    // Boss mode (onQuizComplete) never enters a review loop — it goes to the fight.
+    if (onQuizComplete) return
     if (!engine.isComplete || !engine.result || section !== 'quiz' || isReview)
       return
 
@@ -1071,10 +1117,12 @@ export function LessonRound({
     section,
     isReview,
     onRedoMissed,
+    onQuizComplete,
     quizResultRef,
   ])
 
   useEffect(() => {
+    if (onQuizComplete) return
     if (!engine.isComplete || !engine.result || section !== 'quiz' || !isReview)
       return
 
@@ -1100,68 +1148,37 @@ export function LessonRound({
     initial,
     onReviewMasteryReached,
     onRedoMissed,
+    onQuizComplete,
   ])
 
   const tiles = useMemo(() => genTiles(engine.displayStep), [engine.displayStep])
   const pageClass = section === 'learn' ? 'lp lp-learn' : 'lp lp-quiz'
 
-  // Empty slice (very short lessons) — treat the part as already cleared.
-  if (isPart && lesson.steps.length === 0) {
+  const returningToCity =
+    section === 'learn' &&
+    !isReview &&
+    (isPart
+      ? lesson.steps.length === 0 || (engine.isComplete && !!engine.result)
+      : engine.isComplete && !!engine.result)
+
+  if (returningToCity) {
     return (
       <RoundShell embedded={embedded}>
         <main className={`container ${pageClass}`}>
-          {isFinalPart ? (
-            <PartCompleteView
-              part={learnPart ?? 0}
-              final
-              onContinue={() => onPartComplete?.(learnPart ?? 0, true)}
-            />
-          ) : (
-            <PartCompleteView
-              part={learnPart ?? 0}
-              onContinue={() => onPartComplete?.(learnPart ?? 0, false)}
-            />
-          )}
+          <Loader label="Returning to Code City" night />
         </main>
       </RoundShell>
     )
   }
 
   if (engine.isComplete && engine.result) {
-    if (section === 'learn' && !isReview) {
-      if (isPart && !isFinalPart) {
-        return (
-          <RoundShell embedded={embedded}>
-            <main className={`container ${pageClass}`}>
-              <PartCompleteView
-                part={learnPart ?? 0}
-                onContinue={() => onPartComplete?.(learnPart ?? 0, false)}
-              />
-            </main>
-          </RoundShell>
-        )
-      }
-      if (isPart && isFinalPart) {
-        return (
-          <RoundShell embedded={embedded}>
-            <main className={`container ${pageClass}`}>
-              <PartCompleteView
-                part={learnPart ?? 0}
-                final
-                onContinue={() => onPartComplete?.(learnPart ?? 0, true)}
-              />
-            </main>
-          </RoundShell>
-        )
-      }
+    // Boss mode: the quiz is finished — hand straight off to the fight (done by
+    // the onQuizComplete effect). Never show a review loop or completion screen.
+    if (onQuizComplete && section === 'quiz') {
       return (
         <RoundShell embedded={embedded}>
           <main className={`container ${pageClass}`}>
-            <LearnCompleteView
-              lessonTitle={lesson.title}
-              isGuest={isGuest}
-              onTakeQuiz={onTakeQuiz}
-            />
+            <Loader label="Entering the fight" night />
           </main>
         </RoundShell>
       )
@@ -1180,7 +1197,7 @@ export function LessonRound({
         return (
           <RoundShell embedded={embedded}>
             <main className={`container ${pageClass}`}>
-              <Loader label="Starting review" />
+              <Loader label="Starting review" night />
             </main>
           </RoundShell>
         )
@@ -1194,7 +1211,7 @@ export function LessonRound({
         return (
           <RoundShell embedded={embedded}>
             <main className={`container ${pageClass}`}>
-              <Loader label="Continuing review" />
+              <Loader label="Continuing review" night />
             </main>
           </RoundShell>
         )
@@ -1377,92 +1394,6 @@ function SectionHeader({
             : 'NeetCode-style practice — no new concepts, just prove you learned the pattern.'}
       </p>
     </header>
-  )
-}
-
-function LearnCompleteView({
-  lessonTitle,
-  isGuest,
-  onTakeQuiz,
-}: {
-  lessonTitle: string
-  isGuest: boolean
-  onTakeQuiz: () => void
-}) {
-  return (
-    <div className="learn-complete stage-reveal stack-center">
-      <span className="learn-complete-badge" aria-hidden="true">
-        ✓
-      </span>
-      <h1 className="learn-complete-title">Lesson complete!</h1>
-      <p className="muted learn-complete-sub">
-        You finished the interactive lesson on <strong>{lessonTitle}</strong>.
-        {isGuest ? (
-          <>
-            {' '}
-            Sign in to take the quiz, save your progress, and unlock the full
-            course.
-          </>
-        ) : (
-          <>
-            {' '}
-            Now head back into the city and reach the <strong>Level Boss</strong> to take
-            on the quiz and the boss fight.
-          </>
-        )}
-      </p>
-      {isGuest ? (
-        <Link className="btn lg quiz-start" to="/auth">
-          Sign in to unlock quiz
-          <IconArrowRight size={18} />
-        </Link>
-      ) : (
-        <button className="btn lg quiz-start" onClick={onTakeQuiz}>
-          Back to the city
-          <IconArrowRight size={18} />
-        </button>
-      )}
-    </div>
-  )
-}
-
-function PartCompleteView({
-  part,
-  onContinue,
-  final = false,
-}: {
-  part: number
-  onContinue: () => void
-  final?: boolean
-}) {
-  return (
-    <div className="learn-complete stage-reveal stack-center">
-      <span className="learn-complete-badge" aria-hidden="true">
-        ✓
-      </span>
-      <h1 className="learn-complete-title">
-        {final ? 'All checkpoints complete!' : `Checkpoint ${part + 1} complete!`}
-      </h1>
-      <p className="muted learn-complete-sub">
-        {final ? (
-          <>
-            That&rsquo;s all {LESSON_PART_COUNT} checkpoints in this level. Head back to the city
-            and reach the <strong>Level Boss</strong> before the timer runs out — quiz first, then
-            the fight!
-          </>
-        ) : (
-          <>
-            That&rsquo;s checkpoint {part + 1} of {LESSON_PART_COUNT} in this level. Head back to the
-            city and reach the <strong>next checkpoint</strong> before the timer runs out — zombies get
-            tougher and your hearts don&rsquo;t refill!
-          </>
-        )}
-      </p>
-      <button className="btn lg quiz-start" onClick={onContinue}>
-        Back to the city
-        <IconArrowRight size={18} />
-      </button>
-    </div>
   )
 }
 

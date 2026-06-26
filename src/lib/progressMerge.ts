@@ -163,13 +163,38 @@ export function mergeProgressStates(
       : localLesson
   }
 
+  // "The Threshold" is a one-way latch: once either side has cleared it, the
+  // merge must keep it cleared. Keep the earliest known completion timestamp.
+  const interZoneComplete =
+    (cloud.interZoneComplete ?? false) || (local.interZoneComplete ?? false)
+  const interZoneCompletedAt = interZoneComplete
+    ? ([cloud.interZoneCompletedAt, local.interZoneCompletedAt]
+        .filter((t): t is string => !!t)
+        .sort()[0] ?? undefined)
+    : undefined
+
   return {
     experienceLevel: cloud.experienceLevel ?? local.experienceLevel,
+    // Placement lives client-side (no cloud column yet); keep whichever side has
+    // the further-reaching unlock so a device that ran the diagnostic wins.
+    placementUnlockIndex:
+      Math.max(
+        cloud.placementUnlockIndex ?? -1,
+        local.placementUnlockIndex ?? -1,
+      ) >= 0
+        ? Math.max(
+            cloud.placementUnlockIndex ?? -1,
+            local.placementUnlockIndex ?? -1,
+          )
+        : undefined,
+    recommendedLessonId: cloud.recommendedLessonId ?? local.recommendedLessonId,
     streak: reconcileStreak(cloud.streak, local.streak),
     badgeCounts: reconcileBadgeCounts(
       cloud.badgeCounts,
       mergeBadgeCounts(cloud.badgeCounts, local.badgeCounts),
     ),
+    interZoneComplete,
+    interZoneCompletedAt,
     lessons,
   }
 }

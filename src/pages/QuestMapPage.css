@@ -1,8 +1,213 @@
+/* ============================================================ Quest list view
+   Dark, cinematic "Code City at night" theme. ALL dark theming is scoped to the
+   `.quest-page` container (which IS the page root) so the global light "paper"
+   theme stays intact for every other route. The opaque `.app-header` keeps its
+   own light look and is unaffected. Layout, structure, copy and
+   responsive/reduced-motion behavior are untouched — only colors change. */
+/* Final Gauntlet banner — only shows once all six levels are cleared. */
+.quest-page .quest-gauntlet-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 22px;
+  padding: 18px 22px;
+  border-radius: 18px;
+  text-decoration: none;
+  color: #f3eaff;
+  background: linear-gradient(120deg, rgba(106, 60, 255, 0.4), rgba(160, 92, 255, 0.28));
+  border: 1.5px solid rgba(190, 150, 255, 0.55);
+  box-shadow: 0 0 30px rgba(150, 110, 255, 0.35), 0 14px 34px rgba(0, 0, 0, 0.45);
+  transition: transform 0.12s ease, box-shadow 0.16s ease;
+  animation: questGauntletGlow 2.6s ease-in-out infinite;
+}
+.quest-page .quest-gauntlet-banner:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 40px rgba(180, 130, 255, 0.6), 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+.quest-page .quest-gauntlet-banner.is-conquered {
+  background: linear-gradient(120deg, rgba(255, 200, 90, 0.3), rgba(255, 150, 70, 0.22));
+  border-color: rgba(255, 200, 110, 0.6);
+  animation: none;
+}
+@keyframes questGauntletGlow {
+  0%, 100% { box-shadow: 0 0 26px rgba(150, 110, 255, 0.3), 0 14px 34px rgba(0, 0, 0, 0.45); }
+  50% { box-shadow: 0 0 40px rgba(185, 135, 255, 0.6), 0 14px 34px rgba(0, 0, 0, 0.45); }
+}
+.quest-page .quest-gauntlet-icon {
+  flex: 0 0 auto;
+  width: 46px; height: 46px;
+  display: grid; place-items: center;
+  border-radius: 13px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.quest-page .quest-gauntlet-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.quest-page .quest-gauntlet-copy strong {
+  font-family: var(--display, inherit);
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+.quest-page .quest-gauntlet-copy span {
+  font-size: 13.5px;
+  color: rgba(235, 225, 255, 0.85);
+  line-height: 1.4;
+}
+.quest-page .quest-gauntlet-go { flex: 0 0 auto; margin-left: auto; opacity: 0.9; }
+
+/* Final Gauntlet options panel — shown once the Mastery Trial is passed:
+   review the test, retake it, or go fight the final boss. */
+.quest-page .quest-gauntlet-panel {
+  margin: 0 0 22px;
+  padding: 18px 22px;
+  border-radius: 18px;
+  color: #f3eaff;
+  background: linear-gradient(120deg, rgba(106, 60, 255, 0.4), rgba(160, 92, 255, 0.28));
+  border: 1.5px solid rgba(190, 150, 255, 0.55);
+  box-shadow: 0 0 30px rgba(150, 110, 255, 0.35), 0 14px 34px rgba(0, 0, 0, 0.45);
+}
+.quest-page .quest-gauntlet-panel.is-conquered {
+  background: linear-gradient(120deg, rgba(255, 200, 90, 0.3), rgba(255, 150, 70, 0.22));
+  border-color: rgba(255, 200, 110, 0.6);
+}
+.quest-page .quest-gauntlet-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.quest-page .quest-gauntlet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.quest-page .quest-gauntlet-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 14px;
+  text-decoration: none;
+  color: #f3eaff;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  transition: transform 0.12s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+.quest-page .quest-gauntlet-action:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.16);
+}
+.quest-page .quest-gauntlet-action.is-primary {
+  margin-left: auto;
+  color: #1a0f33;
+  background: linear-gradient(120deg, #d9c2ff, #b486ff);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 26px rgba(185, 135, 255, 0.55);
+}
+.quest-page .quest-gauntlet-action.is-primary:hover {
+  box-shadow: 0 0 40px rgba(200, 150, 255, 0.75);
+}
+.quest-page .quest-gauntlet-panel.is-conquered .quest-gauntlet-action.is-primary {
+  background: linear-gradient(120deg, #ffe2a6, #ff9e57);
+  box-shadow: 0 0 26px rgba(255, 180, 90, 0.55);
+}
+@media (max-width: 560px) {
+  .quest-page .quest-gauntlet-action,
+  .quest-page .quest-gauntlet-action.is-primary { margin-left: 0; flex: 1 1 100%; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-page .quest-gauntlet-action { transition: none; }
+  .quest-page .quest-gauntlet-action:hover { transform: none; }
+}
+
 .quest-page {
+  /* ---- Scoped Code City night palette (new vars; globals untouched) ---- */
+  --cc-bg-0: #070a10;
+  --cc-bg-1: #0a0f12;
+  --cc-tower: #0c1416;
+  --cc-tower-2: #10181c;
+  --cc-window: #e8b84a;
+  --cc-cyan: #5ef0e0;
+  --cc-lime: #b6ff5c;
+  --cc-violet: #6d4afe;
+  --cc-coral: #ff6b6b;
+  --cc-text: #eef7f2;
+  --cc-text-soft: #9bbcb2;
+  --cc-text-faint: #6f8b83;
+  --cc-glass: rgba(13, 26, 25, 0.66);
+  --cc-glass-2: rgba(9, 18, 18, 0.55);
+  --cc-line: rgba(120, 220, 200, 0.16);
+  --cc-line-strong: rgba(120, 220, 200, 0.34);
+  --cc-cyan-soft: rgba(94, 240, 224, 0.16);
+  --cc-lime-soft: rgba(182, 255, 92, 0.16);
+  --cc-amber-soft: rgba(232, 184, 74, 0.16);
+  --cc-violet-soft: rgba(109, 74, 254, 0.2);
+
+  position: relative;
+  isolation: isolate;
+  color: var(--cc-text);
   background:
-    radial-gradient(circle at 12% 8%, rgba(109, 74, 254, 0.08), transparent 42%),
-    radial-gradient(circle at 88% 24%, rgba(45, 212, 238, 0.1), transparent 46%),
-    var(--paper);
+    radial-gradient(130% 78% at 50% 102%, rgba(27, 58, 50, 0.6) 0%, transparent 55%),
+    radial-gradient(150% 95% at 72% 92%, rgba(21, 48, 42, 0.5) 0%, transparent 52%),
+    linear-gradient(180deg, #070a10 0%, #080c11 44%, #0a0f12 100%);
+}
+
+/* Faint amber-lit window glow drifting up out of the fog. */
+.quest-page::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 42vh;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(232, 184, 74, 0.5) 0 1px, transparent 2.4px);
+  background-size: 30px 40px;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  opacity: 0.28;
+}
+
+/* Distant tower silhouettes along the horizon, fading into the haze. */
+.quest-page::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 44vh;
+  z-index: -2;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2));
+  background-size:
+    70px 200px, 54px 300px, 92px 150px, 62px 360px, 112px 220px,
+    72px 300px, 120px 170px, 66px 330px, 104px 230px, 82px 280px;
+  background-position:
+    3% bottom, 12% bottom, 20% bottom, 29% bottom, 38% bottom,
+    51% bottom, 61% bottom, 73% bottom, 83% bottom, 93% bottom;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  opacity: 0.5;
 }
 
 .quest-main {
@@ -93,14 +298,6 @@
 
 .quest-stat-label {
   font-size: 12px;
-}
-
-.quest-resume {
-  align-self: flex-start;
-}
-
-.quest-overworld-link {
-  align-self: flex-start;
 }
 
 /* Checkpoint list */
@@ -262,6 +459,22 @@
   font-weight: 800;
   font-size: 16px;
   line-height: 1.1;
+  /* Leave room for the corner "Cleared"/"Current" badge so it never overlaps. */
+  padding-right: 74px;
+}
+
+/* The real coding topic this level teaches (e.g. "Binary Search"). */
+.quest-card-topic {
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: var(--world-accent-ink, var(--ink));
+  background: var(--surface-2);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 2px 9px;
 }
 
 .quest-card-blurb {
@@ -344,4 +557,199 @@
     justify-content: center;
     text-align: center;
   }
+}
+
+/* ============================================================ Dark re-skin
+   Color-only overrides scoped under `.quest-page`. */
+.quest-page h1,
+.quest-page h2,
+.quest-page h3,
+.quest-page h4 {
+  color: var(--cc-text);
+}
+.quest-page p {
+  color: var(--cc-text);
+}
+.quest-page .muted {
+  color: var(--cc-text-soft);
+}
+.quest-page .eyebrow {
+  color: var(--cc-cyan);
+  text-shadow: 0 0 16px rgba(94, 240, 224, 0.35);
+}
+
+/* CodeBot speech bubble → dark glass (scoped; CodeBot's own CSS untouched). */
+.quest-page .codebot-bubble {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+}
+.quest-page .codebot-bubble::after {
+  background: var(--cc-glass);
+  border-left-color: var(--cc-line-strong);
+  border-bottom-color: var(--cc-line-strong);
+}
+.quest-page .codebot-bubble-name {
+  color: var(--cc-cyan);
+}
+
+/* Stat chips */
+.quest-page .quest-stat {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+.quest-page .quest-stat-icon {
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+  background: var(--cc-glass-2);
+}
+.quest-page .quest-stat-icon.tone-violet {
+  background: var(--cc-violet);
+  color: #fff;
+  border-color: rgba(160, 140, 255, 0.6);
+}
+.quest-page .quest-stat-icon.tone-yellow {
+  background: var(--cc-window);
+  color: #1c1402;
+  border-color: rgba(240, 196, 85, 0.6);
+}
+.quest-page .quest-stat-icon.tone-lime {
+  background: var(--cc-lime);
+  color: #0a1a06;
+  border-color: rgba(182, 255, 92, 0.6);
+}
+.quest-page .quest-stat-value {
+  color: var(--cc-text);
+}
+
+.quest-page .quest-list-progress {
+  color: var(--cc-text-soft);
+}
+
+/* Level cards */
+.quest-page .quest-card {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+.quest-page .quest-card.is-active {
+  border-color: var(--world-accent, var(--cc-violet));
+  box-shadow: 0 0 0 1px var(--world-accent, var(--cc-violet)),
+    0 0 26px rgba(109, 74, 254, 0.35), 0 14px 34px rgba(0, 0, 0, 0.45);
+}
+.quest-page .quest-card--locked .quest-card-medallion {
+  background: var(--cc-glass-2);
+}
+.quest-page .quest-card-flag {
+  color: #fff;
+  border-color: rgba(0, 0, 0, 0.4);
+}
+.quest-page .quest-card-flag.is-clear {
+  background: var(--cc-lime);
+  color: #0a1a06;
+}
+.quest-page .quest-card-medallion {
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.4);
+}
+.quest-page .quest-card-number {
+  color: var(--cc-text);
+}
+.quest-page .quest-card-name {
+  color: var(--cc-text);
+}
+.quest-page .quest-card-topic {
+  color: var(--cc-cyan);
+  background: var(--cc-cyan-soft);
+  border-color: var(--cc-line-strong);
+}
+.quest-page .quest-card-blurb {
+  color: var(--cc-text-soft);
+}
+.quest-page .quest-card-status {
+  color: var(--cc-text-soft);
+}
+
+/* Pills */
+.quest-page .quest-pill {
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+}
+.quest-page .quest-pill.is-done {
+  background: var(--cc-lime);
+  color: #0a1a06;
+  border-color: rgba(182, 255, 92, 0.6);
+}
+.quest-page .quest-pill.is-todo {
+  background: var(--cc-glass-2);
+  color: var(--cc-text);
+}
+.quest-page .quest-pill.is-locked {
+  background: var(--cc-glass-2);
+  color: var(--cc-text-faint);
+  border-color: var(--cc-line);
+}
+
+/* Skip button */
+.quest-page .quest-skip-btn {
+  color: var(--world-accent, var(--cc-violet));
+  background: var(--cc-glass-2);
+  border-color: var(--world-accent, var(--cc-violet));
+}
+.quest-page .quest-skip-btn:hover {
+  background: var(--world-accent, var(--cc-violet));
+  color: #fff;
+}
+
+/* ---- Scoped button repaint (global .btn untouched) ---- */
+.quest-page .btn {
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+}
+.quest-page .btn:hover {
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+.quest-page .btn:active {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.quest-page .btn:not(.ghost):not(.subtle):not(.lime) {
+  --btn-bg: var(--cc-violet);
+  --btn-fg: #fff;
+  border-color: rgba(160, 140, 255, 0.55);
+  box-shadow: 0 0 24px rgba(109, 74, 254, 0.45), 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+.quest-page .btn:not(.ghost):not(.subtle):not(.lime):hover {
+  box-shadow: 0 0 32px rgba(109, 74, 254, 0.6), 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+.quest-page .btn.ghost {
+  --btn-bg: var(--cc-glass);
+  --btn-fg: var(--cc-text);
+  border-color: var(--cc-line-strong);
+  backdrop-filter: blur(6px);
+}
+.quest-page .btn.ghost:hover {
+  --btn-bg: rgba(20, 38, 36, 0.78);
+  border-color: var(--cc-cyan);
+}
+.quest-page .quest-restart {
+  color: var(--cc-text-soft);
+  font-weight: 700;
+}
+.quest-page .quest-restart:hover {
+  color: var(--cc-cyan);
+}
+.quest-page .btn.lime {
+  --btn-bg: var(--cc-lime);
+  --btn-fg: #0a1a06;
+  border-color: rgba(182, 255, 92, 0.6);
+}
+.quest-page .btn:disabled {
+  background: rgba(20, 32, 31, 0.6);
+  color: var(--cc-text-faint);
+  border-color: var(--cc-line);
+  box-shadow: none;
 }

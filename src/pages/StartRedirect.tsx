@@ -3,15 +3,16 @@ import { useProgress } from '../context/ProgressContext'
 import { Loader } from '../components/Loader'
 
 /**
- * "Start learning" drops the learner onto CodeBot's Pattern Quest map, where the
- * adventure (and their saved progress) lives.
+ * Every launch into the game runs through the cinematic intro + placement quiz.
+ * The quiz then drops the player at the world it recommends, so the intro always
+ * plays (on every rerun / refresh of the start flow) regardless of past progress.
  */
 export function StartRedirect() {
   const { ready } = useProgress()
 
   if (!ready) {
-    return <Loader label="Waking up CodeBot" />
+    return <Loader label="Waking up CodeBot" night />
   }
 
-  return <Navigate to="/quest" replace />
+  return <Navigate to="/intro" replace />
 }

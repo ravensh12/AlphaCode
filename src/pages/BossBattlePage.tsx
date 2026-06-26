@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { BossArena } from '../components/game3d/BossArena'
+import { CinematicBossArena } from '../components/game3d/CinematicBossArena'
+import { VEX_INTRO, VEX_DEFEAT } from '../content/finalGauntletLore'
 import { LessonRunner } from './LessonPage'
 import { Loader } from '../components/Loader'
 import { useAuth } from '../context/AuthContext'
@@ -13,6 +15,7 @@ import { getBonusQuestion } from '../content/bonusQuestions'
 import { canAccessBossFight } from '../lib/gameAccess'
 import { getWorldState } from '../lib/questState'
 import { BOSS_DONE_KEY } from '../lib/questSession'
+import { playClick } from '../lib/soundFx'
 import type { AttemptRecord, LessonProgress } from '../types/progress'
 import type { LessonSummary } from '../types/lesson'
 import { IconArrowLeft } from '../components/icons'
@@ -41,10 +44,15 @@ export function BossBattlePage() {
   const worldState = world ? getWorldState(world.id, progress, unlocked) : undefined
   const mastered = worldState?.mastered ?? false
   const canBattle = !!world && ready && !isGuest && unlocked && learnDone
+  // The final world swaps the quiz->blaster flow for the flagship VEX fight.
+  const isFinalWorld = !!world && world.index === WORLDS.length - 1
 
   const [phase, setPhase] = useState<Phase>('intro')
   // Bump to remount the arena for a fresh fight attempt.
   const [fightRun, setFightRun] = useState(0)
+  // The overworld entry token is one-time use, so decide access once and cache
+  // it — re-renders must not re-consume the token and bounce the player out.
+  const bossAccessRef = useRef<{ key: number; ok: boolean } | null>(null)
 
   // Fresh quiz each time we enter the intro (mount + retry). Guarded so it only
   // fires once per intro entry.
@@ -110,9 +118,154 @@ export function BossBattlePage() {
   if (isGuest) return <Navigate to="/auth" replace />
   if (!unlocked) return <Navigate to="/quest" replace />
   if (!learnDone) return <Navigate to="/quest" replace />
-  if (!canAccessBossFight(world.index, mastered)) return <Navigate to="/quest" replace />
+  if (bossAccessRef.current?.key !== world.index) {
+    bossAccessRef.current = { key: world.index, ok: canAccessBossFight(world.index, mastered) }
+  }
+  if (!bossAccessRef.current.ok) return <Navigate to="/quest" replace />
 
   const accent = world.theme.accent
+
+  // === FLAGSHIP FINAL WORLD: VEX, the Null Herald ===========================
+  // Pure-skill cinematic boss — no quiz. Winning leads into the Threshold zone.
+  if (isFinalWorld) {
+    if (phase === 'fight') {
+      return (
+        <div className="battle-page">
+          <CinematicBossArena
+            key={`vex-${fightRun}`}
+            bossName="VEX"
+            accent={accent}
+            loadout={null}
+            onWin={handleWin}
+            onLose={() => setPhase('lost')}
+            onFlee={() => navigate('/quest')}
+          />
+        </div>
+      )
+    }
+
+    if (phase === 'won') {
+      return (
+        <div className="battle-page">
+          <div className="battle-stage battle-stage--full battle-vex-stage">
+            <div className="battle-backdrop battle-vex-backdrop" style={{ ['--accent' as string]: accent }} />
+            <div className="battle-overlay" key="vex-victory">
+              <div className="battle-result-card win battle-vex-card battle-vex-card--win">
+                <span className="battle-result-tag battle-vex-tag">The Null Herald Falls</span>
+                <h2 className="battle-vex-title">VEX is undone</h2>
+                <p className="battle-vex-lore">{VEX_DEFEAT}</p>
+                <button
+                  className="battle-btn battle-btn-primary battle-vex-btn"
+                  onClick={() => navigate('/threshold')}
+                >
+                  Enter the Threshold
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    if (phase === 'lost') {
+      return (
+        <div className="battle-page">
+          <div className="battle-stage battle-stage--full battle-vex-stage">
+            <div className="battle-backdrop battle-vex-backdrop" style={{ ['--accent' as string]: accent }} />
+            <div className="battle-overlay" key="vex-lost">
+              <div className="battle-result-card lose battle-vex-card battle-vex-card--lose">
+                <span className="battle-result-tag battle-vex-tag">Unmade</span>
+                <h2 className="battle-vex-title">VEX overwrote you</h2>
+                <p className="battle-vex-lore">
+                  &ldquo;Null and void,&rdquo; he sneers. But you saw his tells — the parry window, the
+                  overhead glow. Read him again. Punish harder.
+                </p>
+                <div className="battle-result-actions">
+                  <button
+                    className="battle-btn battle-btn-primary battle-vex-btn"
+                    onClick={() => {
+                      setFightRun((r) => r + 1)
+                      setPhase('fight')
+                    }}
+                  >
+                    Fight again
+                  </button>
+                  <button className="battle-btn battle-btn-ghost" onClick={() => navigate('/quest')}>
+                    Leave
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Level 6 quiz — same retrieval quiz as the other worlds, then the fight.
+    if (phase === 'quiz') {
+      return (
+        <div className="battle-page">
+          <div className="battle-quiz battle-quiz-full">
+            <LessonRunner
+              lessonId={world.id}
+              section="quiz"
+              initial={undefined}
+              onSave={handleSave}
+              onAttempt={handleAttempt}
+              streakCurrent={streak.current}
+              nextLessonTitle={null}
+              isLastLesson
+              onNext={() => navigate('/quest')}
+              onTakeQuiz={() => {}}
+              onExit={() => navigate('/quest')}
+              onQuizComplete={handleQuizComplete}
+              embedded
+            />
+          </div>
+        </div>
+      )
+    }
+
+    // phase === 'intro' (default) — dramatic full-bleed VEX intro.
+    return (
+      <div className="battle-page battle-vex-page">
+        <div className="battle-stage battle-stage--full battle-vex-stage">
+          <div className="battle-backdrop battle-vex-backdrop" style={{ ['--accent' as string]: accent }} />
+          <button className="battle-flee" onClick={() => navigate('/quest')}>
+            <IconArrowLeft size={16} />
+            Flee
+          </button>
+          <div className="battle-overlay" key="vex-intro">
+            <div className="battle-intro-card battle-vex-card battle-vex-card--intro">
+              <span className="battle-intro-vs battle-vex-tag">Final Boss · The Peak</span>
+              <h1 className="battle-vex-name">{VEX_INTRO.title}</h1>
+              <p className="battle-vex-subtitle">{VEX_INTRO.subtitle}</p>
+              <p className="battle-intro-taunt battle-vex-taunt">{VEX_INTRO.taunt}</p>
+              <p className="battle-intro-hint battle-vex-hint">{VEX_INTRO.hint}</p>
+              <div className="battle-vex-controls" aria-label="Controls">
+                <span className="battle-vex-control"><b>Move</b> WASD</span>
+                <span className="battle-vex-control"><b>Dash</b> Shift</span>
+                <span className="battle-vex-control"><b>Roll</b> K</span>
+                <span className="battle-vex-control"><b>Jump</b> Space</span>
+                <span className="battle-vex-control"><b>Melee</b> J / Click</span>
+                <span className="battle-vex-control"><b>Shoot</b> F</span>
+                <span className="battle-vex-control battle-vex-control--key"><b>PARRY</b> L</span>
+              </div>
+              <button
+                className="battle-btn battle-btn-primary battle-vex-btn"
+                onClick={() => {
+                  playClick()
+                  setPhase('quiz')
+                }}
+              >
+                Start quiz
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // --- Playable gun fight ---------------------------------------------------
   if (phase === 'fight') {
@@ -206,7 +359,13 @@ export function BossBattlePage() {
                 First, answer the quiz. Then face {world.boss.name} in a live blaster fight — beat
                 the boss to clear the level. He&rsquo;s tough, so keep moving and dodge his orbs!
               </p>
-              <button className="battle-btn battle-btn-primary" onClick={() => setPhase('quiz')}>
+              <button
+                className="battle-btn battle-btn-primary"
+                onClick={() => {
+                  playClick()
+                  setPhase('quiz')
+                }}
+              >
                 Start quiz
               </button>
             </div>

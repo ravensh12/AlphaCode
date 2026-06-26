@@ -538,6 +538,52 @@ const QUEST_FOOTPRINTS: Collider[] = (() => {
 /** Building / car / quest footprints — the controller blocks the hero from these. */
 export const COLLIDERS: Collider[] = [...COLLIDERS_OUT, ...QUEST_FOOTPRINTS]
 
+/* --------------------------------------------------------- Collider broadphase */
+
+// The hero used to test every collider (~2.8k) every frame — a full linear scan.
+// Bucket the static colliders into a uniform grid once so movement only checks
+// the handful sharing the hero's cell. Cells are road-block sized; each collider
+// is inserted into every cell its (padded) AABB overlaps, so any collider that
+// could touch the hero is guaranteed to live in the hero's own cell.
+const BROAD_CELL = ROAD_STEP
+const BROAD_ORIGIN = GROUND_HALF
+const BROAD_STRIDE = Math.ceil((GROUND_HALF * 2) / BROAD_CELL) + 2
+const BROAD_PAD = 1 // must exceed the controller's body radius (0.7)
+const EMPTY_COLLIDERS: Collider[] = []
+
+function broadKey(ix: number, iz: number): number {
+  return ix * BROAD_STRIDE + iz
+}
+
+const BROAD_GRID: Map<number, Collider[]> = (() => {
+  const grid = new Map<number, Collider[]>()
+  for (const c of COLLIDERS) {
+    const minIx = Math.floor((c.x - c.hw - BROAD_PAD + BROAD_ORIGIN) / BROAD_CELL)
+    const maxIx = Math.floor((c.x + c.hw + BROAD_PAD + BROAD_ORIGIN) / BROAD_CELL)
+    const minIz = Math.floor((c.z - c.hd - BROAD_PAD + BROAD_ORIGIN) / BROAD_CELL)
+    const maxIz = Math.floor((c.z + c.hd + BROAD_PAD + BROAD_ORIGIN) / BROAD_CELL)
+    for (let ix = minIx; ix <= maxIx; ix++) {
+      for (let iz = minIz; iz <= maxIz; iz++) {
+        const key = broadKey(ix, iz)
+        let bucket = grid.get(key)
+        if (!bucket) {
+          bucket = []
+          grid.set(key, bucket)
+        }
+        bucket.push(c)
+      }
+    }
+  }
+  return grid
+})()
+
+/** Static colliders that could overlap the point (x, z). Allocation-free. */
+export function collidersNear(x: number, z: number): Collider[] {
+  const ix = Math.floor((x + BROAD_ORIGIN) / BROAD_CELL)
+  const iz = Math.floor((z + BROAD_ORIGIN) / BROAD_CELL)
+  return BROAD_GRID.get(broadKey(ix, iz)) ?? EMPTY_COLLIDERS
+}
+
 /* ------------------------------------------------------------- Street routing */
 
 function nearestRoadLine(v: number): number {

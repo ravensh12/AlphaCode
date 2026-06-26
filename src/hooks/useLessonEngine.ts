@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import type { Lesson, LessonStep, VariableValue } from '../types/lesson'
 import type { AttemptRecord, LessonProgress } from '../types/progress'
 import { computeQuizMastery, meetsUnlockThreshold } from '../lib/mastery'
+import { playCorrect, playWrong } from '../lib/soundFx'
 import { resolveStepFrame } from '../content/lessons/traces'
 import {
   BADGE_ORDER,
@@ -537,11 +538,13 @@ export function useLessonEngine(
       setErrorVars([])
       setLastStepBadge(tier)
       setFeedback({ kind: 'correct', text: displayStep.feedback.correct })
+      playCorrect()
       return
     }
 
     const attemptsNow = stepAttempts + 1
     setStepAttempts(attemptsNow)
+    playWrong()
 
     if (attemptsNow >= MISTAKES_BEFORE_RESTART) {
       if (isCheckpointStep(step) && step.checkpointStartStepId) {

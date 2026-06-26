@@ -25,6 +25,13 @@ alter table public.profiles
 alter table public.profiles
   add column if not exists badge_counts jsonb not null default '{}'::jsonb;
 
+-- "The Threshold" gate between the Level-6 boss and the Final Gauntlet.
+alter table public.profiles
+  add column if not exists inter_zone_complete boolean not null default false;
+
+alter table public.profiles
+  add column if not exists inter_zone_completed_at timestamptz;
+
 alter table public.profiles enable row level security;
 
 drop policy if exists "profiles_select_own" on public.profiles;

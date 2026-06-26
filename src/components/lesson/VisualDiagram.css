@@ -497,3 +497,104 @@
   text-transform: uppercase;
   color: var(--ink-soft);
 }
+
+/* ============================================================ Dark re-skin
+   The diagram only ever renders inside a `.lp` lesson/quiz, so all dark theming
+   is scoped under `.lp` (the lesson root, which carries the `--cc-*` palette).
+   Structure, dimensions, and animations are untouched — only colors change. */
+.lp .viz {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+.lp .viz-caption {
+  color: var(--cc-text-soft);
+}
+.lp .viz-cell {
+  background: var(--cc-glass-2);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+}
+.lp .viz-cell-val {
+  color: var(--cc-text);
+}
+.lp .viz-cell-idx {
+  color: var(--cc-text-faint);
+}
+.lp .viz-cell.highlight {
+  background: var(--cc-amber-soft);
+  border-color: var(--cc-window);
+  box-shadow: 0 0 16px rgba(232, 184, 74, 0.3);
+}
+.lp .viz-cell.pointed {
+  outline-color: var(--cc-cyan);
+}
+.lp .viz-cell.in-range {
+  background: var(--cc-lime-soft);
+  border-color: rgba(182, 255, 92, 0.4);
+}
+.lp .viz-cell.visited {
+  background: var(--cc-glass);
+}
+.lp .viz-pointer {
+  background: var(--cc-cyan-soft);
+  border-color: var(--cc-cyan);
+  color: var(--cc-text);
+}
+.lp .viz-pointer-badge {
+  background: var(--cc-amber-soft);
+  border-color: var(--cc-window);
+  color: var(--cc-text);
+  box-shadow: 0 0 14px rgba(232, 184, 74, 0.25);
+}
+.lp .viz-pointer-badge.viz-bs-badge.low {
+  background: var(--cc-cyan-soft);
+  border-color: var(--cc-cyan);
+}
+.lp .viz-pointer-badge.viz-bs-badge.mid {
+  background: var(--cc-amber-soft);
+  border-color: var(--cc-window);
+}
+.lp .viz-pointer-badge.viz-bs-badge.high {
+  background: var(--cc-lime-soft);
+  border-color: var(--cc-lime);
+}
+.lp .viz-swap-flyer {
+  background: var(--cc-window);
+  border-color: var(--cc-window);
+  color: #1c1402;
+  box-shadow: 0 0 20px rgba(232, 184, 74, 0.4);
+}
+.lp .viz-map-row {
+  color: var(--cc-text);
+}
+.lp .viz-map-key {
+  background: var(--cc-amber-soft);
+  border-color: var(--cc-window);
+  color: var(--cc-text);
+}
+.lp .viz-map-arrow {
+  color: var(--cc-text-faint);
+}
+.lp .viz-map-val {
+  background: var(--cc-lime-soft);
+  border-color: var(--cc-lime);
+  color: var(--cc-text);
+}
+.lp .viz-empty {
+  color: var(--cc-text-soft);
+}
+.lp .viz-stack-item {
+  background: var(--cc-glass-2);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+}
+.lp .viz-stack-item.top {
+  background: var(--cc-violet);
+  border-color: rgba(160, 140, 255, 0.6);
+  color: #fff;
+}
+.lp .viz-stack-tag {
+  color: var(--cc-text-soft);
+}

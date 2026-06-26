@@ -1,6 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import type { World } from '../../content/adventure'
 import { codeBotStage } from '../../content/adventure'
+import { playUnlock } from '../../lib/soundFx'
+import { Confetti } from '../Confetti'
 import { CodeBot } from './CodeBot'
 import './PowerUnlock.css'
 
@@ -39,6 +41,11 @@ export function PowerUnlock({
     [],
   )
 
+  // Triumphant fanfare the moment the celebration appears.
+  useEffect(() => {
+    playUnlock()
+  }, [])
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape' || e.key === 'Enter') onClose()
@@ -49,6 +56,7 @@ export function PowerUnlock({
 
   return (
     <div className="power-unlock" role="dialog" aria-modal="true" aria-label="Power unlocked">
+      <Confetti count={70} />
       <div className="power-unlock-confetti" aria-hidden="true">
         {confetti.map((c) => (
           <span

@@ -4,6 +4,7 @@ import { AppHeader } from '../components/AppHeader'
 import { CodeBot, type CodeBotMood } from '../components/game/CodeBot'
 import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
+import { useGauntlet } from '../context/GauntletContext'
 import { LESSON_CATALOG } from '../content/catalog'
 import { WORLDS, WORLD_COUNT, codeBotStage, type World } from '../content/adventure'
 import { getWorldState, listViewStatusLabel, type WorldState } from '../lib/questState'
@@ -17,7 +18,6 @@ import {
   IconFlame,
   IconBolt,
   IconArrowRight,
-  IconCompass,
 } from '../components/icons'
 import './QuestMapPage.css'
 
@@ -27,8 +27,16 @@ const SUMMARY_BY_ID: Record<string, LessonSummary> = Object.fromEntries(
 
 export function QuestMapPage() {
   const { isGuest, displayName } = useAuth()
-  const { getLessonProgress, isLessonUnlocked, streak, totalBadgeCount, recordDailyActivity } =
-    useProgress()
+  const {
+    getLessonProgress,
+    isLessonUnlocked,
+    streak,
+    totalBadgeCount,
+    recordDailyActivity,
+    interZoneComplete,
+    readyForFinalGauntlet,
+  } = useProgress()
+  const { state: gauntlet } = useGauntlet()
   const navigate = useNavigate()
 
   // Opening the map counts as showing up for the day.
@@ -82,16 +90,78 @@ export function QuestMapPage() {
       <AppHeader />
 
       <main className="container quest-main">
+        {allCleared && !interZoneComplete && (
+          <Link className="quest-gauntlet-banner is-threshold" to="/threshold">
+            <span className="quest-gauntlet-icon" aria-hidden="true">
+              <IconBolt size={26} />
+            </span>
+            <span className="quest-gauntlet-copy">
+              <strong>Enter The Threshold</strong>
+              <span>
+                Code City is whole again — but one last gate stands between you and the
+                Final Gauntlet. Step through The Threshold to prove you&apos;re ready.
+              </span>
+            </span>
+            <IconArrowRight size={20} className="quest-gauntlet-go" />
+          </Link>
+        )}
+
+        {readyForFinalGauntlet && !gauntlet.examPassed && (
+          <Link className="quest-gauntlet-banner" to="/final/journey">
+            <span className="quest-gauntlet-icon" aria-hidden="true">
+              <IconBolt size={26} />
+            </span>
+            <span className="quest-gauntlet-copy">
+              <strong>The Final Gauntlet</strong>
+              <span>
+                A journey, a mastery test of all six topics, and a final boss unlike any other.
+              </span>
+            </span>
+            <IconArrowRight size={20} className="quest-gauntlet-go" />
+          </Link>
+        )}
+
+        {readyForFinalGauntlet && gauntlet.examPassed && (
+          <section
+            className={`quest-gauntlet-panel ${gauntlet.finalBossBeaten ? 'is-conquered' : ''}`}
+            aria-label="The Final Gauntlet"
+          >
+            <div className="quest-gauntlet-panel-head">
+              <span className="quest-gauntlet-icon" aria-hidden="true">
+                <IconBolt size={26} />
+              </span>
+              <span className="quest-gauntlet-copy">
+                <strong>
+                  {gauntlet.finalBossBeaten ? 'Final Gauntlet — Conquered' : 'The Final Gauntlet'}
+                </strong>
+                <span>
+                  {gauntlet.finalBossBeaten
+                    ? 'You beat the Architect. Revisit the Mastery Trial any time, or fight again.'
+                    : `You passed the Mastery Trial${gauntlet.bestScore ? ` — best ${gauntlet.bestScore}%` : ''}. Review your answers, retake the test, or face the final boss.`}
+                </span>
+              </span>
+            </div>
+            <div className="quest-gauntlet-actions">
+              <Link className="quest-gauntlet-action" to="/final/exam?mode=review">
+                Review test
+              </Link>
+              <Link className="quest-gauntlet-action" to="/final/exam">
+                Retake test
+              </Link>
+              <Link className="quest-gauntlet-action is-primary" to="/final/boss">
+                Final boss fight
+                <IconArrowRight size={18} />
+              </Link>
+            </div>
+          </section>
+        )}
+
         <section className="quest-hero">
           <div className="quest-hero-bot">
             <CodeBot stage={clearedCount} mood={mood} size={150} title={stageInfo.title} />
           </div>
           <div className="quest-hero-copy">
             <span className="eyebrow">CodeBot&apos;s Pattern Quest · List view</span>
-            <Link className="btn ghost quest-overworld-link" to="/quest">
-              <IconCompass size={16} />
-              Open the overworld
-            </Link>
             <div className="codebot-bubble quest-hero-bubble">
               <span className="codebot-bubble-name">CodeBot · {stageInfo.title}</span>
               {greeting}
@@ -116,26 +186,6 @@ export function QuestMapPage() {
                 label="Crystals collected"
               />
             </div>
-            {activeEntry && (
-              <button
-                className="btn lg quest-resume"
-                onClick={() =>
-                  navigate(
-                    canBrowseLevelInList(activeEntry.state)
-                      ? `/world/${activeEntry.world.id}`
-                      : '/quest',
-                  )
-                }
-              >
-                {canBrowseLevelInList(activeEntry.state)
-                  ? activeEntry.state.status === 'new'
-                    ? 'Enter'
-                    : 'Continue'
-                  : 'Open Code City'}{' '}
-                {canBrowseLevelInList(activeEntry.state) ? activeEntry.world.name : ''}
-                <IconArrowRight size={18} />
-              </button>
-            )}
           </div>
         </section>
 
@@ -151,7 +201,7 @@ export function QuestMapPage() {
               </button>
             </div>
           </div>
-          <ol className="quest-cards">
+          <ol className="quest-cards stagger">
             {states.map(({ world, state }, i) => {
               const prevMastered = i > 0 ? states[i - 1].state.mastered : false
               const canSkip =
@@ -165,7 +215,7 @@ export function QuestMapPage() {
                   isActive={i === activeIndex}
                   canSkip={canSkip}
                   onSkip={() => {
-                    skipToLevel(i)
+                    skipToLevel(i, { welcome: true })
                     navigate('/quest')
                   }}
                 />
@@ -258,6 +308,8 @@ function WorldCard({
   const courseLocked = state.status === 'locked'
   const gameLocked = !canBrowseLevelInList(state)
   const lessonDone = state.learnDone
+  // The real coding topic this level teaches (e.g. "Binary Search").
+  const topic = SUMMARY_BY_ID[world.id]?.title
 
   const medallion = (
     <span
@@ -282,18 +334,24 @@ function WorldCard({
       {medallion}
       <div className="quest-card-body">
         <span className="quest-card-name">Level {number} · {world.name}</span>
+        {topic && <span className="quest-card-topic">{topic}</span>}
         <span className="quest-card-blurb">{world.power.name} · {CHECKPOINTS_PER_LEVEL} checkpoints + boss</span>
-        <div className="quest-card-pills">
-          <span className={`quest-pill ${lessonDone ? 'is-done' : courseLocked || gameLocked ? 'is-locked' : 'is-todo'}`}>
-            {lessonDone ? <IconCheck size={12} /> : null}
-            Checkpoints
-          </span>
-          <span className={`quest-pill ${cleared ? 'is-done' : !lessonDone || courseLocked || gameLocked ? 'is-locked' : 'is-todo'}`}>
-            {cleared ? <IconCheck size={12} /> : null}
-            Boss
-          </span>
-        </div>
-        <span className="quest-card-status">{listViewStatusLabel(state)}</span>
+        {/* Cleared cards already show the corner badge — drop the redundant
+            pills + status line so the card stays clean. */}
+        {!cleared && (
+          <>
+            <div className="quest-card-pills">
+              <span className={`quest-pill ${lessonDone ? 'is-done' : courseLocked || gameLocked ? 'is-locked' : 'is-todo'}`}>
+                {lessonDone ? <IconCheck size={12} /> : null}
+                Checkpoints
+              </span>
+              <span className={`quest-pill ${!lessonDone || courseLocked || gameLocked ? 'is-locked' : 'is-todo'}`}>
+                Boss
+              </span>
+            </div>
+            <span className="quest-card-status">{listViewStatusLabel(state)}</span>
+          </>
+        )}
         {canSkip && (
           <button
             type="button"

@@ -136,8 +136,15 @@ button {
   box-shadow: 4px 4px 0 var(--ink);
 }
 .btn:active {
-  transform: translate(3px, 3px);
+  transform: translate(3px, 3px) scale(0.985);
   box-shadow: 0 0 0 var(--ink);
+}
+/* Primary (non-ghost/subtle) buttons get a soft neon glow on hover. */
+.btn:not(.ghost):not(.subtle):not(:disabled):hover {
+  box-shadow: 4px 4px 0 var(--ink), 0 0 20px rgba(109, 74, 254, 0.4);
+}
+.btn.lime:not(:disabled):hover {
+  box-shadow: 4px 4px 0 var(--ink), 0 0 20px rgba(20, 211, 154, 0.45);
 }
 .btn:disabled {
   background: var(--surface-2);
@@ -346,9 +353,106 @@ button {
   --tone-soft: #e7e0ff;
 }
 
+/* ---------- Global focus ring (accessibility) ----------
+   `:where()` keeps specificity at 0 so component-specific focus styles still
+   win, but every interactive element gets a clear, consistent ring by default. */
+:where(a, button, input, select, textarea, summary, [role='button'], [role='menuitemcheckbox'], [tabindex]):focus-visible {
+  outline: 3px solid var(--cyan);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ---------- Skip to main content link ---------- */
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  z-index: 1000;
+  transform: translate(-50%, -150%);
+  padding: 10px 18px;
+  background: var(--ink);
+  color: #fff;
+  font-family: var(--display);
+  font-weight: 700;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.16s ease;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translate(-50%, 0);
+  outline: 3px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+/* ---------- 2D page entrance ----------
+   `.page` covers the 2D routed screens. The full-bleed 3D overworld also uses
+   `.page over3d-page`, so it gets an opacity-only fade (no transform — a
+   transformed ancestor would re-anchor the canvas / could clip it). The other
+   full-bleed 3D screens (battle-page / thr-page / fb-page) don't use `.page`
+   and stay completely untouched. */
+.page {
+  animation: pageRise 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.page.over3d-page {
+  animation: pageFade 220ms ease both;
+}
+
+@keyframes pageRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pageFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---------- Staggered list entrance utility ----------
+   Add `.stagger` to a list/container; direct children rise in sequence. Delay
+   is capped so long lists never feel slow. */
+.stagger > * {
+  animation: staggerRise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 30ms; }
+.stagger > *:nth-child(2) { animation-delay: 70ms; }
+.stagger > *:nth-child(3) { animation-delay: 110ms; }
+.stagger > *:nth-child(4) { animation-delay: 150ms; }
+.stagger > *:nth-child(5) { animation-delay: 190ms; }
+.stagger > *:nth-child(6) { animation-delay: 230ms; }
+.stagger > *:nth-child(7) { animation-delay: 260ms; }
+.stagger > *:nth-child(n + 8) { animation-delay: 290ms; }
+
+@keyframes staggerRise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
+  }
+  /* Ensure entrance animations don't leave content stuck hidden. */
+  .page,
+  .page.over3d-page,
+  .stagger > * {
+    opacity: 1 !important;
+    transform: none !important;
   }
 }

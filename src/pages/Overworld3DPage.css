@@ -1,6 +1,27 @@
+/* ============================================================ 3D overworld HUD
+   Dark, cinematic "Code City at night" theme for all 2D overlays. Scoped to
+   `.over3d-page` — the 3D canvas is untouched. Components/markup unchanged. */
 .over3d-page {
+  --cc-bg-0: #070a10;
+  --cc-bg-1: #0a0f12;
+  --cc-cyan: #5ef0e0;
+  --cc-lime: #b6ff5c;
+  --cc-violet: #6d4afe;
+  --cc-coral: #ff6b6b;
+  --cc-window: #e8b84a;
+  --cc-text: #eef7f2;
+  --cc-text-soft: #9bbcb2;
+  --cc-glass: rgba(13, 26, 25, 0.78);
+  --cc-glass-2: rgba(9, 18, 18, 0.62);
+  --cc-line: rgba(120, 220, 200, 0.16);
+  --cc-line-strong: rgba(120, 220, 200, 0.34);
+
   height: 100vh;
   overflow: hidden;
+  color: var(--cc-text);
+  background:
+    radial-gradient(130% 78% at 50% 102%, rgba(27, 58, 50, 0.45) 0%, transparent 55%),
+    linear-gradient(180deg, #070a10 0%, #080c11 44%, #0a0f12 100%);
 }
 
 .over3d-stage {
@@ -8,11 +29,11 @@
   flex: 1;
   min-height: 0;
   margin: 0 12px 12px;
-  border: var(--bd) solid var(--ink);
+  border: 2px solid var(--cc-line-strong);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: var(--shadow);
-  background: #bfe0ff;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(94, 240, 224, 0.08);
+  background: #0a1218;
 }
 
 .over3d-stage canvas {
@@ -152,6 +173,119 @@
   margin-right: 2px;
 }
 
+/* Action buttons (dash + sprint), stacked above the controls hint */
+.over3d-action-btns {
+  position: absolute;
+  right: 14px;
+  bottom: 70px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  pointer-events: none;
+}
+.over3d-action-btns > button {
+  pointer-events: auto;
+}
+
+/* Blade-dash button — tap to dash; a fill drains/refills with the cooldown */
+.over3d-dash-btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(150, 240, 220, 0.5);
+  background: rgba(26, 23, 48, 0.72);
+  color: #fff;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  transition: transform 0.08s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.over3d-dash-label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.over3d-dash-cool {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 18, 24, 0.78);
+  transform-origin: bottom center;
+  transform: scaleY(0);
+  pointer-events: none;
+}
+.over3d-dash-btn.is-ready {
+  border-color: rgba(94, 240, 224, 0.85);
+  box-shadow: 0 0 22px rgba(94, 240, 224, 0.5), 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+.over3d-dash-btn.is-ready:active {
+  transform: scale(0.95);
+}
+.over3d-dash-btn.is-cooling {
+  border-color: rgba(120, 220, 200, 0.3);
+  color: rgba(255, 255, 255, 0.7);
+}
+.over3d-dash-btn kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* Sprint button — press & hold to run (mirrors the Shift key) */
+.over3d-sprint-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  background: rgba(26, 23, 48, 0.72);
+  color: #fff;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  transition: transform 0.08s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+.over3d-sprint-btn kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.over3d-sprint-btn:hover {
+  background: rgba(40, 35, 70, 0.82);
+}
+.over3d-sprint-btn.is-on {
+  background: var(--primary, #6d4afe);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 26px rgba(109, 74, 254, 0.7), 0 8px 22px rgba(0, 0, 0, 0.5);
+  transform: scale(0.96);
+}
+
 /* HUD */
 .over3d-hud {
   position: absolute;
@@ -178,6 +312,10 @@
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 8px;
+  pointer-events: none;
+}
+.over3d-hud-row > * {
+  pointer-events: auto;
 }
 
 /* Prominent level + checkpoint readout */
@@ -535,13 +673,46 @@
   }
 }
 
-/* Right-hand HUD column: health */
-.over3d-hud-right {
+/* Right rail — levels above minimap */
+.over3d-right-rail {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 30;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
+  gap: 12px;
   pointer-events: none;
+}
+.over3d-right-rail > * {
+  pointer-events: auto;
+}
+
+.over3d-levels-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+  text-decoration: none;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: var(--bd) solid var(--ink);
+  background: var(--yellow);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  transition: transform 0.1s ease, box-shadow 0.12s ease;
+}
+.over3d-levels-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+.over3d-levels-btn:active {
+  transform: translateY(0);
 }
 
 /* Level badge + XP bar */
@@ -720,24 +891,6 @@
   }
 }
 
-/* Death / restart screen */
-.over3d-death {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(60, 6, 10, 0.5) 30%,
-    rgba(20, 2, 4, 0.86) 100%
-  );
-  backdrop-filter: blur(3px);
-  animation: deathFade 0.45s ease both;
-}
-
 @keyframes deathFade {
   from {
     opacity: 0;
@@ -745,18 +898,6 @@
   to {
     opacity: 1;
   }
-}
-
-.over3d-death-card {
-  max-width: 420px;
-  width: 100%;
-  text-align: center;
-  background: var(--surface);
-  border: var(--bd) solid var(--ink);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
-  padding: 28px 26px;
-  animation: deathPop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes deathPop {
@@ -770,58 +911,90 @@
   }
 }
 
-.over3d-death-card h2 {
+/* Death / restart screen — dark glass (scoped to over3d-page) */
+.over3d-page .over3d-death {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(60, 6, 10, 0.55) 30%,
+    rgba(7, 10, 16, 0.92) 100%
+  );
+  backdrop-filter: blur(6px);
+  animation: deathFade 0.45s ease both;
+}
+
+.over3d-page .over3d-death-card {
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  background: var(--cc-glass);
+  border: 1.5px solid var(--cc-line-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(94, 240, 224, 0.06);
+  backdrop-filter: blur(10px);
+  padding: 28px 26px;
+  animation: deathPop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.over3d-page .over3d-death-card h2 {
   font-family: var(--display);
   font-size: 27px;
   margin: 0 0 8px;
-  color: #c81e1e;
+  color: var(--cc-coral);
 }
 
-.over3d-death-card p {
+.over3d-page .over3d-death-card p {
   margin: 0 0 14px;
   font-size: 14.5px;
   line-height: 1.4;
-  color: var(--ink);
+  color: var(--cc-text);
 }
 
-.over3d-death-stats {
+.over3d-page .over3d-death-stats {
   display: flex;
   justify-content: center;
   gap: 18px;
   margin-bottom: 18px;
   font-size: 14px;
   font-weight: 700;
-  color: var(--ink-soft);
+  color: var(--cc-text-soft);
 }
 
-.over3d-death-stats strong {
-  color: var(--ink);
+.over3d-page .over3d-death-stats strong {
+  color: var(--cc-text);
 }
 
-.over3d-death-btn {
+.over3d-page .over3d-death-btn {
   font-family: var(--display);
   font-weight: 800;
   font-size: 16px;
   color: #fff;
-  background: var(--primary);
-  border: var(--bd) solid var(--ink);
+  background: var(--cc-violet);
+  border: 1.5px solid rgba(160, 140, 255, 0.55);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 0 24px rgba(109, 74, 254, 0.45), 0 8px 22px rgba(0, 0, 0, 0.45);
   padding: 12px 26px;
   cursor: pointer;
-  transition: transform 0.12s ease;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
-.over3d-death-btn:hover {
+.over3d-page .over3d-death-btn:hover {
   transform: translateY(-2px);
+  box-shadow: 0 0 32px rgba(109, 74, 254, 0.6), 0 12px 28px rgba(0, 0, 0, 0.5);
 }
 
-.over3d-death-btn:active {
+.over3d-page .over3d-death-btn:active {
   transform: translateY(0);
 }
 
-/* Quest purpose intro */
-.over3d-quest-intro {
+/* Quest intro / milestone / objective cards — dark glass */
+.over3d-page .over3d-quest-intro {
   position: absolute;
   inset: 0;
   z-index: 60;
@@ -829,118 +1002,117 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(26, 23, 48, 0.55) 30%,
-    rgba(12, 10, 26, 0.82) 100%
-  );
-  backdrop-filter: blur(3px);
+  background: rgba(7, 10, 16, 0.82);
+  backdrop-filter: blur(6px);
   animation: deathFade 0.4s ease both;
 }
 
-.over3d-quest-card {
+.over3d-page .over3d-quest-card {
   max-width: 520px;
   width: 100%;
   text-align: center;
-  background: var(--surface);
-  border: var(--bd) solid var(--ink);
+  background: var(--cc-glass);
+  border: 1.5px solid var(--cc-line-strong);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(94, 240, 224, 0.06);
+  backdrop-filter: blur(10px);
   padding: 26px 28px;
   animation: deathPop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.over3d-quest-tag {
+.over3d-page .over3d-quest-tag {
   display: inline-block;
   font-family: var(--display);
   font-weight: 800;
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #fff;
-  background: var(--primary);
-  border: 2px solid var(--ink);
+  color: #0a1a06;
+  background: var(--cc-lime);
+  border: 1.5px solid rgba(182, 255, 92, 0.6);
   border-radius: 999px;
   padding: 3px 12px;
   margin-bottom: 10px;
 }
 
-.over3d-quest-card h2 {
+.over3d-page .over3d-quest-card h2 {
   font-family: var(--display);
   font-size: 26px;
   margin: 0 0 12px;
-  color: var(--ink);
+  color: var(--cc-text);
 }
 
-.over3d-quest-card p {
+.over3d-page .over3d-quest-card p {
   margin: 0 0 12px;
   font-size: 14.5px;
   line-height: 1.45;
-  color: var(--ink);
+  color: var(--cc-text);
 }
 
-.over3d-quest-steps {
+.over3d-page .over3d-quest-steps {
   text-align: left;
   margin: 0 0 14px;
   padding-left: 1.25rem;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--ink);
+  color: var(--cc-text);
 }
 
-.over3d-quest-steps li {
+.over3d-page .over3d-quest-steps li {
   margin-bottom: 8px;
 }
 
-.over3d-quest-steps li:last-child {
+.over3d-page .over3d-quest-steps li:last-child {
   margin-bottom: 0;
 }
 
-.over3d-quest-steps strong {
-  color: var(--ink);
+.over3d-page .over3d-quest-steps strong {
+  color: var(--cc-cyan);
 }
 
-.over3d-quest-hint {
+.over3d-page .over3d-quest-hint {
   font-size: 13px !important;
   font-weight: 600;
-  color: var(--ink-soft);
+  color: var(--cc-text-soft);
 }
 
-.over3d-quest-hint kbd {
+.over3d-page .over3d-quest-hint kbd {
   font-family: var(--mono);
   font-size: 10.5px;
-  background: var(--surface-2, #e8e4f5);
-  border: 1.5px solid var(--ink);
+  background: var(--cc-glass-2);
+  border: 1.5px solid var(--cc-line-strong);
   border-radius: 4px;
   padding: 1px 5px;
   margin: 0 1px;
+  color: var(--cc-text);
 }
 
-.over3d-quest-btn {
+.over3d-page .over3d-quest-btn {
   margin-top: 6px;
   font-family: var(--display);
   font-weight: 800;
   font-size: 16px;
   color: #fff;
-  background: var(--primary);
-  border: var(--bd) solid var(--ink);
+  background: var(--cc-violet);
+  border: 1.5px solid rgba(160, 140, 255, 0.55);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 0 24px rgba(109, 74, 254, 0.45), 0 8px 22px rgba(0, 0, 0, 0.45);
   padding: 12px 28px;
   cursor: pointer;
-  transition: transform 0.12s ease;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
-.over3d-quest-btn:hover {
+.over3d-page .over3d-quest-btn:hover {
   transform: translateY(-2px);
+  box-shadow: 0 0 32px rgba(109, 74, 254, 0.6), 0 12px 28px rgba(0, 0, 0, 0.5);
 }
 
-.over3d-quest-btn:active {
+.over3d-page .over3d-quest-btn:active {
   transform: translateY(0);
 }
 
 /* Phase 4 finale */
-.over3d-finale {
+.over3d-page .over3d-finale {
   position: absolute;
   inset: 0;
   z-index: 70;
@@ -948,28 +1120,25 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(56, 39, 110, 0.55) 20%,
-    rgba(10, 8, 24, 0.88) 100%
-  );
-  backdrop-filter: blur(4px);
+  background: rgba(7, 10, 16, 0.85);
+  backdrop-filter: blur(6px);
   animation: deathFade 0.45s ease both;
 }
 
-.over3d-finale-card {
+.over3d-page .over3d-finale-card {
   max-width: 520px;
   width: 100%;
   text-align: center;
-  background: var(--surface);
-  border: var(--bd) solid var(--ink);
+  background: var(--cc-glass);
+  border: 1.5px solid var(--cc-line-strong);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(94, 240, 224, 0.06);
+  backdrop-filter: blur(10px);
   padding: 28px 30px;
   animation: deathPop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.over3d-finale-crown {
+.over3d-page .over3d-finale-crown {
   display: block;
   font-size: 40px;
   line-height: 1;
@@ -977,73 +1146,73 @@
   animation: levelUpSpin 1.8s ease-in-out infinite;
 }
 
-.over3d-finale-tag {
+.over3d-page .over3d-finale-tag {
   display: inline-block;
   font-family: var(--display);
   font-weight: 800;
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #2a1d52;
-  background: linear-gradient(120deg, #ffd23f, #ff9f1c);
-  border: 2px solid var(--ink);
+  color: #1c1402;
+  background: linear-gradient(120deg, var(--cc-window), #ff9f1c);
+  border: 1.5px solid rgba(240, 196, 85, 0.55);
   border-radius: 999px;
   padding: 3px 12px;
   margin-bottom: 10px;
 }
 
-.over3d-finale-card h2 {
+.over3d-page .over3d-finale-card h2 {
   font-family: var(--display);
   font-size: 28px;
   margin: 0 0 12px;
-  color: var(--ink);
+  color: var(--cc-text);
 }
 
-.over3d-finale-card p {
+.over3d-page .over3d-finale-card p {
   margin: 0 0 14px;
   font-size: 14.5px;
   line-height: 1.45;
-  color: var(--ink);
+  color: var(--cc-text);
 }
 
-.over3d-finale-stats {
+.over3d-page .over3d-finale-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   margin: 4px 0 16px;
 }
 
-.over3d-finale-stat {
+.over3d-page .over3d-finale-stat {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  background: var(--surface-2, #f1eefb);
-  border: 2px solid var(--ink);
+  background: var(--cc-glass-2);
+  border: 1.5px solid var(--cc-line-strong);
   border-radius: var(--radius);
   padding: 10px 6px;
 }
 
-.over3d-finale-stat strong {
+.over3d-page .over3d-finale-stat strong {
   font-family: var(--display);
   font-size: 22px;
-  color: var(--ink);
+  color: var(--cc-text);
 }
 
-.over3d-finale-stat span {
+.over3d-page .over3d-finale-stat span {
   font-size: 11px;
   font-weight: 600;
-  color: var(--ink-soft);
+  color: var(--cc-text-soft);
   text-align: center;
 }
 
-.over3d-finale-hint {
+.over3d-page .over3d-finale-hint {
   font-size: 13px !important;
   font-weight: 600;
-  color: var(--ink-soft);
+  color: var(--cc-text-soft);
 }
 
-.over3d-finale-actions {
+.over3d-page .over3d-finale-actions {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1052,22 +1221,38 @@
   margin-top: 4px;
 }
 
-.over3d-finale-link {
+.over3d-page .over3d-finale-link {
   font-family: var(--display);
   font-weight: 800;
   font-size: 14px;
-  color: var(--ink);
+  color: var(--cc-cyan);
   text-decoration: none;
-  border-bottom: 2px solid var(--primary);
-  padding-bottom: 1px;
+  border: none;
+  border-bottom: 2px solid var(--cc-cyan);
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+  padding: 0 0 1px;
 }
 
-.over3d-finale-link:hover {
-  color: var(--primary);
+.over3d-page .over3d-finale-gauntlet {
+  background: linear-gradient(120deg, #6a8cff, #a05cff);
+  border: 1.5px solid rgba(190, 170, 255, 0.6);
+  box-shadow: 0 0 26px rgba(150, 110, 255, 0.55), 0 10px 24px rgba(0, 0, 0, 0.45);
+  animation: gauntletPulse 2.4s ease-in-out infinite;
+}
+@keyframes gauntletPulse {
+  0%, 100% { box-shadow: 0 0 22px rgba(150, 110, 255, 0.45), 0 10px 24px rgba(0, 0, 0, 0.45); }
+  50% { box-shadow: 0 0 34px rgba(180, 130, 255, 0.75), 0 10px 24px rgba(0, 0, 0, 0.45); }
+}
+
+.over3d-page .over3d-finale-link:hover {
+  color: var(--cc-lime);
+  border-bottom-color: var(--cc-lime);
 }
 
 @media (max-width: 520px) {
-  .over3d-finale-stats {
+  .over3d-page .over3d-finale-stats {
     grid-template-columns: repeat(2, 1fr);
   }
 }
@@ -1094,11 +1279,9 @@
 
 /* Minimap */
 .over3d-minimap {
-  position: absolute;
-  top: 84px;
-  right: 18px;
-  width: 152px;
-  height: 152px;
+  position: relative;
+  width: 148px;
+  height: 148px;
   border-radius: 50%;
   border: 3px solid var(--ink);
   box-shadow: 4px 4px 0 var(--ink);
@@ -1132,7 +1315,227 @@
   .over3d-minimap {
     width: 112px;
     height: 112px;
-    top: 72px;
-    right: 12px;
   }
+  .over3d-right-rail {
+    top: 10px;
+    right: 10px;
+    gap: 10px;
+  }
+}
+
+/* ============================================================ Dark HUD re-skin
+   Color-only overrides scoped under `.over3d-page`. */
+.over3d-page .guide-panel {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+.over3d-page .guide-avatar {
+  border-color: var(--cc-line-strong);
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.35), 0 0 16px rgba(109, 74, 254, 0.35);
+}
+.over3d-page .guide-name {
+  color: var(--cc-cyan);
+}
+.over3d-page .guide-text p {
+  color: var(--cc-text);
+}
+
+.over3d-page .over3d-controls-hint {
+  background: var(--cc-glass);
+  border: 1px solid var(--cc-line);
+  backdrop-filter: blur(8px);
+  color: var(--cc-text-soft);
+}
+.over3d-page .over3d-controls-hint kbd {
+  background: var(--cc-glass-2);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+}
+
+.over3d-page .over3d-sprint-btn,
+.over3d-page .over3d-dash-btn {
+  background: var(--cc-glass);
+  color: var(--cc-text);
+  backdrop-filter: blur(8px);
+}
+.over3d-page .over3d-dash-btn.is-ready {
+  border-color: rgba(94, 240, 224, 0.85);
+}
+.over3d-page .over3d-dash-btn kbd {
+  background: var(--cc-glass-2);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+}
+.over3d-page .over3d-sprint-btn kbd {
+  background: var(--cc-glass-2);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+}
+.over3d-page .over3d-sprint-btn.is-on {
+  background: var(--cc-violet, #6d4afe);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #fff;
+}
+
+.over3d-page .over3d-quest-progress {
+  background: var(--cc-glass);
+  border: 1px solid var(--cc-line-strong);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  color: var(--cc-text);
+}
+.over3d-page .over3d-quest-progress-sub {
+  color: var(--cc-text-soft);
+  opacity: 1;
+}
+
+.over3d-page .over3d-objective {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+  backdrop-filter: blur(8px);
+}
+
+.over3d-page .over3d-chip {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+.over3d-page .over3d-chip-link {
+  background: var(--cc-window);
+  color: #1c1402;
+  border-color: rgba(240, 196, 85, 0.55);
+}
+.over3d-page .over3d-levels-btn {
+  background: var(--cc-window);
+  color: #1c1402;
+  border: 1.5px solid rgba(240, 196, 85, 0.6);
+  box-shadow: 0 0 22px rgba(232, 184, 74, 0.35), 0 8px 22px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+}
+.over3d-page .over3d-levels-btn:hover {
+  box-shadow: 0 0 28px rgba(232, 184, 74, 0.5), 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+.over3d-page .over3d-chip-gun {
+  background: var(--cc-violet);
+  color: #fff;
+  border-color: rgba(160, 140, 255, 0.5);
+}
+.over3d-page .over3d-chip-timer {
+  background: rgba(31, 143, 78, 0.85);
+  border: 1px solid rgba(182, 255, 92, 0.35);
+  color: var(--cc-lime);
+}
+.over3d-page .over3d-chip-timer.is-low {
+  background: rgba(209, 38, 38, 0.9);
+  color: #fff;
+  border-color: rgba(255, 107, 107, 0.5);
+}
+
+.over3d-page .over3d-prompt {
+  background: var(--cc-glass);
+  color: var(--cc-text);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+}
+.over3d-page .over3d-prompt.is-locked {
+  background: var(--cc-glass-2);
+  color: var(--cc-text-soft);
+}
+.over3d-page .over3d-prompt kbd {
+  background: var(--cc-violet);
+  border-color: rgba(160, 140, 255, 0.55);
+}
+
+.over3d-page .over3d-lock-overlay {
+  background: rgba(7, 10, 16, 0.72);
+}
+.over3d-page .over3d-lock-card {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+}
+.over3d-page .over3d-lock-card h2,
+.over3d-page .over3d-lock-card p {
+  color: var(--cc-text);
+}
+.over3d-page .over3d-controls {
+  color: var(--cc-text-soft);
+}
+.over3d-page .over3d-controls kbd {
+  background: var(--cc-glass-2);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+}
+.over3d-page .over3d-touch-note {
+  color: var(--cc-cyan);
+}
+
+.over3d-page .over3d-level {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+.over3d-page .over3d-level-badge {
+  background: var(--cc-window);
+  border-color: var(--cc-line-strong);
+  color: #1c1402;
+}
+.over3d-page .over3d-level-title {
+  color: var(--cc-text);
+}
+.over3d-page .over3d-xp-track {
+  background: var(--cc-glass-2);
+  border-color: var(--cc-line-strong);
+}
+.over3d-page .over3d-xp-fill {
+  background: linear-gradient(90deg, var(--cc-violet), var(--cc-cyan));
+}
+
+.over3d-page .over3d-health {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  backdrop-filter: blur(6px);
+}
+.over3d-page .over3d-health-num {
+  color: var(--cc-text);
+}
+
+.over3d-page .over3d-levelup {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+}
+.over3d-page .over3d-levelup strong {
+  color: var(--cc-cyan);
+}
+.over3d-page .over3d-levelup span {
+  color: var(--cc-text);
+}
+
+/* Minimap — container + SVG fills via CSS only */
+.over3d-page .over3d-minimap {
+  border: 2px solid var(--cc-line-strong);
+  box-shadow: 0 0 24px rgba(94, 240, 224, 0.22), 0 10px 26px rgba(0, 0, 0, 0.45);
+  background: var(--cc-bg-1);
+}
+.over3d-page .over3d-minimap svg > circle:last-of-type {
+  stroke: var(--cc-line-strong);
+}
+.over3d-page .over3d-minimap svg rect {
+  fill: #0a1218;
+}
+.over3d-page .over3d-minimap svg path {
+  fill: #eef7f2;
+  stroke: var(--cc-line-strong);
+}
+.over3d-page .over3d-minimap .mm-active {
+  stroke: var(--cc-cyan) !important;
 }

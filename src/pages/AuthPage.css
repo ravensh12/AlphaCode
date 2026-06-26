@@ -1,3 +1,101 @@
+/* ============================================================ Auth page
+   Matches the landing's dark, cinematic "Code City at night" theme. ALL dark
+   theming is scoped to the `.auth-page` container so the global light "paper"
+   theme stays intact for every other route. */
+
+.auth-page {
+  /* ---- Scoped Code City night palette (mirrors LandingPage.css) ---- */
+  --cc-bg-0: #070a10;
+  --cc-tower: #0c1416;
+  --cc-tower-2: #10181c;
+  --cc-window: #e8b84a;
+  --cc-cyan: #5ef0e0;
+  --cc-lime: #b6ff5c;
+  --cc-violet: #6d4afe;
+  --cc-text: #eef7f2;
+  --cc-text-soft: #9bbcb2;
+  --cc-glass: rgba(13, 26, 25, 0.62);
+  --cc-glass-2: rgba(8, 16, 16, 0.66);
+  --cc-line: rgba(120, 220, 200, 0.16);
+  --cc-line-strong: rgba(120, 220, 200, 0.32);
+
+  overflow-x: hidden;
+  position: relative;
+  isolation: isolate;
+  color: var(--cc-text);
+  background:
+    radial-gradient(130% 78% at 50% 102%, rgba(27, 58, 50, 0.6) 0%, transparent 55%),
+    radial-gradient(150% 95% at 72% 92%, rgba(21, 48, 42, 0.5) 0%, transparent 52%),
+    linear-gradient(180deg, #070a10 0%, #080c11 44%, #0a0f12 100%);
+}
+
+/* Faint amber-lit window glow drifting up out of the fog. */
+.auth-page::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 42vh;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(232, 184, 74, 0.55) 0 1px, transparent 2.4px);
+  background-size: 30px 40px;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  opacity: 0.3;
+}
+
+/* Distant tower silhouettes along the horizon, fading into the haze. */
+.auth-page::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 42vh;
+  z-index: -2;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2));
+  background-size:
+    70px 200px, 54px 300px, 92px 150px, 62px 360px,
+    112px 220px, 72px 300px, 120px 170px, 66px 330px;
+  background-position:
+    6% bottom, 17% bottom, 28% bottom, 40% bottom,
+    58% bottom, 70% bottom, 82% bottom, 94% bottom;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  opacity: 0.5;
+}
+
+/* Keep all real content above the atmospheric layers. */
+.auth-page > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Brand wordmark reads light on the dark sky; keep the violet "Code" accent. */
+.auth-page .brand,
+.auth-page .brand-word {
+  color: var(--cc-text);
+}
+.auth-page .brand-word-accent {
+  color: var(--cc-violet);
+}
+.auth-page .brand-mark {
+  border-color: rgba(180, 230, 215, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(109, 74, 254, 0.45);
+}
+
 .auth-top {
   padding-top: 26px;
 }
@@ -12,58 +110,68 @@
   gap: 18px;
 }
 
-.auth-card {
+/* ---------- Glassy dark card (overrides the global light .card) ---------- */
+.auth-page .auth-card {
   width: 100%;
   max-width: 440px;
   overflow: hidden;
+  background: var(--cc-glass);
+  border: 1.5px solid var(--cc-line-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 24px 60px rgba(0, 0, 0, 0.6),
+    0 0 60px rgba(20, 60, 52, 0.35);
+  backdrop-filter: blur(10px);
 }
 
 .auth-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  border-bottom: var(--bd) solid var(--ink);
+  border-bottom: 1px solid var(--cc-line);
 }
 .auth-tab {
-  background: var(--surface-2);
+  background: transparent;
   border: none;
   padding: 16px;
   font-family: var(--display);
   font-size: 15px;
   font-weight: 700;
-  color: var(--ink-faint);
+  color: var(--cc-text-soft);
   cursor: pointer;
   transition: color 0.12s ease, background 0.12s ease;
 }
 .auth-tab:first-child {
-  border-right: var(--bd) solid var(--ink);
+  border-right: 1px solid var(--cc-line);
 }
 .auth-tab:hover {
-  color: var(--ink);
+  color: var(--cc-text);
 }
 .auth-tab.active {
-  color: var(--ink);
-  background: var(--surface);
+  color: var(--cc-text);
+  background: rgba(94, 240, 224, 0.08);
+  box-shadow: inset 0 -2.5px 0 var(--cc-cyan);
 }
 
 .auth-body {
   padding: 26px 26px 28px;
-  background: var(--surface);
+  background: transparent;
 }
 
 .auth-title {
   font-size: 26px;
   font-weight: 700;
+  color: var(--cc-text);
 }
-.auth-subtitle {
+.auth-page .auth-subtitle {
   margin-top: 6px;
   font-size: 14.5px;
+  color: var(--cc-text-soft);
 }
 
 .auth-notice {
   margin-top: 16px;
-  background: var(--yellow-soft);
-  border: 2px solid var(--ink);
-  color: #6b4e00;
+  background: rgba(232, 184, 74, 0.12);
+  border: 1.5px solid rgba(232, 184, 74, 0.5);
+  color: #f3d79a;
   font-size: 13.5px;
   line-height: 1.45;
   padding: 11px 13px;
@@ -72,9 +180,9 @@
 
 .auth-success {
   margin-top: 16px;
-  background: var(--lime-soft);
-  border: 2px solid var(--ink);
-  color: #0a6b4d;
+  background: rgba(182, 255, 92, 0.12);
+  border: 1.5px solid rgba(182, 255, 92, 0.5);
+  color: #cdf7a5;
   font-size: 13.5px;
   font-weight: 600;
   line-height: 1.45;
@@ -88,12 +196,67 @@
   margin-top: 20px;
 }
 
+/* ---------- Dark form fields ---------- */
+.auth-page .field label {
+  color: var(--cc-text-soft);
+}
+.auth-page .input {
+  background: var(--cc-glass-2);
+  border: 1.5px solid var(--cc-line-strong);
+  color: var(--cc-text);
+}
+.auth-page .input::placeholder {
+  color: rgba(155, 188, 178, 0.6);
+}
+.auth-page .input:focus {
+  outline: none;
+  transform: none;
+  border-color: var(--cc-cyan);
+  box-shadow: 0 0 0 3px rgba(94, 240, 224, 0.18);
+}
+
+.auth-page .form-error {
+  background: rgba(255, 93, 108, 0.14);
+  border: 1.5px solid rgba(255, 93, 108, 0.55);
+  color: #ffb8be;
+}
+
+/* ---------- Buttons (scoped neon repaint, global .btn untouched) ---------- */
+.auth-page .btn {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.auth-page .btn:not(.ghost):not(.subtle) {
+  --btn-bg: var(--cc-violet);
+  --btn-fg: #fff;
+  border-color: rgba(160, 140, 255, 0.55);
+  box-shadow: 0 0 26px rgba(109, 74, 254, 0.5), 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+.auth-page .btn:not(.ghost):not(.subtle):hover {
+  box-shadow: 0 0 36px rgba(109, 74, 254, 0.66), 0 14px 32px rgba(0, 0, 0, 0.5);
+}
+.auth-page .btn.ghost {
+  --btn-bg: var(--cc-glass);
+  --btn-fg: var(--cc-text);
+  border-color: var(--cc-line-strong);
+  backdrop-filter: blur(6px);
+}
+.auth-page .btn.ghost:hover {
+  --btn-bg: rgba(20, 38, 36, 0.8);
+  border-color: var(--cc-cyan);
+}
+.auth-page .btn:disabled {
+  --btn-bg: rgba(20, 34, 32, 0.7);
+  --btn-fg: var(--cc-text-soft);
+  border-color: var(--cc-line);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+}
+
 .auth-divider {
   display: flex;
   align-items: center;
   text-align: center;
   margin: 18px 0;
-  color: var(--ink-faint);
+  color: var(--cc-text-soft);
   font-family: var(--display);
   font-weight: 600;
   font-size: 12px;
@@ -104,9 +267,8 @@
 .auth-divider::after {
   content: '';
   flex: 1;
-  height: 2px;
-  background: var(--ink);
-  opacity: 0.18;
+  height: 1px;
+  background: var(--cc-line-strong);
 }
 .auth-divider span {
   padding: 0 12px;
@@ -117,26 +279,33 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: var(--surface);
-  color: var(--ink);
   margin-bottom: 10px;
+}
+.auth-page .auth-google {
+  --btn-bg: rgba(238, 247, 242, 0.94);
+  --btn-fg: #1c2a26;
+  border-color: rgba(160, 140, 255, 0.4);
+}
+.auth-page .auth-google:hover {
+  --btn-bg: #ffffff;
 }
 .auth-google:disabled {
   opacity: 0.6;
 }
 
-.auth-guest-note {
+.auth-page .auth-guest-note {
   text-align: center;
   font-size: 12.5px;
   margin-top: 10px;
+  color: var(--cc-text-soft);
 }
 
 .auth-back a {
   font-family: var(--display);
   font-size: 14px;
-  color: var(--ink-soft);
+  color: var(--cc-text-soft);
   font-weight: 600;
 }
 .auth-back a:hover {
-  color: var(--primary);
+  color: var(--cc-cyan);
 }

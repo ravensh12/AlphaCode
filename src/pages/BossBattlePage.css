@@ -1,9 +1,26 @@
 .battle-page {
+  --cc-bg-0: #070a10;
+  --cc-bg-1: #0a0f12;
+  --cc-cyan: #5ef0e0;
+  --cc-lime: #b6ff5c;
+  --cc-violet: #6d4afe;
+  --cc-coral: #ff6b6b;
+  --cc-window: #e8b84a;
+  --cc-text: #eef7f2;
+  --cc-text-soft: #9bbcb2;
+  --cc-glass: rgba(13, 26, 25, 0.78);
+  --cc-glass-2: rgba(9, 18, 18, 0.62);
+  --cc-line: rgba(120, 220, 200, 0.16);
+  --cc-line-strong: rgba(120, 220, 200, 0.34);
+
   height: 100vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--paper);
+  color: var(--cc-text);
+  background:
+    radial-gradient(130% 78% at 50% 102%, rgba(27, 58, 50, 0.45) 0%, transparent 55%),
+    linear-gradient(180deg, #070a10 0%, #080c11 44%, #0a0f12 100%);
 }
 
 .battle-stage {
@@ -192,8 +209,8 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(20, 16, 40, 0.55);
-  backdrop-filter: blur(2px);
+  background: rgba(7, 10, 16, 0.72);
+  backdrop-filter: blur(6px);
   animation: battleFade 0.3s ease both;
 }
 
@@ -206,17 +223,18 @@
   }
 }
 
-/* Cards shared shell */
-.battle-intro-card,
-.battle-result-card {
+/* Cards shared shell — dark glass on battle-page */
+.battle-page .battle-intro-card,
+.battle-page .battle-result-card {
   position: relative;
   width: min(440px, 92%);
   text-align: center;
-  color: var(--ink);
-  background: var(--surface);
-  border: var(--bd) solid var(--ink);
+  color: var(--cc-text);
+  background: var(--cc-glass);
+  border: 1.5px solid var(--cc-line-strong);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(94, 240, 224, 0.06);
+  backdrop-filter: blur(10px);
   padding: 22px 24px 24px;
   animation: battleCardPop 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -232,88 +250,99 @@
   }
 }
 
-.battle-intro-vs,
-.battle-result-tag {
+.battle-page .battle-intro-vs,
+.battle-page .battle-result-tag {
   display: inline-block;
   font-family: var(--display);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.24em;
   font-size: 12px;
-  color: var(--coral);
+  color: var(--cc-lime);
 }
 
-.battle-result-card.win .battle-result-tag {
-  color: var(--primary);
+.battle-page .battle-result-card.win .battle-result-tag {
+  color: var(--cc-cyan);
 }
 
-.battle-intro-card h1 {
+.battle-page .battle-result-card.lose .battle-result-tag {
+  color: var(--cc-coral);
+}
+
+.battle-page .battle-intro-card h1,
+.battle-page .battle-result-card h2 {
   font-family: var(--display);
   font-size: clamp(26px, 6vw, 40px);
   line-height: 1.05;
   margin: 6px 0 10px;
+  color: var(--cc-text);
 }
 
-.battle-result-card h2 {
-  font-family: var(--display);
+.battle-page .battle-result-card h2 {
   font-size: clamp(20px, 5vw, 28px);
   line-height: 1.1;
-  margin: 6px 0 10px;
 }
 
-.battle-intro-taunt {
+.battle-page .battle-intro-taunt {
   font-size: 15px;
   line-height: 1.45;
   margin: 0 0 12px;
-  color: var(--ink);
+  color: var(--cc-text);
 }
 
-.battle-intro-hint {
+.battle-page .battle-intro-hint {
   font-size: 13px;
   font-weight: 700;
   margin: 0 0 18px;
-  color: var(--ink);
-  opacity: 0.85;
+  color: var(--cc-text-soft);
+  opacity: 1;
 }
 
-.battle-result-card p {
+.battle-page .battle-result-card p {
   font-size: 14px;
   line-height: 1.45;
   margin: 0 0 18px;
+  color: var(--cc-text-soft);
 }
 
-/* Chunky buttons */
-.battle-btn {
+/* Chunky buttons — dark theme */
+.battle-page .battle-btn {
   font-family: var(--display);
   font-weight: 800;
   font-size: 16px;
   letter-spacing: 0.01em;
-  border: 3px solid var(--ink);
+  border: 1.5px solid var(--cc-line-strong);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
   padding: 11px 26px;
   cursor: pointer;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
-.battle-btn:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 5px 5px 0 var(--ink);
+.battle-page .battle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
 }
 
-.battle-btn:active {
-  transform: translate(1px, 1px);
-  box-shadow: 1px 1px 0 var(--ink);
+.battle-page .battle-btn:active {
+  transform: translateY(0);
 }
 
-.battle-btn-primary {
-  background: var(--yellow);
-  color: var(--ink);
+.battle-page .battle-btn-primary {
+  background: var(--cc-violet);
+  color: #fff;
+  border-color: rgba(160, 140, 255, 0.55);
+  box-shadow: 0 0 24px rgba(109, 74, 254, 0.45), 0 8px 22px rgba(0, 0, 0, 0.45);
 }
 
-.battle-btn-ghost {
-  background: var(--paper);
-  color: var(--ink);
+.battle-page .battle-btn-primary:hover {
+  box-shadow: 0 0 32px rgba(109, 74, 254, 0.6), 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+
+.battle-page .battle-btn-ghost {
+  background: var(--cc-glass);
+  color: var(--cc-text);
+  backdrop-filter: blur(6px);
 }
 
 .battle-result-actions {
@@ -473,5 +502,228 @@
 @media (max-width: 720px) {
   .battle-stage {
     flex-basis: 38vh;
+  }
+}
+
+/* ============================================================ Dark re-skin
+   Color-only overrides scoped under `.battle-page`. */
+.battle-page .battle-flee {
+  color: var(--cc-text);
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+.battle-page .battle-flee:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+
+.battle-page .battle-quiz,
+.battle-page .battle-quiz-full {
+  background: transparent;
+  color: var(--cc-text);
+}
+
+.battle-page .card {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+  color: var(--cc-text);
+}
+.battle-page h1,
+.battle-page h2,
+.battle-page h3,
+.battle-page p {
+  color: var(--cc-text);
+}
+.battle-page .muted {
+  color: var(--cc-text-soft);
+}
+.battle-page .btn:not(.ghost):not(.subtle) {
+  --btn-bg: var(--cc-violet);
+  --btn-fg: #fff;
+  border-color: rgba(160, 140, 255, 0.55);
+  box-shadow: 0 0 24px rgba(109, 74, 254, 0.45), 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+.battle-page .btn.ghost {
+  --btn-bg: var(--cc-glass);
+  --btn-fg: var(--cc-text);
+  border-color: var(--cc-line-strong);
+}
+
+/* ============================================================ VEX flagship
+   Cinematic intro / victory / defeat for the final-world Null Herald boss.
+   Darker, more ominous than the standard boss screens; leans on --accent. */
+.battle-vex-stage .battle-vex-backdrop {
+  background:
+    radial-gradient(120% 90% at 50% 8%, color-mix(in srgb, var(--accent) 30%, #05070d) 0%, #05070d 60%),
+    #02040a;
+}
+
+.battle-vex-stage .battle-vex-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--accent) 22%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(75% 75% at 50% 42%, #000 18%, transparent 100%);
+  animation: vexGridDrift 18s linear infinite;
+}
+
+@keyframes vexGridDrift {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 56px 0, 0 56px;
+  }
+}
+
+.battle-page .battle-vex-card {
+  width: min(560px, 94%);
+  background: linear-gradient(180deg, rgba(6, 9, 16, 0.92), rgba(4, 6, 12, 0.96));
+  border: 1.5px solid color-mix(in srgb, var(--accent) 46%, transparent);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.7),
+    0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 0 60px -12px color-mix(in srgb, var(--accent) 40%, transparent);
+  padding: 28px 30px 30px;
+}
+
+.battle-page .battle-vex-tag {
+  color: color-mix(in srgb, var(--accent) 78%, #ffffff);
+  letter-spacing: 0.32em;
+}
+
+.battle-page .battle-vex-card--lose .battle-vex-tag {
+  color: var(--cc-coral);
+}
+
+.battle-page .battle-vex-name {
+  font-family: var(--display);
+  font-size: clamp(48px, 13vw, 92px);
+  line-height: 0.92;
+  margin: 8px 0 2px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow:
+    0 0 18px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 0 48px color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: vexNamePulse 3.6s ease-in-out infinite;
+}
+
+@keyframes vexNamePulse {
+  0%,
+  100% {
+    text-shadow:
+      0 0 16px color-mix(in srgb, var(--accent) 55%, transparent),
+      0 0 44px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  50% {
+    text-shadow:
+      0 0 26px color-mix(in srgb, var(--accent) 80%, transparent),
+      0 0 70px color-mix(in srgb, var(--accent) 48%, transparent);
+  }
+}
+
+.battle-page .battle-vex-subtitle {
+  font-family: var(--display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.42em;
+  font-size: clamp(11px, 2.6vw, 14px);
+  color: var(--cc-text-soft);
+  margin: 0 0 16px;
+}
+
+.battle-page .battle-vex-title {
+  font-family: var(--display);
+  font-size: clamp(24px, 6vw, 38px);
+  color: #fff;
+  margin: 6px 0 12px;
+}
+
+.battle-page .battle-vex-taunt {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--cc-text);
+  margin: 0 0 14px;
+}
+
+.battle-page .battle-vex-hint {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--accent) 70%, #ffffff);
+  margin: 0 0 18px;
+}
+
+.battle-page .battle-vex-lore {
+  font-size: 14.5px;
+  line-height: 1.55;
+  font-style: italic;
+  color: var(--cc-text);
+  margin: 0 0 22px;
+}
+
+/* Controls legend */
+.battle-vex-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: center;
+  margin: 0 0 22px;
+}
+
+.battle-vex-control {
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cc-text-soft);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--cc-line);
+  border-radius: 999px;
+  padding: 5px 11px;
+  white-space: nowrap;
+}
+
+.battle-vex-control b {
+  color: var(--cc-text);
+  font-weight: 800;
+  margin-right: 4px;
+}
+
+.battle-vex-control--key {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 18px -4px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.battle-vex-control--key b {
+  color: color-mix(in srgb, var(--accent) 82%, #ffffff);
+}
+
+.battle-page .battle-vex-btn {
+  background: color-mix(in srgb, var(--accent) 28%, #120a26);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow:
+    0 0 30px -4px color-mix(in srgb, var(--accent) 65%, transparent),
+    0 10px 26px rgba(0, 0, 0, 0.55);
+}
+
+.battle-page .battle-vex-btn:hover {
+  box-shadow:
+    0 0 42px -2px color-mix(in srgb, var(--accent) 80%, transparent),
+    0 14px 32px rgba(0, 0, 0, 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .battle-vex-stage .battle-vex-backdrop::after,
+  .battle-page .battle-vex-name {
+    animation: none;
   }
 }

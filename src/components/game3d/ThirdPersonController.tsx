@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { memo, useEffect, useRef, type MutableRefObject } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Avatar, type AvatarAnim } from './Avatar'
 import { useKeys } from './useKeys'
 import { playShot } from '../../lib/soundFx'
-import { GROUND_HALF, START_3D, COLLIDERS } from './layout'
+import { GROUND_HALF, START_3D, collidersNear } from './layout'
 import type { World } from '../../content/adventure'
 
 export type Target = {
@@ -17,6 +17,24 @@ export type Target = {
   cleared: boolean
   /** For split lessons: which checkpoint part (0-based) this gate opens. */
   part?: number
+}
+
+/**
+ * Shared blade-dash state, written by the controller every frame and read by
+ * the CombatSystem so the dash can slice the horde + grant i-frames (dodging).
+ */
+export type DashState = {
+  /** Is the player mid-dash right now? (i-frames + the slicing sweep are live.) */
+  active: boolean
+  /** Live player position — the centre of the slicing sweep. */
+  x: number
+  z: number
+  /** Slice radius around the player while dashing. */
+  radius: number
+  /** Cooldown progress, 0 = just used .. 1 = ready again (for the HUD button). */
+  cd01: number
+  /** Convenience flag: dash is off cooldown and ready to fire. */
+  ready: boolean
 }
 
 const RUN_SPEED = 8
@@ -33,10 +51,19 @@ const BOUND = GROUND_HALF - 8
 const ENTER_RADIUS = 7.5
 const BODY_R = 0.7 // hero collision radius vs. building footprints
 
+// --- Blade dash: a fast forward lunge that slashes through everything ------
+const DASH_SPEED = 32 // m/s burst while dashing (covers a long slicing corridor)
+const DASH_TIME = 0.34 // seconds the lunge + i-frames last
+const DASH_CD = 0.85 // short cooldown so the dash is a core, repeatable tool
+const DASH_RADIUS = 4.8 // wide slicing sweep — clears whole packs in one pass
+
 /** Slide the hero out of any building/car footprint (circle vs. AABB). */
 function resolveCollisions(p: THREE.Vector3) {
-  for (let i = 0; i < COLLIDERS.length; i++) {
-    const c = COLLIDERS[i]
+  // Only the colliders bucketed into the hero's grid cell can possibly overlap,
+  // so this is a handful of tests per frame instead of the full ~2.8k scan.
+  const near = collidersNear(p.x, p.z)
+  for (let i = 0; i < near.length; i++) {
+    const c = near[i]
     const dx = p.x - c.x
     const dz = p.z - c.z
     // Broad reject.
@@ -66,7 +93,7 @@ function resolveCollisions(p: THREE.Vector3) {
   }
 }
 
-export function ThirdPersonController({
+function ThirdPersonControllerImpl({
   playerPosRef,
   headingRef,
   accent,
@@ -77,6 +104,7 @@ export function ThirdPersonController({
   faceTarget,
   startPos,
   startHeading,
+  dashRef,
 }: {
   playerPosRef: MutableRefObject<THREE.Vector3>
   headingRef?: MutableRefObject<number>
@@ -91,6 +119,8 @@ export function ThirdPersonController({
   startPos?: { x: number; z: number } | null
   /** Restore facing (radians) when resuming. Overrides faceTarget. */
   startHeading?: number | null
+  /** Shared blade-dash state for the combat system + HUD. */
+  dashRef?: MutableRefObject<DashState>
 }) {
   const { camera, gl } = useThree()
   const enabledRef = useRef(true)
@@ -106,7 +136,9 @@ export function ThirdPersonController({
   // Direction the next shot travels (kept horizontal so bullets carry to the horde).
   const shootDir = useRef(new THREE.Vector3(0, 0, 1))
 
-  const [anim, setAnim] = useState<AvatarAnim>('idle')
+  // Animation state lives in a ref and is read by the Avatar every frame, so a
+  // walk/run/jump transition NEVER triggers a React re-render from inside the
+  // render loop.
   const animRef = useRef<AvatarAnim>('idle')
 
   const group = useRef<THREE.Group>(null)
@@ -127,6 +159,13 @@ export function ThirdPersonController({
   const squash = useRef(0) // landing squash timer
   const lastNearby = useRef<string | null>(null)
 
+  // Blade dash.
+  const dashReq = useRef(false)
+  const dashUntil = useRef(-10) // clock time the lunge ends
+  const dashCdUntil = useRef(-10) // clock time the dash is ready again
+  const dashDir = useRef(new THREE.Vector3(0, 0, 1))
+  const slashRef = useRef(-10) // clock time the most recent slash started (drives the sword)
+
   const tmpForward = useRef(new THREE.Vector3())
   const tmpRight = useRef(new THREE.Vector3())
   const tmpMove = useRef(new THREE.Vector3())
@@ -134,10 +173,7 @@ export function ThirdPersonController({
   const lookTarget = useRef(new THREE.Vector3())
 
   function want(a: AvatarAnim) {
-    if (animRef.current !== a) {
-      animRef.current = a
-      setAnim(a)
-    }
+    animRef.current = a
   }
 
   // Left button: drag to orbit the camera, or a quick click to loose an arrow.
@@ -196,6 +232,19 @@ export function ThirdPersonController({
     return () => window.removeEventListener('keydown', onKey)
   }, [paused])
 
+  // Blade dash key (Q). One-shot per press; the cooldown is enforced in-frame.
+  // The on-screen Dash button dispatches a synthetic 'q' keydown so both paths
+  // share this exact handler.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.key === 'q' || e.key === 'Q') && !e.repeat && !paused) {
+        dashReq.current = true
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [paused])
+
   useEffect(() => {
     const yaw = spawnYaw
     const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
@@ -220,28 +269,58 @@ export function ThirdPersonController({
     tmpForward.current.set(Math.sin(camYaw.current), 0, Math.cos(camYaw.current))
     tmpRight.current.set(-tmpForward.current.z, 0, tmpForward.current.x)
 
+    // --- Blade dash: a fast forward lunge with i-frames that slices the horde.
+    const now = state.clock.elapsedTime
+    let dashing = now < dashUntil.current
+    if (dashReq.current) {
+      dashReq.current = false
+      if (!dashing && now >= dashCdUntil.current && !paused) {
+        dashDir.current.copy(tmpForward.current)
+        dashDir.current.y = 0
+        if (dashDir.current.lengthSq() < 1e-4) {
+          dashDir.current.set(Math.sin(heading.current), 0, Math.cos(heading.current))
+        }
+        dashDir.current.normalize()
+        dashUntil.current = now + DASH_TIME
+        dashCdUntil.current = now + DASH_CD
+        slashRef.current = now
+        dashing = true
+      }
+    }
+
     // Move along the aim direction: W/↑ forward, S/↓ backward (no spinning),
-    // A/D strafe. The hero always faces the aim direction.
+    // A/D strafe. A dash overrides this with a fast forward lunge.
     const fwd = (k['w'] || k['arrowup'] ? 1 : 0) - (k['s'] || k['arrowdown'] ? 1 : 0)
     const str = (k['d'] ? 1 : 0) - (k['a'] ? 1 : 0)
 
-    tmpMove.current.set(0, 0, 0)
-    tmpMove.current.addScaledVector(tmpForward.current, fwd)
-    tmpMove.current.addScaledVector(tmpRight.current, str)
-    const moving = tmpMove.current.lengthSq() > 0.001
-
-    if (moving) {
-      tmpMove.current.normalize()
-      const speed = (k['shift'] ? SPRINT_SPEED : RUN_SPEED) * dt
-      pos.current.x += tmpMove.current.x * speed
-      pos.current.z += tmpMove.current.z * speed
+    let moving: boolean
+    if (dashing) {
+      const ds = DASH_SPEED * dt
+      pos.current.x += dashDir.current.x * ds
+      pos.current.z += dashDir.current.z * ds
+      moving = true
+    } else {
+      tmpMove.current.set(0, 0, 0)
+      tmpMove.current.addScaledVector(tmpForward.current, fwd)
+      tmpMove.current.addScaledVector(tmpRight.current, str)
+      moving = tmpMove.current.lengthSq() > 0.001
+      if (moving) {
+        tmpMove.current.normalize()
+        const speed = (k['shift'] ? SPRINT_SPEED : RUN_SPEED) * dt
+        pos.current.x += tmpMove.current.x * speed
+        pos.current.z += tmpMove.current.z * speed
+      }
     }
 
-    // Third-person-shooter facing: the hero always turns to face where you aim
-    // (the camera yaw), eased for a smooth Disney arc.
-    let hd = camYaw.current - heading.current
-    hd = Math.atan2(Math.sin(hd), Math.cos(hd))
-    heading.current += hd * HEADING_LERP
+    // Facing: snap to the lunge direction while dashing, otherwise ease toward
+    // the camera aim (a smooth Disney arc).
+    if (dashing) {
+      heading.current = Math.atan2(dashDir.current.x, dashDir.current.z)
+    } else {
+      let hd = camYaw.current - heading.current
+      hd = Math.atan2(Math.sin(hd), Math.cos(hd))
+      heading.current += hd * HEADING_LERP
+    }
 
     // Block movement through buildings / cars.
     if (moving) resolveCollisions(pos.current)
@@ -274,7 +353,8 @@ export function ThirdPersonController({
     if (squash.current > 0) squash.current = Math.max(0, squash.current - dt * 4)
 
     // Animation state.
-    if (!grounded.current) want('jump')
+    if (dashing) want('dash')
+    else if (!grounded.current) want('jump')
     else if (moving) want('run')
     else want('idle')
 
@@ -307,7 +387,7 @@ export function ThirdPersonController({
         // Fire exactly along the laser sight so bullets follow the reticle.
         // Only register a shot (recoil + sound) when a bolt actually leaves the
         // barrel — the gun's cooldown can swallow held-trigger frames.
-        const didFire = onFire(tmpOrigin.current.clone(), shootDir.current.clone())
+        const didFire = onFire(tmpOrigin.current, shootDir.current)
         if (didFire !== false) {
           playShot()
           fireRef.current = state.clock.elapsedTime
@@ -318,6 +398,17 @@ export function ThirdPersonController({
     // Share position with the rest of the scene (companion, beams, minimap).
     playerPosRef.current.copy(pos.current)
     if (headingRef) headingRef.current = heading.current
+
+    // Publish dash state for the combat sweep + the HUD cooldown readout.
+    if (dashRef) {
+      const dsr = dashRef.current
+      dsr.active = dashing
+      dsr.x = pos.current.x
+      dsr.z = pos.current.z
+      dsr.radius = DASH_RADIUS
+      dsr.cd01 = THREE.MathUtils.clamp(1 - (dashCdUntil.current - now) / DASH_CD, 0, 1)
+      dsr.ready = now >= dashCdUntil.current
+    }
 
     // Camera follows directly behind the aim direction (eased — slow in/out),
     // and looks at a point AHEAD of the hero. This drops the hero into the lower
@@ -358,7 +449,12 @@ export function ThirdPersonController({
 
   return (
     <group ref={group}>
-      <Avatar anim={anim} accent={accent} fireRef={fireRef} />
+      <Avatar animRef={animRef} accent={accent} fireRef={fireRef} slashRef={slashRef} />
     </group>
   )
 }
+
+// Memoized so the frequent HUD-driven re-renders of the overworld page don't
+// reconcile the controller + hero rig. All changing inputs (paused, targets,
+// faceTarget) arrive as props with stable identities.
+export const ThirdPersonController = memo(ThirdPersonControllerImpl)

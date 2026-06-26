@@ -1,0 +1,7 @@
+project_id = "alphabrilliant"
+
+# AI tutor proxy — keeps the OpenAI key server-side.
+# Deploy:  supabase functions deploy ai-tutor --no-verify-jwt
+# Secret:  supabase secrets set OPENAI_API_KEY=sk-...
+[functions.ai-tutor]
+verify_jwt = false

@@ -5,6 +5,7 @@ import { Loader } from './components/Loader'
 import { LandingPage } from './pages/LandingPage'
 import { AuthPage } from './pages/AuthPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
+import { IntroPage } from './pages/IntroPage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { CourseHomePage } from './pages/CourseHomePage'
 import { QuestMapPage } from './pages/QuestMapPage'
@@ -12,6 +13,8 @@ import { WorldHubPage } from './pages/WorldHubPage'
 import { LessonPage } from './pages/LessonPage'
 import { ReviewPage } from './pages/ReviewPage'
 import { StartRedirect } from './pages/StartRedirect'
+import { FinalJourneyPage } from './pages/FinalJourneyPage'
+import { FinalExamPage } from './pages/FinalExamPage'
 
 // 3D game routes pull in three.js — load them lazily so the rest stays light.
 const Overworld3DPage = lazy(() =>
@@ -20,6 +23,10 @@ const Overworld3DPage = lazy(() =>
 const BossBattlePage = lazy(() =>
   import('./pages/BossBattlePage').then((m) => ({ default: m.BossBattlePage })),
 )
+const FinalBossPage = lazy(() =>
+  import('./pages/FinalBossPage').then((m) => ({ default: m.FinalBossPage })),
+)
+const ThresholdPage = lazy(() => import('./pages/ThresholdPage'))
 
 export default function App() {
   return (
@@ -27,6 +34,14 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/auth" element={<AuthPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route
+        path="/intro"
+        element={
+          <ProtectedRoute>
+            <IntroPage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/onboarding"
         element={
@@ -108,6 +123,42 @@ export default function App() {
         element={
           <ProtectedRoute>
             <ReviewPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/threshold"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<Loader label="Crossing the Threshold" />}>
+              <ThresholdPage />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/final/journey"
+        element={
+          <ProtectedRoute>
+            <FinalJourneyPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/final/exam"
+        element={
+          <ProtectedRoute>
+            <FinalExamPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/final/boss"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<Loader label="Entering the final arena" />}>
+              <FinalBossPage />
+            </Suspense>
           </ProtectedRoute>
         }
       />

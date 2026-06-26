@@ -1,5 +1,9 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import type { LessonResult } from '../../hooks/useLessonEngine'
+import { playVictory } from '../../lib/soundFx'
+import { Confetti } from '../Confetti'
+import { CountUp } from '../CountUp'
 import { masteryBand, bandLabel } from '../../lib/mastery'
 import { MASTERY_UNLOCK_THRESHOLD } from '../../content/catalog'
 import { getNeetCodeReadiness } from '../../content/neetcodeReadiness'
@@ -35,6 +39,11 @@ export function CompletionView({
   onReturn: () => void
   onReplay: () => void
 }) {
+  // Celebrate when the completion screen appears.
+  useEffect(() => {
+    playVictory()
+  }, [])
+
   const band = masteryBand(result.masteryScore)
   const unlocked = result.unlockNext
   const courseComplete = isLastLesson && unlocked
@@ -53,6 +62,7 @@ export function CompletionView({
 
   return (
     <div className="completion">
+      <Confetti count={90} />
       <div className="completion-badge" aria-hidden="true">
         <IconTrophy size={40} />
       </div>
@@ -74,21 +84,29 @@ export function CompletionView({
       <div className="completion-stats">
         <div className="completion-stat">
           <IconGauge size={20} />
-          <span className="completion-stat-value">{result.masteryScore}%</span>
+          <span className="completion-stat-value">
+            <CountUp end={result.masteryScore} suffix="%" />
+          </span>
           <span className="completion-stat-label">Mastery</span>
         </div>
         <div className="completion-stat">
-          <span className="completion-accuracy">{result.accuracy}%</span>
+          <span className="completion-accuracy">
+            <CountUp end={result.accuracy} suffix="%" />
+          </span>
           <span className="completion-stat-value-sm" aria-hidden="true" />
           <span className="completion-stat-label">Accuracy</span>
         </div>
         <div className="completion-stat">
-          <span className="completion-attempts">{result.totalAttempts}</span>
+          <span className="completion-attempts">
+            <CountUp end={result.totalAttempts} />
+          </span>
           <span className="completion-stat-label">Attempts</span>
         </div>
         <div className="completion-stat">
           <IconFlame size={20} />
-          <span className="completion-stat-value">{streakCurrent}</span>
+          <span className="completion-stat-value">
+            <CountUp end={streakCurrent} />
+          </span>
           <span className="completion-stat-label">Day streak</span>
         </div>
       </div>

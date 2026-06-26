@@ -5,6 +5,7 @@ import './index.css'
 import App from './App'
 import { AuthProvider } from './context/AuthContext'
 import { ProgressProvider } from './context/ProgressContext'
+import { GauntletProvider } from './context/GauntletContext'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 createRoot(document.getElementById('root')!).render(
@@ -13,7 +14,9 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <AuthProvider>
           <ProgressProvider>
-            <App />
+            <GauntletProvider>
+              <App />
+            </GauntletProvider>
           </ProgressProvider>
         </AuthProvider>
       </BrowserRouter>

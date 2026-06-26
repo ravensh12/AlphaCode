@@ -43,6 +43,7 @@ import {
   loadCloud,
   saveBadgesCloud,
   saveExperienceCloud,
+  saveInterZoneCloud,
   saveStreakCloud,
   upsertLessonCloud,
 } from '../lib/cloudProgress'
@@ -54,6 +55,12 @@ type ProgressContextValue = {
   cloudEnabled: boolean
   experienceLevel?: ExperienceLevel
   setExperienceLevel: (level: ExperienceLevel) => void
+  /** Lesson the opening placement diagnostic recommends starting from. */
+  recommendedLessonId?: string
+  /** Whether the first-run intro + placement flow still needs to run. */
+  needsPlacement: boolean
+  /** Save the placement diagnostic result (experience + unlock-ahead point). */
+  completePlacement: (level: ExperienceLevel, startLessonId: string) => void
   streak: StreakState
   lessons: Record<string, LessonProgress>
   getLessonProgress: (lessonId: string) => LessonProgress | undefined
@@ -62,6 +69,12 @@ type ProgressContextValue = {
   completedLessonsCount: number
   totalLessonsCount: number
   allLessonsComplete: boolean
+  /** "The Threshold" zone cleared (the gate before the Final Gauntlet). */
+  interZoneComplete: boolean
+  /** Mark "The Threshold" complete (idempotent; persists local + cloud). */
+  completeInterZone: () => void
+  /** True once all six worlds AND the Threshold are done. */
+  readyForFinalGauntlet: boolean
   activeLessonId: string | null
   badgeCounts: BadgeCounts
   totalBadgeCount: number
@@ -234,15 +247,22 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       : 0
     const totalLessonsCount = LESSON_CATALOG.length
     const allLessonsComplete = completedLessonsCount >= totalLessonsCount
+    const interZoneComplete = state.interZoneComplete === true
+    const readyForFinalGauntlet = allLessonsComplete && interZoneComplete
 
     // Guests preview the first lesson's interactive section only; quiz and
     // later lessons require an account.
     const isGuest = identityId === 'guest'
 
+    const placementUnlockIndex = state.placementUnlockIndex ?? -1
+
     const isUnlocked = (lesson: LessonSummary): boolean => {
       const req = lesson.unlockRequirements
       if (!req.previousLessonId) return true
       if (isGuest) return false
+      // Placement diagnostic can open worlds ahead of normal sequential unlocks.
+      const catalogIndex = LESSON_CATALOG.findIndex((l) => l.id === lesson.id)
+      if (catalogIndex >= 0 && catalogIndex <= placementUnlockIndex) return true
       const prev = state.lessons[req.previousLessonId]
       if (!prev) return false
       const prevLesson = generateLesson(req.previousLessonId)
@@ -266,6 +286,9 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       syncing,
       cloudEnabled: cloudActive,
       experienceLevel: state.experienceLevel,
+      recommendedLessonId: state.recommendedLessonId,
+      needsPlacement:
+        !state.experienceLevel && Object.keys(state.lessons).length === 0,
       streak: state.streak,
       lessons: state.lessons,
       variablesMastery,
@@ -273,6 +296,8 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       completedLessonsCount,
       totalLessonsCount,
       allLessonsComplete,
+      interZoneComplete,
+      readyForFinalGauntlet,
       activeLessonId,
       badgeCounts: state.badgeCounts ?? emptyState().badgeCounts,
       totalBadgeCount: totalBadgeCount(state.badgeCounts ?? emptyState().badgeCounts),
@@ -284,6 +309,33 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
         const next = { ...stateRef.current, experienceLevel: level }
         commit(next)
         if (cloudActive && userId) saveExperienceCloud(userId, level).catch(warn)
+      },
+
+      completePlacement: (level, startLessonId) => {
+        const startIndex = LESSON_CATALOG.findIndex((l) => l.id === startLessonId)
+        const next: ProgressState = {
+          ...stateRef.current,
+          experienceLevel: level,
+          recommendedLessonId: startIndex >= 0 ? startLessonId : FIRST_LESSON_ID,
+          // Unlock every world up to (and including) the recommended start.
+          placementUnlockIndex: Math.max(0, startIndex),
+        }
+        commit(next)
+        if (cloudActive && userId) saveExperienceCloud(userId, level).catch(warn)
+      },
+
+      completeInterZone: () => {
+        const prev = stateRef.current
+        // Idempotent: never overwrite an existing completion timestamp.
+        if (prev.interZoneComplete) return
+        const completedAt = new Date().toISOString()
+        const next: ProgressState = {
+          ...prev,
+          interZoneComplete: true,
+          interZoneCompletedAt: completedAt,
+        }
+        commit(next)
+        if (cloudActive && userId) saveInterZoneCloud(userId, completedAt).catch(warn)
       },
 
       recordDailyActivity: () => {

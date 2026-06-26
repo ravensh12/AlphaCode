@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import './ErrorBoundary.css'
 
 type Props = { children: ReactNode }
 type State = { hasError: boolean; message?: string }
@@ -21,13 +22,14 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!this.state.hasError) return this.props.children
 
     return (
-      <div className="center-screen">
-        <div className="card" style={{ maxWidth: 420, padding: 30 }}>
-          <h1 style={{ fontSize: 24, marginBottom: 10 }}>Something broke</h1>
-          <p className="muted" style={{ marginBottom: 18, fontSize: 15 }}>
-            The app hit an unexpected error. Reloading usually fixes it.
-          </p>
-          <button className="btn" onClick={() => window.location.assign('/')}>
+      <div className="error-screen">
+        <div className="error-card">
+          <div className="error-mark" aria-hidden="true">
+            <span>&gt;_</span>
+          </div>
+          <h1>Something broke</h1>
+          <p>The app hit an unexpected error. Reloading usually fixes it.</p>
+          <button className="error-reload" onClick={() => window.location.assign('/')}>
             Reload AlphaCode
           </button>
         </div>

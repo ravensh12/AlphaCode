@@ -120,6 +120,28 @@ export async function loadCloud(userId: string): Promise<ProgressState> {
     }
   }
 
+  // Best-effort: "The Threshold" gate state. These columns may not exist on
+  // older databases, so a failure here must never break core progress loading.
+  try {
+    const { data, error } = await sb
+      .from('profiles')
+      .select('inter_zone_complete, inter_zone_completed_at')
+      .eq('id', userId)
+      .maybeSingle()
+    if (!error && data) {
+      const row = data as {
+        inter_zone_complete?: boolean | null
+        inter_zone_completed_at?: string | null
+      }
+      if (row.inter_zone_complete) {
+        state.interZoneComplete = true
+        state.interZoneCompletedAt = row.inter_zone_completed_at ?? undefined
+      }
+    }
+  } catch {
+    /* inter-zone columns not present yet */
+  }
+
   const rowsRes = await sb
     .from('lesson_progress')
     .select(SECTION_LESSON_COLUMNS)
@@ -219,6 +241,25 @@ export async function saveStreakCloud(
       streak_current: streak.current,
       streak_longest: streak.longest,
       last_activity_date: streak.lastActivityDate ?? null,
+      last_active_at: new Date().toISOString(),
+    })
+    .eq('id', userId)
+}
+
+/**
+ * Persist "The Threshold" completion. Best-effort: if the columns don't exist
+ * yet on an older database the write fails silently so the local flag still
+ * holds and the app keeps working.
+ */
+export async function saveInterZoneCloud(
+  userId: string,
+  completedAt: string,
+): Promise<void> {
+  await client()
+    .from('profiles')
+    .update({
+      inter_zone_complete: true,
+      inter_zone_completed_at: completedAt,
       last_active_at: new Date().toISOString(),
     })
     .eq('id', userId)

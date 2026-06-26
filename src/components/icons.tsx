@@ -144,3 +144,30 @@ export function IconGrid({ size = 22, className }: IconProps) {
     </svg>
   )
 }
+
+export function IconSpeaker({ size = 22, className }: IconProps) {
+  return (
+    <svg {...base(size, className)}>
+      <path d="M4 9v6h3l5 4V5L7 9H4Z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8 8 0 0 1 0 12" />
+    </svg>
+  )
+}
+
+export function IconSpeakerOff({ size = 22, className }: IconProps) {
+  return (
+    <svg {...base(size, className)}>
+      <path d="M4 9v6h3l5 4V5L7 9H4Z" />
+      <path d="M16 9.5l5 5M21 9.5l-5 5" />
+    </svg>
+  )
+}
+
+export function IconSettings({ size = 22, className }: IconProps) {
+  return (
+    <svg {...base(size, className)}>
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 2.5v2.6M12 18.9v2.6M21.5 12h-2.6M5.1 12H2.5M18.7 5.3l-1.8 1.8M7.1 16.9l-1.8 1.8M18.7 18.7l-1.8-1.8M7.1 7.1 5.3 5.3" />
+    </svg>
+  )
+}

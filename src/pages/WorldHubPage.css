@@ -1,8 +1,85 @@
+/* ============================================================ World hub view
+   Dark, cinematic "Code City at night" theme. ALL dark theming is scoped to
+   `.world-page` so the global light theme stays intact elsewhere. Layout,
+   structure, copy and responsive behavior are untouched — only colors change. */
 .world-page {
+  /* ---- Scoped Code City night palette (new vars; globals untouched) ---- */
+  --cc-bg-0: #070a10;
+  --cc-bg-1: #0a0f12;
+  --cc-tower: #0c1416;
+  --cc-tower-2: #10181c;
+  --cc-window: #e8b84a;
+  --cc-cyan: #5ef0e0;
+  --cc-lime: #b6ff5c;
+  --cc-violet: #6d4afe;
+  --cc-coral: #ff6b6b;
+  --cc-text: #eef7f2;
+  --cc-text-soft: #9bbcb2;
+  --cc-text-faint: #6f8b83;
+  --cc-glass: rgba(13, 26, 25, 0.66);
+  --cc-glass-2: rgba(9, 18, 18, 0.55);
+  --cc-line: rgba(120, 220, 200, 0.16);
+  --cc-line-strong: rgba(120, 220, 200, 0.34);
+  --cc-cyan-soft: rgba(94, 240, 224, 0.16);
+  --cc-lime-soft: rgba(182, 255, 92, 0.16);
+  --cc-coral-soft: rgba(255, 107, 107, 0.18);
+  --cc-violet-soft: rgba(109, 74, 254, 0.2);
+
+  position: relative;
+  isolation: isolate;
+  color: var(--cc-text);
   background:
-    radial-gradient(circle at 14% 6%, color-mix(in srgb, var(--world-accent) 16%, transparent), transparent 44%),
-    radial-gradient(circle at 90% 30%, color-mix(in srgb, var(--world-accent) 12%, transparent), transparent 46%),
-    var(--paper);
+    radial-gradient(130% 78% at 50% 102%, rgba(27, 58, 50, 0.6) 0%, transparent 55%),
+    radial-gradient(150% 95% at 72% 92%, rgba(21, 48, 42, 0.5) 0%, transparent 52%),
+    linear-gradient(180deg, #070a10 0%, #080c11 44%, #0a0f12 100%);
+}
+
+.world-page::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 42vh;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(232, 184, 74, 0.5) 0 1px, transparent 2.4px);
+  background-size: 30px 40px;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  opacity: 0.28;
+}
+
+.world-page::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 44vh;
+  z-index: -2;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2));
+  background-size:
+    70px 200px, 54px 300px, 92px 150px, 62px 360px, 112px 220px,
+    72px 300px, 120px 170px, 66px 330px, 104px 230px, 82px 280px;
+  background-position:
+    3% bottom, 12% bottom, 20% bottom, 29% bottom, 38% bottom,
+    51% bottom, 61% bottom, 73% bottom, 83% bottom, 93% bottom;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  opacity: 0.5;
 }
 
 .world-main {
@@ -74,6 +151,20 @@
   font-family: var(--display);
   font-size: clamp(26px, 5vw, 38px);
   margin: 0;
+}
+
+/* The real coding topic this level teaches (e.g. "Binary Search"). */
+.world-topic {
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  color: var(--world-accent-ink, var(--ink));
+  background: var(--world-accent-soft, var(--surface-2));
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 3px 11px;
 }
 
 .world-blurb {
@@ -379,4 +470,235 @@ a.world-mission:hover {
     justify-content: center;
     text-align: center;
   }
+}
+
+/* ============================================================ Dark re-skin
+   Color-only overrides scoped under `.world-page`. */
+.world-page h1,
+.world-page h2,
+.world-page h3,
+.world-page h4 {
+  color: var(--cc-text);
+}
+.world-page p {
+  color: var(--cc-text);
+}
+.world-page .muted {
+  color: var(--cc-text-soft);
+}
+
+.world-page .world-back {
+  color: var(--cc-text);
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+.world-page .world-back:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.5);
+}
+
+.world-page .world-banner {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  border-left-color: var(--world-accent, var(--cc-violet));
+}
+.world-page .world-eyebrow {
+  color: var(--cc-cyan);
+  text-shadow: 0 0 16px rgba(94, 240, 224, 0.35);
+}
+.world-page .world-topic {
+  color: var(--cc-cyan);
+  background: var(--cc-cyan-soft);
+  border-color: var(--cc-line-strong);
+}
+.world-page .world-blurb {
+  color: var(--cc-text-soft);
+}
+
+.world-page .codebot-bubble {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+}
+.world-page .codebot-bubble::after {
+  background: var(--cc-glass);
+  border-left-color: var(--cc-line-strong);
+  border-bottom-color: var(--cc-line-strong);
+}
+.world-page .codebot-bubble-name {
+  color: var(--cc-cyan);
+}
+
+.world-page .world-power {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+.world-page .world-power.is-earned {
+  background: var(--cc-lime-soft);
+  border-color: rgba(182, 255, 92, 0.45);
+}
+.world-page .world-power-icon {
+  border-color: var(--cc-line-strong);
+  background: var(--cc-glass-2);
+  color: var(--world-accent, var(--cc-cyan));
+}
+.world-page .world-power-label {
+  color: var(--cc-text-soft);
+}
+.world-page .world-power-name {
+  color: var(--cc-text);
+}
+
+.world-page .world-mission {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  border-top-color: var(--cc-line-strong);
+}
+.world-page .world-mission--train {
+  border-top-color: var(--cc-lime);
+}
+.world-page .world-mission--boss {
+  border-top-color: var(--cc-coral);
+}
+.world-page a.world-mission:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.5);
+}
+.world-page .world-mission.is-locked {
+  background: var(--cc-glass-2);
+  opacity: 0.72;
+}
+.world-page .world-mission.is-done {
+  border-top-color: var(--cc-lime);
+}
+.world-page .world-mission-kind {
+  color: var(--cc-text-soft);
+}
+.world-page .world-mission-status {
+  color: var(--cc-text-soft);
+}
+.world-page .world-mission-subtitle {
+  color: var(--cc-text);
+}
+.world-page .world-mission-desc {
+  color: var(--cc-text-soft);
+}
+.world-page .world-mission-action {
+  color: #eef7f2;
+  background: rgba(94, 240, 224, 0.18);
+  border-color: rgba(94, 240, 224, 0.42);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+.world-page .world-mission--train.is-done .world-mission-action {
+  color: #5ef0e0;
+  background: rgba(94, 240, 224, 0.22);
+  border-color: rgba(94, 240, 224, 0.5);
+  font-weight: 800;
+}
+.world-page .world-mission--boss .world-mission-action {
+  background: rgba(255, 107, 107, 0.18);
+  border-color: rgba(255, 107, 107, 0.42);
+  color: #eef7f2;
+}
+.world-page .world-mission-guest {
+  background: #6d4afe;
+  color: #fff;
+  border-color: rgba(160, 140, 255, 0.55);
+  box-shadow: 0 0 16px rgba(109, 74, 254, 0.4);
+}
+
+.world-page .world-charge {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+.world-page .world-charge-label,
+.world-page .world-charge-value {
+  color: var(--cc-text);
+}
+.world-page .world-charge-value {
+  color: var(--world-accent, var(--cc-cyan));
+}
+.world-page .world-charge-track {
+  background: var(--cc-glass-2);
+  border-color: var(--cc-line-strong);
+}
+.world-page .world-charge-fill {
+  background: var(--world-accent, var(--cc-violet));
+}
+.world-page .world-charge-fill.is-full {
+  background: var(--cc-lime);
+}
+.world-page .world-charge-hint {
+  color: var(--cc-text-soft);
+}
+
+.world-page .world-missions-real {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+.world-page .world-missions-real-head {
+  color: var(--world-accent, var(--cc-cyan));
+}
+.world-page .world-missions-real-head h2 {
+  color: var(--cc-text);
+}
+.world-page .world-missions-real-list li {
+  background: var(--cc-glass-2);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+}
+
+.world-page .world-locked {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+}
+.world-page .world-locked-title {
+  color: var(--cc-text);
+}
+
+.world-page .card {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(6px);
+}
+
+.world-page .btn {
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+}
+.world-page .btn:hover {
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+.world-page .btn:not(.ghost):not(.subtle):not(.lime) {
+  --btn-bg: var(--cc-violet);
+  --btn-fg: #fff;
+  border-color: rgba(160, 140, 255, 0.55);
+  box-shadow: 0 0 24px rgba(109, 74, 254, 0.45), 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+.world-page .btn.ghost {
+  --btn-bg: var(--cc-glass);
+  --btn-fg: var(--cc-text);
+  border-color: var(--cc-line-strong);
+  backdrop-filter: blur(6px);
+}
+.world-page .btn.lime {
+  --btn-bg: var(--cc-lime);
+  --btn-fg: #0a1a06;
+  border-color: rgba(182, 255, 92, 0.6);
 }

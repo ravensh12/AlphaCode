@@ -188,6 +188,7 @@ export function WorldHubPage() {
               World {index + 1} of {WORLDS.length}
             </span>
             <h1 className="world-title">{world.name}</h1>
+            {summary?.title && <span className="world-topic">{summary.title}</span>}
             <p className="world-blurb">{world.blurb}</p>
             <div className="codebot-bubble world-bubble">
               <span className="codebot-bubble-name">CodeBot</span>
@@ -211,7 +212,7 @@ export function WorldHubPage() {
         </section>
 
         {/* Two missions: Train + Boss */}
-        <section className="world-missions">
+        <section className="world-missions stagger">
           <MissionCard
             kind="train"
             title="Train"
@@ -319,9 +320,9 @@ export function WorldHubPage() {
 
 function BackToMap() {
   return (
-    <Link className="world-back" to="/quest">
+    <Link className="world-back" to="/quest/list">
       <IconArrowLeft size={18} />
-      Overworld
+      Back to list
     </Link>
   )
 }

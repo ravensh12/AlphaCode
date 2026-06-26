@@ -1,0 +1,122 @@
+/* Dark "Code City at night" crash screen — matches the landing / loader UI. */
+.error-screen {
+  --cc-cyan: #5ef0e0;
+  --cc-lime: #b6ff5c;
+  --cc-violet: #6d4afe;
+  --cc-text: #eef7f2;
+  --cc-text-soft: #9bbcb2;
+  --cc-line-strong: rgba(120, 220, 200, 0.34);
+  --cc-glass: rgba(13, 26, 25, 0.66);
+  --cc-glass-2: rgba(10, 20, 20, 0.5);
+
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--cc-text);
+  background:
+    radial-gradient(130% 78% at 50% 102%, rgba(27, 58, 50, 0.6) 0%, transparent 55%),
+    radial-gradient(150% 95% at 72% 92%, rgba(21, 48, 42, 0.5) 0%, transparent 52%),
+    linear-gradient(180deg, #070a10 0%, #080c11 44%, #0a0f12 100%);
+}
+
+/* Distant tower silhouettes fading into the haze (mirrors the loader). */
+.error-screen::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 38vh;
+  z-index: -1;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(#0c1416, #0c1416),
+    linear-gradient(#10181c, #10181c),
+    linear-gradient(#0c1416, #0c1416),
+    linear-gradient(#10181c, #10181c),
+    linear-gradient(#0c1416, #0c1416),
+    linear-gradient(#10181c, #10181c);
+  background-size: 70px 200px, 54px 300px, 92px 150px, 62px 360px, 112px 220px, 72px 300px;
+  background-position: 8% bottom, 22% bottom, 38% bottom, 55% bottom, 72% bottom, 88% bottom;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  opacity: 0.5;
+}
+
+.error-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 440px;
+  padding: 34px 32px;
+  text-align: center;
+  border-radius: 20px;
+  background: var(--cc-glass);
+  border: 1px solid var(--cc-line-strong);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 24px 60px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
+}
+
+.error-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border-radius: 14px;
+  border: 2px solid rgba(180, 230, 215, 0.35);
+  background: var(--cc-violet);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 0 28px rgba(109, 74, 254, 0.55);
+}
+.error-mark span {
+  font-family: var(--mono, monospace);
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.error-card h1 {
+  font-family: var(--display, sans-serif);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 10px;
+  color: var(--cc-text);
+  text-shadow: 0 0 22px rgba(94, 240, 224, 0.25);
+}
+
+.error-card p {
+  margin: 0 0 22px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--cc-text-soft);
+}
+
+.error-reload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(160, 140, 255, 0.55);
+  background: var(--cc-violet);
+  color: #fff;
+  font-family: var(--display, sans-serif);
+  font-weight: 800;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 0 28px rgba(109, 74, 254, 0.55), 0 10px 30px rgba(0, 0, 0, 0.45);
+  transition: box-shadow 0.14s ease, transform 0.08s ease;
+}
+.error-reload:hover {
+  box-shadow: 0 0 38px rgba(109, 74, 254, 0.7), 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+.error-reload:active {
+  transform: scale(0.97);
+}

@@ -1,0 +1,301 @@
+/* ============================================================ THE THRESHOLD
+   DOM overlays above the full-bleed `ThresholdScene` 3D flythrough. Cold/void
+   aesthetic (cyan + violet on deep black) matching the app's glass/neon style.
+   The scene owns the visuals — these overlays stay elegant and uncluttered. */
+
+.thr-page {
+  --thr-accent: #37e6ff;
+  --thr-violet: #8a5cff;
+  --thr-text: #eaf6ff;
+  --thr-text-soft: #9fb3d6;
+  --thr-glass: rgba(8, 12, 24, 0.72);
+  --thr-line: rgba(120, 200, 255, 0.18);
+  --thr-line-strong: rgba(120, 200, 255, 0.42);
+
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  color: var(--thr-text);
+  background: #02040a;
+  font-family: var(--display, system-ui, sans-serif);
+}
+
+/* The scene's CinematicStage paints itself absolute inset:0 underneath. */
+
+/* ---------------------------------------------------------------- Title card */
+.thr-title {
+  position: absolute;
+  top: 16%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(680px, 90%);
+  text-align: center;
+  pointer-events: none;
+  transition: opacity 1.1s ease, transform 1.1s ease;
+}
+
+.thr-title.is-in {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  animation: thrTitleIn 1.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.thr-title.is-out {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-14px);
+}
+
+@keyframes thrTitleIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(18px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    filter: blur(0);
+  }
+}
+
+.thr-title-tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.42em;
+  color: color-mix(in srgb, var(--thr-accent) 78%, #ffffff);
+  margin-bottom: 12px;
+}
+
+.thr-title-name {
+  margin: 0;
+  font-size: clamp(44px, 11vw, 104px);
+  line-height: 0.92;
+  letter-spacing: 0.14em;
+  color: #fff;
+  text-shadow:
+    0 0 22px color-mix(in srgb, var(--thr-accent) 55%, transparent),
+    0 0 64px color-mix(in srgb, var(--thr-violet) 40%, transparent);
+}
+
+.thr-title-sub {
+  margin: 14px 0 0;
+  font-size: clamp(13px, 2.6vw, 17px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--thr-text-soft);
+}
+
+/* ---------------------------------------------------------- Lower-third caps */
+.thr-captions {
+  position: absolute;
+  left: 50%;
+  bottom: 16%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(760px, 88%);
+  text-align: center;
+  pointer-events: none;
+  min-height: 2.6em;
+}
+
+.thr-caption {
+  margin: 0;
+  font-size: clamp(16px, 2.8vw, 22px);
+  line-height: 1.45;
+  font-weight: 500;
+  color: var(--thr-text);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.85), 0 0 30px color-mix(in srgb, var(--thr-accent) 22%, transparent);
+  animation: thrCaptionIn 0.9s ease both;
+}
+
+@keyframes thrCaptionIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* ----------------------------------------------------------------- Skip row */
+.thr-skip-row {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.thr-skip {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--thr-text-soft);
+  background: var(--thr-glass);
+  border: 1px solid var(--thr-line);
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.thr-skip:hover {
+  color: var(--thr-text);
+  border-color: var(--thr-line-strong);
+  transform: translateY(-1px);
+}
+
+.thr-skip--minor {
+  font-size: 11px;
+  opacity: 0.72;
+  padding: 7px 13px;
+}
+
+/* ------------------------------------------------------------- The Gate */
+.thr-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 20px;
+  background: radial-gradient(120% 90% at 50% 45%, rgba(3, 6, 14, 0.35), rgba(2, 4, 10, 0.7));
+  backdrop-filter: blur(2px);
+  animation: thrFade 0.7s ease both;
+}
+
+@keyframes thrFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.thr-gate-inner {
+  width: min(540px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.thr-gate-tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.42em;
+  color: color-mix(in srgb, var(--thr-accent) 80%, #ffffff);
+}
+
+.thr-gate-line {
+  margin: 0 0 6px;
+  max-width: 460px;
+  font-size: clamp(16px, 3vw, 21px);
+  line-height: 1.5;
+  color: var(--thr-text);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.8), 0 0 30px color-mix(in srgb, var(--thr-accent) 22%, transparent);
+}
+
+.thr-btn {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  border-radius: 14px;
+  padding: 13px 34px;
+  cursor: pointer;
+  border: 1.5px solid var(--thr-line-strong);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, opacity 0.14s ease;
+}
+
+.thr-btn--primary {
+  color: #02121a;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--thr-accent) 92%, #ffffff), var(--thr-accent));
+  border-color: color-mix(in srgb, var(--thr-accent) 70%, transparent);
+  box-shadow: 0 0 34px -6px color-mix(in srgb, var(--thr-accent) 75%, transparent), 0 10px 26px rgba(0, 0, 0, 0.5);
+}
+
+.thr-btn--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 46px -4px color-mix(in srgb, var(--thr-accent) 90%, transparent), 0 14px 32px rgba(0, 0, 0, 0.55);
+}
+
+.thr-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+/* ---------------------------------------------------------------- Entering */
+.thr-entering {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 14%;
+  pointer-events: none;
+  animation: thrFade 0.8s ease both;
+}
+
+.thr-entering-hint {
+  margin: 0;
+  font-size: clamp(15px, 3vw, 20px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--thr-text);
+  text-shadow: 0 0 24px color-mix(in srgb, var(--thr-accent) 50%, transparent);
+  animation: thrPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes thrPulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------- Responsive */
+@media (max-width: 680px) {
+  .thr-captions {
+    bottom: 12%;
+  }
+}
+
+/* ------------------------------------------------------- Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .thr-title,
+  .thr-title.is-in,
+  .thr-caption,
+  .thr-gate,
+  .thr-entering,
+  .thr-entering-hint {
+    animation: none !important;
+    transition: none !important;
+  }
+  .thr-btn--primary:hover {
+    transform: none;
+  }
+}

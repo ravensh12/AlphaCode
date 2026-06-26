@@ -1,5 +1,115 @@
+/* ============================================================ Landing page
+   Dark, cinematic "Code City at night" theme. ALL dark theming is scoped to
+   the `.landing` container so the global light "paper" theme stays intact for
+   every other route. We override the shared `.btn`/`.card`/chip looks only
+   inside `.landing`. */
+
 .landing {
+  /* ---- Scoped Code City night palette (new vars; globals untouched) ---- */
+  --cc-bg-0: #070a10;
+  --cc-bg-1: #0a0f12;
+  --cc-haze: #15302a;
+  --cc-haze-2: #1b3a32;
+  --cc-tower: #0c1416;
+  --cc-tower-2: #10181c;
+  --cc-window: #e8b84a;
+  --cc-window-2: #f0c455;
+  --cc-street: #1a2422;
+  --cc-street-2: #232b2a;
+  --cc-lane: #b9b48a;
+  --cc-hero: #3f8c7a;
+  --cc-cyan: #5ef0e0;
+  --cc-cyan-2: #6ffcd0;
+  --cc-eye: #ffcf3a;
+  --cc-lime: #b6ff5c;
+  --cc-violet: #6d4afe;
+  --cc-text: #eef7f2;
+  --cc-text-soft: #9bbcb2;
+  --cc-glass: rgba(13, 26, 25, 0.62);
+  --cc-glass-2: rgba(10, 20, 20, 0.5);
+  --cc-line: rgba(120, 220, 200, 0.16);
+  --cc-line-strong: rgba(120, 220, 200, 0.32);
+
   overflow-x: hidden;
+  position: relative;
+  isolation: isolate;
+  color: var(--cc-text);
+  background:
+    radial-gradient(130% 78% at 50% 102%, rgba(27, 58, 50, 0.6) 0%, transparent 55%),
+    radial-gradient(150% 95% at 72% 92%, rgba(21, 48, 42, 0.5) 0%, transparent 52%),
+    linear-gradient(180deg, #070a10 0%, #080c11 44%, #0a0f12 100%);
+}
+
+/* Faint amber-lit window glow drifting up out of the fog. */
+.landing::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 42vh;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(circle, rgba(232, 184, 74, 0.55) 0 1px, transparent 2.4px);
+  background-size: 30px 40px;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  opacity: 0.35;
+}
+
+/* Distant tower silhouettes along the horizon, fading into the haze. */
+.landing::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 44vh;
+  z-index: -2;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
+    linear-gradient(var(--cc-tower), var(--cc-tower)),
+    linear-gradient(var(--cc-tower-2), var(--cc-tower-2));
+  background-size:
+    70px 200px,
+    54px 300px,
+    92px 150px,
+    62px 360px,
+    112px 220px,
+    72px 300px,
+    120px 170px,
+    66px 330px,
+    104px 230px,
+    82px 280px;
+  background-position:
+    3% bottom,
+    12% bottom,
+    20% bottom,
+    29% bottom,
+    38% bottom,
+    51% bottom,
+    61% bottom,
+    73% bottom,
+    83% bottom,
+    93% bottom;
+  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
+  opacity: 0.55;
+}
+
+/* Keep all real content above the atmospheric layers. */
+.landing > * {
+  position: relative;
+  z-index: 1;
 }
 
 .landing-nav-inner {
@@ -7,6 +117,19 @@
   align-items: center;
   justify-content: space-between;
   height: 78px;
+}
+
+/* Brand wordmark reads light on the dark sky; keep the violet "Code" accent. */
+.landing .brand,
+.landing .brand-word {
+  color: var(--cc-text);
+}
+.landing .brand-word-accent {
+  color: var(--cc-violet);
+}
+.landing .brand-mark {
+  border-color: rgba(180, 230, 215, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(109, 74, 254, 0.45);
 }
 
 .landing-hero {
@@ -36,9 +159,12 @@
   font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 0.95;
+  color: var(--cc-text);
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.6);
 }
 .landing-brand-accent {
-  color: var(--primary);
+  color: var(--cc-violet);
+  text-shadow: 0 0 26px rgba(109, 74, 254, 0.65);
 }
 
 .landing-eyebrow {
@@ -46,9 +172,10 @@
   font-family: var(--display);
   font-size: clamp(14px, 1.8vw, 17px);
   font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--ink-soft);
+  letter-spacing: 0.14em;
+  color: var(--cc-cyan);
   text-transform: uppercase;
+  text-shadow: 0 0 18px rgba(94, 240, 224, 0.4);
 }
 
 .lede-brand {
@@ -64,11 +191,12 @@
 }
 .lede-zombie {
   font-weight: 800;
-  color: var(--lime);
-  -webkit-text-stroke: 0.6px var(--ink);
+  color: var(--cc-lime);
+  -webkit-text-stroke: 0.6px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 0 16px rgba(182, 255, 92, 0.5);
 }
 
-/* ---------- Game feature chips ---------- */
+/* ---------- Game feature chips (dark / neon-outlined) ---------- */
 .landing-chips {
   list-style: none;
   margin: 6px 0 2px;
@@ -85,12 +213,13 @@
   font-weight: 800;
   font-size: 14px;
   letter-spacing: -0.01em;
-  color: var(--ink);
-  background: var(--surface);
-  border: 2px solid var(--ink);
+  color: var(--cc-text);
+  background: var(--cc-glass);
+  border: 1.5px solid var(--cc-line-strong);
   border-radius: 999px;
   padding: 6px 14px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3), 0 8px 22px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
 }
 
 .landing-footer-brand {
@@ -104,23 +233,27 @@
   font-size: 20px;
   font-weight: 800;
   letter-spacing: -0.03em;
+  color: var(--cc-text);
 }
 .landing-footer-tag {
   font-size: 14px;
-  color: var(--ink-soft);
+  color: var(--cc-text-soft);
   font-weight: 500;
 }
 
 /* flat highlighter marker — a solid color band, not a gradient */
 .landing-title .hl {
-  box-shadow: inset 0 -0.3em 0 var(--lime);
+  box-shadow: inset 0 -0.3em 0 var(--cc-lime);
 }
 
 .landing-lede {
   font-size: clamp(16px, 2.2vw, 19px);
   line-height: 1.55;
-  color: var(--ink-soft);
+  color: var(--cc-text-soft);
   max-width: 540px;
+}
+.landing-lede strong {
+  color: var(--cc-text);
 }
 
 .landing-cta {
@@ -130,12 +263,47 @@
   margin-top: 4px;
 }
 
-.landing-footer {
-  padding: 22px 0 40px;
-  border-top: var(--bd) solid var(--ink);
+/* ---- Scoped button repaint (do NOT touch the global .btn) ---- */
+.landing .btn {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.landing .btn:hover {
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+.landing .btn.lg,
+.landing .btn:not(.ghost):not(.subtle) {
+  --btn-bg: var(--cc-violet);
+  --btn-fg: #fff;
+  border-color: rgba(160, 140, 255, 0.55);
+  box-shadow: 0 0 28px rgba(109, 74, 254, 0.55), 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.landing .btn.lg:hover,
+.landing .btn:not(.ghost):not(.subtle):hover {
+  box-shadow: 0 0 38px rgba(109, 74, 254, 0.7), 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+.landing .btn.ghost {
+  --btn-bg: var(--cc-glass);
+  --btn-fg: var(--cc-text);
+  border-color: var(--cc-line-strong);
+  backdrop-filter: blur(6px);
+}
+.landing .btn.ghost:hover {
+  --btn-bg: rgba(20, 38, 36, 0.78);
+  border-color: var(--cc-cyan);
+}
+.landing .btn.subtle {
+  --btn-bg: var(--cc-window);
+  --btn-fg: #1c1402;
+  border-color: rgba(240, 196, 85, 0.6);
+  box-shadow: 0 0 24px rgba(232, 184, 74, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
 }
 
-/* ---------- Animated game scene ---------- */
+.landing-footer {
+  padding: 22px 0 40px;
+  border-top: 1px solid var(--cc-line);
+}
+
+/* ---------- Animated game scene (Code City at night) ---------- */
 .landing-visual {
   display: flex;
   justify-content: center;
@@ -147,9 +315,10 @@
   max-width: 520px;
   aspect-ratio: 4 / 3;
   overflow: hidden;
-  border: var(--bd) solid var(--ink);
+  border: 1.5px solid var(--cc-line-strong);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 24px 60px rgba(0, 0, 0, 0.6),
+    0 0 60px rgba(20, 60, 52, 0.4);
   background: #1a1430;
   container-type: size;
   transform: rotate(-1deg);
@@ -601,5 +770,53 @@
   }
   .game-scene {
     max-width: 440px;
+  }
+}
+
+/* ---------- Entrance polish + CTA emphasis ---------- */
+.landing-hero-copy > * {
+  animation: landingRise 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.landing-hero-copy > *:nth-child(1) { animation-delay: 60ms; }
+.landing-hero-copy > *:nth-child(2) { animation-delay: 120ms; }
+.landing-hero-copy > *:nth-child(3) { animation-delay: 180ms; }
+.landing-hero-copy > *:nth-child(4) { animation-delay: 240ms; }
+.landing-hero-copy > *:nth-child(5) { animation-delay: 300ms; }
+
+@keyframes landingRise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Draw the eye to the primary CTA with a gentle, slow glow pulse. */
+.landing-cta .btn {
+  animation: landingCtaPulse 2.8s ease-in-out 1.1s infinite;
+}
+@keyframes landingCtaPulse {
+  0%, 100% {
+    box-shadow: var(--shadow-sm);
+  }
+  50% {
+    box-shadow: var(--shadow-sm), 0 0 26px rgba(94, 240, 224, 0.55);
+  }
+}
+.landing-cta .btn:hover {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-copy > * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .landing-cta .btn {
+    animation: none !important;
   }
 }

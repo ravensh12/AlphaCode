@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { memo, useCallback, useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
@@ -34,19 +34,24 @@ const VILLAINS: Villain[] = [
   { bulk: 1.0, hunch: 0.0, head: 'crown', weapon: 'staff', shoulders: 'royal', cape: true, eyeColor: '#bcd4ff' },
 ]
 
-export function Boss3D({
+export const Boss3D = memo(function Boss3D({
   accent,
   variant,
-  anim,
-  hitCount,
-  attackCount,
+  anim = 'idle',
+  animRef,
+  hitRef,
+  attackRef,
   dead,
 }: {
   accent: string
   variant: number
-  anim: BossAnim
-  hitCount: number
-  attackCount: number
+  anim?: BossAnim
+  /** When set, the current anim is read from this ref each frame (no re-render). */
+  animRef?: MutableRefObject<BossAnim>
+  /** Bumped imperatively by the parent on each landed bolt (no re-render). */
+  hitRef: MutableRefObject<number>
+  /** Bumped imperatively by the parent each time the boss looses an attack. */
+  attackRef: MutableRefObject<number>
   dead: boolean
 }) {
   const v = VILLAINS[variant % VILLAINS.length]
@@ -61,41 +66,38 @@ export function Boss3D({
   const cape = useRef<THREE.Group>(null)
   const aura = useRef<THREE.Mesh>(null)
   const auraMat = useRef<THREE.MeshBasicMaterial>(null)
+  const burst = useRef<THREE.Group>(null)
 
-  // Materials that flash red/bright when struck.
+  // Materials that flash red/bright when struck. The collector is a STABLE
+  // callback (useCallback) so the material refs attach exactly once on mount —
+  // a fresh closure each render would churn the refs and risk leaving meshes
+  // momentarily detached as the boss re-renders.
   const flashMats = useRef<THREE.MeshStandardMaterial[]>([])
-  const collect = (m: THREE.MeshStandardMaterial | null) => {
+  const collect = useCallback((m: THREE.MeshStandardMaterial | null) => {
     if (m && !flashMats.current.includes(m)) flashMats.current.push(m)
-  }
+  }, [])
 
+  // Hit/attack reactions are detected by polling the refs inside useFrame, so a
+  // landed bolt NEVER re-renders this component. Critically, the one-shot start
+  // time is now stamped with the SAME clock it is later measured against
+  // (state.clock.elapsedTime) — the previous code stamped performance.now()/1000
+  // but measured against the Three clock, so the elapsed time was a huge negative
+  // number, exploding the hit reaction and flinging the body below the floor.
   const oneShot = useRef<OneShot>(null)
-  const prevHit = useRef(hitCount)
-  const prevAtk = useRef(attackCount)
+  const prevHit = useRef(hitRef.current)
+  const prevAtk = useRef(attackRef.current)
   const deathStart = useRef<number | null>(null)
   const phase = useRef(0)
   const amp = useRef(0)
-
-  useEffect(() => {
-    if (hitCount !== prevHit.current) {
-      prevHit.current = hitCount
-      oneShot.current = { type: 'hit', start: performance.now() / 1000 }
-    }
-  }, [hitCount])
-
-  useEffect(() => {
-    if (attackCount !== prevAtk.current) {
-      prevAtk.current = attackCount
-      oneShot.current = { type: 'attack', start: performance.now() / 1000 }
-    }
-  }, [attackCount])
 
   const colors = useMemo(() => {
     const a = new THREE.Color(accent)
     return {
       body: accent,
-      dark: '#' + a.clone().multiplyScalar(0.55).getHexString(),
-      limb: '#2a2533',
-      metal: '#3a3550',
+      // Dark accents derived from the boss color so they read against the dark arena
+      // (instead of near-black that vanished into the floor).
+      dark: '#' + a.clone().multiplyScalar(0.62).getHexString(),
+      limb: '#' + a.clone().lerp(new THREE.Color('#cfd2e6'), 0.32).multiplyScalar(0.62).getHexString(),
     }
   }, [accent])
 
@@ -106,22 +108,60 @@ export function Boss3D({
     const b = body.current
     if (!r || !b) return
 
-    // Death — crumple and sink.
+    // Poll the hit/attack refs (no re-render). Stamp the start with the Three
+    // clock so it is measured on the same timeline below.
+    if (hitRef.current !== prevHit.current) {
+      prevHit.current = hitRef.current
+      oneShot.current = { type: 'hit', start: t }
+    }
+    if (attackRef.current !== prevAtk.current) {
+      prevAtk.current = attackRef.current
+      oneShot.current = { type: 'attack', start: t }
+    }
+
+    // Defeat — stagger back and TOPPLE onto the arena floor with a one-off burst
+    // flash. The boss stays visible and on the ground (it used to sink straight
+    // through the floor and shrink, which read as "disappearing" the instant it
+    // died). A clear, readable knockout instead.
     if (dead) {
       if (deathStart.current == null) deathStart.current = t
       const e = Math.min(1, (t - deathStart.current) / 1.2)
-      r.rotation.z = -e * 1.4
-      r.position.y = -e * 1.0
-      r.scale.setScalar(Math.max(0.01, 1 - e * 0.4))
-      const flash = (1 - e) * 1.5
-      for (const m of flashMats.current) m.emissiveIntensity = flash
+      const ease = 1 - (1 - e) * (1 - e)
+      r.rotation.x = -ease * 1.42 // topple backward, pivoting on the feet
+      r.rotation.z = Math.sin(e * 22) * 0.14 * (1 - e) // brief death shudder
+      r.position.y = -e * 0.12 // settle, not sink
+      r.scale.setScalar(1 - e * 0.06)
+      const flash = (1 - e) * 0.7
+      for (const m of flashMats.current) {
+        m.emissive.set('#ff2a2a')
+        m.emissiveIntensity = flash
+      }
+      // Expanding defeat shockwave that lingers a moment on the kill.
+      const bu = burst.current
+      if (bu) {
+        const bp = Math.min(1, (t - deathStart.current) / 0.7)
+        if (bp < 1) {
+          bu.visible = true
+          const s = 0.5 + bp * 3.4
+          bu.scale.set(s, s, s)
+          const o = (1 - bp) * 0.9
+          bu.traverse((child) => {
+            const cm = (child as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined
+            if (cm && 'opacity' in cm) cm.opacity = o
+          })
+        } else if (bu.visible) {
+          bu.visible = false
+        }
+      }
       return
     }
+    r.rotation.x = 0
     r.position.y = 0
     r.scale.setScalar(1)
 
-    const running = anim === 'run'
-    const jumping = anim === 'jump'
+    const a = animRef ? animRef.current : anim
+    const running = a === 'run'
+    const jumping = a === 'jump'
     const targetAmp = jumping ? 0 : running ? 1 : 0
     amp.current += (targetAmp - amp.current) * Math.min(1, dt * 9)
     const cadence = running ? 10 : 2.0
@@ -139,17 +179,18 @@ export function Boss3D({
       }
     }
 
-    // One-shot timing.
+    // One-shot timing. Clamped to [0,1] defensively so the reaction can only ever
+    // nudge the rig, never fling it (the old time-base bug buried the body here).
     const os = oneShot.current
     let hitK = 0
     let atkK = 0
     if (os) {
       const e = t - os.start
       if (os.type === 'hit') {
-        if (e < 0.4) hitK = 1 - e / 0.4
+        if (e >= 0 && e < 0.4) hitK = THREE.MathUtils.clamp(1 - e / 0.4, 0, 1)
         else oneShot.current = null
       } else {
-        if (e < 0.55) atkK = Math.sin((e / 0.55) * Math.PI)
+        if (e >= 0 && e < 0.55) atkK = THREE.MathUtils.clamp(Math.sin((e / 0.55) * Math.PI), 0, 1)
         else oneShot.current = null
       }
     }
@@ -170,20 +211,39 @@ export function Boss3D({
       }
     }
 
-    // Body: hunch + run bounce + breathing + hit recoil.
+    // Body: hunch + run bounce + breathing + hit reaction.
+    // Hit produces a clear lean + small downward "impact" so damage is obvious
+    // while the model silhouette stays stable and readable (no flipping).
     const bounce = running ? Math.abs(Math.sin(phase.current)) * 0.09 * amp.current : 0
     const breathe = (1 - amp.current) * Math.sin(t * 2.2) * 0.03
-    b.position.y = bounce
-    b.rotation.x = v.hunch - hitK * 0.25 + atkK * 0.12
-    b.rotation.z = Math.sin(t * 0.8) * 0.04 * (1 - amp.current)
-    b.scale.y = 1 + breathe
+    b.position.y = bounce - hitK * 0.065
+    b.rotation.x = v.hunch - Math.min(0.36, hitK * 0.36) + atkK * 0.11
+    b.rotation.z = Math.sin(t * 0.8) * 0.035 * (1 - amp.current)
+    b.scale.y = 1 + breathe - hitK * 0.03
     if (head.current) head.current.rotation.x = Math.sin(t * 1.3) * 0.05 * (1 - amp.current)
 
-    // Flash on hit.
-    const flash = hitK * 2.4
-    for (const m of flashMats.current) m.emissiveIntensity = flash
+    // Subtle permanent self-glow in the boss's own color + hit flash.
+    // The boss is lit primarily by the SCENE lights (so it always reads as a
+    // solid, shaded model). The self-glow and hit flash are kept low on purpose:
+    // a higher value plus Bloom turned the boss into a white/red glowing blob
+    // that "disappeared" while you fired. The hit flash is capped well under the
+    // Bloom luminance threshold so a struck boss reads as a solid red impact and
+    // NEVER washes out, no matter how fast you fire.
+    const baseGlow = 0.12
+    for (const m of flashMats.current) {
+      if (hitK > 0.01) {
+        m.emissive.set('#ff2418')
+        // Peaks at ~0.82 — punchy red impact that stays just under the Bloom
+        // luminance threshold (0.92), so a struck boss reads as a solid red hit
+        // and NEVER washes out, no matter how fast you fire.
+        m.emissiveIntensity = baseGlow + hitK * 0.7
+      } else {
+        m.emissive.set(accent)
+        m.emissiveIntensity = baseGlow
+      }
+    }
 
-    // Menacing turn jitter.
+    // Spin/shudder on hit (the reaction you liked).
     r.rotation.z = THREE.MathUtils.lerp(r.rotation.z, Math.sin(t * 60) * 0.05 * hitK, 0.5)
 
     // Cape sway.
@@ -191,8 +251,8 @@ export function Boss3D({
     // Aura pulse.
     const pulse = 0.5 + 0.5 * Math.sin(t * 2.4)
     if (aura.current && auraMat.current) {
-      aura.current.scale.setScalar(1.1 + pulse * 0.1)
-      auraMat.current.opacity = 0.08 + pulse * 0.1
+      aura.current.scale.setScalar(1.05 + pulse * 0.06)
+      auraMat.current.opacity = 0.13 + pulse * 0.07
     }
   })
 
@@ -200,19 +260,37 @@ export function Boss3D({
 
   return (
     <group ref={root}>
-      {/* ground aura */}
-      <mesh ref={aura} position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[1.2, 28]} />
+      {/* A light rigged to the boss so it always "pops" against the arena and
+          casts a pool of its own color on the floor. Kept moderate so the boss
+          stays a shaded, readable model rather than a blown-out glow. */}
+      <pointLight position={[0, 2.2, 0.8]} color={accent} intensity={2.4} distance={10} decay={1.7} />
+      <pointLight position={[0, 1.4, 1.4]} color={'#ffffff'} intensity={1.1} distance={9} decay={1.8} />
+
+      {/* ground aura — boss-colored pool so its footprint reads clearly */}
+      <mesh ref={aura} position={[0, 0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[1.25, 36]} />
         <meshBasicMaterial
           ref={auraMat}
           color={accent}
           transparent
-          opacity={0.14}
+          opacity={0.16}
           toneMapped={false}
           fog={false}
           depthWrite={false}
         />
       </mesh>
+
+      {/* Defeat shockwave — a flash + expanding ring driven only while `dead`. */}
+      <group ref={burst} position={[0, 1.0, 0]} visible={false}>
+        <mesh>
+          <sphereGeometry args={[0.6, 16, 16]} />
+          <meshBasicMaterial color="#fff2d8" transparent opacity={0} toneMapped={false} fog={false} depthWrite={false} />
+        </mesh>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.55, 0.92, 36]} />
+          <meshBasicMaterial color={accent} transparent opacity={0} toneMapped={false} fog={false} depthWrite={false} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
 
       <group ref={body}>
         {/* torso */}
@@ -290,7 +368,7 @@ export function Boss3D({
       </group>
     </group>
   )
-}
+})
 
 /* --------------------------------------------------------------- Heads */
 

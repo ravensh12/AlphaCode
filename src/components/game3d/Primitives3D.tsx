@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Html, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
@@ -20,7 +20,7 @@ import type { World } from '../../content/adventure'
 
 /* ------------------------------------------------------------------ Ground */
 
-export function Ground() {
+export const Ground = memo(function Ground() {
   return (
     <group>
       {/* sidewalk / pavement base */}
@@ -37,12 +37,12 @@ export function Ground() {
       ))}
     </group>
   )
-}
+})
 
 /* ------------------------------------------------------------------- Roads */
 
 /** Asphalt avenues + dashed centre lines laid over the pavement. */
-export function Roads() {
+export const Roads = memo(function Roads() {
   const dash = useMemo(() => {
     const g = new THREE.PlaneGeometry(0.5, 3.4)
     g.rotateX(-Math.PI / 2)
@@ -79,6 +79,10 @@ export function Roads() {
       m.setMatrixAt(i, d.matrix)
     })
     m.instanceMatrix.needsUpdate = true
+    // Without this the bounding sphere stays at the origin-centred base geometry,
+    // so turning the camera frustum-culls the whole dashed line set and the
+    // yellow road lines blink out. Recompute it to span the actual city grid.
+    m.computeBoundingSphere()
   }, [dashes])
 
   const asphaltMat = useMemo(
@@ -142,46 +146,17 @@ export function Roads() {
           <planeGeometry args={[r.w, r.d]} />
         </mesh>
       ))}
-      <instancedMesh ref={curbRef} args={[curbGeo, curbMat, Math.max(1, curbs.length)]} receiveShadow castShadow />
-      <instancedMesh ref={dashRef} args={[dash, dashMat, Math.max(1, dashes.length)]} />
+      <instancedMesh ref={curbRef} args={[curbGeo, curbMat, Math.max(1, curbs.length)]} receiveShadow />
+      {/* Centre-line dashes span the whole city; never frustum-cull them or they
+          blink out as you turn / move between checkpoints. */}
+      <instancedMesh
+        ref={dashRef}
+        args={[dash, dashMat, Math.max(1, dashes.length)]}
+        frustumCulled={false}
+      />
     </group>
   )
-}
-
-export function PathTrail({ points }: { points: Vec2[] }) {
-  const ref = useRef<THREE.InstancedMesh>(null)
-  const { geo, mat, discs } = useMemo(() => {
-    const g = new THREE.CircleGeometry(1.6, 14)
-    g.rotateX(-Math.PI / 2)
-    const m = new THREE.MeshStandardMaterial({ color: '#d9c08a', roughness: 0.95 })
-    const list: Vec2[] = []
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i]
-      const b = points[i + 1]
-      const dist = Math.hypot(b.x - a.x, b.z - a.z)
-      const steps = Math.max(2, Math.floor(dist / 4))
-      for (let s = 0; s < steps; s++) {
-        const t = s / steps
-        list.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t })
-      }
-    }
-    return { geo: g, mat: m, discs: list }
-  }, [points])
-
-  useEffect(() => {
-    const m = ref.current
-    if (!m) return
-    const d = new THREE.Object3D()
-    discs.forEach((p, i) => {
-      d.position.set(p.x, 0.05, p.z)
-      d.updateMatrix()
-      m.setMatrixAt(i, d.matrix)
-    })
-    m.instanceMatrix.needsUpdate = true
-  }, [discs])
-
-  return <instancedMesh ref={ref} args={[geo, mat, Math.max(1, discs.length)]} receiveShadow />
-}
+})
 
 /* -------------------------------------------------------------- Instancing */
 
@@ -189,7 +164,13 @@ function Instanced({
   geometry,
   material,
   items,
-  shadow = true,
+  // City clutter spans the whole map, so each instanced mesh's bounding sphere
+  // always intersects the (player-following) shadow frustum — meaning the entire
+  // set is re-rendered into the shadow map every frame for thousands of
+  // instances. The visible payoff is tiny (the light only covers ~46m around the
+  // hero), so props default to NOT casting/receiving shadows. The ground still
+  // catches the hero's shadow, which is the one that actually reads.
+  shadow = false,
   palette,
 }: {
   geometry: THREE.BufferGeometry
@@ -234,6 +215,7 @@ function Instanced({
 
 const BUILD_COLORS = ['#d8d2c4', '#cdd3da', '#c6b9a6', '#b9c2cc', '#d9c9b0', '#c2c6cd']
 const ROOF_COLORS = ['#3c414b', '#473f3a', '#42474f']
+const CAR_COLORS = ['#e8534e', '#3a86ff', '#ffd23f', '#14d39a', '#ededed', '#9b6bff']
 
 /**
  * A stylised facade tile: concrete with a grid of windows. Returns both the
@@ -363,14 +345,17 @@ function CityBuildings({ items }: { items: Building[] }) {
 
   return (
     <group>
-      <instancedMesh ref={bodyRef} args={[bodyGeo, bodyMat, Math.max(1, items.length)]} castShadow receiveShadow />
-      <instancedMesh ref={roofRef} args={[roofGeo, roofMat, Math.max(1, items.length)]} castShadow />
+      {/* No shadows: the building set spans the whole city, so casting/receiving
+          would push ~900 instances through the shadow pass every frame for a
+          frustum that only covers the hero. Far too costly for the payoff. */}
+      <instancedMesh ref={bodyRef} args={[bodyGeo, bodyMat, Math.max(1, items.length)]} />
+      <instancedMesh ref={roofRef} args={[roofGeo, roofMat, Math.max(1, items.length)]} />
     </group>
   )
 }
 
 /** The whole city rendered as a handful of instanced draw calls. */
-export function InstancedWorld() {
+export const InstancedWorld = memo(function InstancedWorld() {
   const geo = useMemo(() => {
     const trunk = new THREE.CylinderGeometry(0.18, 0.26, 1.8, 6)
     trunk.translate(0, 0.9, 0)
@@ -448,8 +433,6 @@ export function InstancedWorld() {
     [],
   )
 
-  const CAR = ['#e8534e', '#3a86ff', '#ffd23f', '#14d39a', '#ededed', '#9b6bff']
-
   return (
     <group>
       <CityBuildings items={SCENERY.building} />
@@ -461,7 +444,7 @@ export function InstancedWorld() {
       <Instanced geometry={geo.benchSeat} material={mat.bench} items={SCENERY.bench} />
       <Instanced geometry={geo.benchBack} material={mat.bench} items={SCENERY.bench} />
 
-      <Instanced geometry={geo.carBody} material={mat.carBody} items={SCENERY.car} palette={CAR} />
+      <Instanced geometry={geo.carBody} material={mat.carBody} items={SCENERY.car} palette={CAR_COLORS} />
       <Instanced geometry={geo.carCabin} material={mat.carCabin} items={SCENERY.car} />
 
       <Instanced geometry={geo.hydrant} material={mat.hydrant} items={SCENERY.hydrant} />
@@ -483,7 +466,7 @@ export function InstancedWorld() {
       <Instanced geometry={geo.trashLid} material={mat.trashLid} items={SCENERY.trashCan} shadow={false} />
     </group>
   )
-}
+})
 
 /* -------------------------------------------------------------- Checkpoints */
 
@@ -1012,30 +995,27 @@ export function FloorPath({
   target: Vec2 | null
   color: string
 }) {
-  const COUNT = 42
-  const markers = useRef<(THREE.Mesh | null)[]>([])
+  const COUNT = 24
+  const meshRef = useRef<THREE.InstancedMesh>(null)
+  const dummy = useMemo(() => new THREE.Object3D(), [])
 
-  // A small flat chevron pointing toward +Z (lies on the ground).
   const geo = useMemo(() => {
     const shape = new THREE.Shape()
-    shape.moveTo(0, 0.55)
-    shape.lineTo(-0.42, -0.1)
-    shape.lineTo(-0.18, -0.1)
-    shape.lineTo(0, 0.28)
-    shape.lineTo(0.18, -0.1)
-    shape.lineTo(0.42, -0.1)
+    shape.moveTo(0, 0.92)
+    shape.lineTo(-0.7, -0.16)
+    shape.lineTo(-0.3, -0.16)
+    shape.lineTo(0, 0.46)
+    shape.lineTo(0.3, -0.16)
+    shape.lineTo(0.7, -0.16)
     shape.closePath()
     const g = new THREE.ShapeGeometry(shape)
     g.rotateX(Math.PI / 2)
     return g
   }, [])
 
-  // Precompute each chevron's static position/heading along the road route ONCE
-  // per leg (when from/target change). This avoids per-frame route maths and the
-  // jittery path that came from recomputing the bend from the moving player.
   const layout = useMemo(() => {
     if (!from || !target) return null
-    if (Math.hypot(target.x - from.x, target.z - from.z) < 4) return null
+    if (Math.hypot(target.x - from.x, target.z - from.z) < 2) return null
 
     const route = roadRoute(from, target)
     const segs: { x: number; z: number; nx: number; nz: number; len: number; acc: number }[] = []
@@ -1077,48 +1057,41 @@ export function FloorPath({
   }, [from?.x, from?.z, target?.x, target?.z])
 
   useFrame((state) => {
+    const m = meshRef.current
+    if (!m) return
+    if (!layout) {
+      if (m.visible) m.visible = false
+      return
+    }
+    m.visible = true
     const t = state.clock.elapsedTime
     for (let i = 0; i < COUNT; i++) {
-      const m = markers.current[i]
-      if (!m) continue
-      if (!layout) {
-        if (m.visible) m.visible = false
-        continue
-      }
       const pt = layout[i]
-      m.visible = true
-      m.position.set(pt.x, 0.06, pt.z)
-      m.rotation.set(0, pt.angle, 0)
-      // A traveling brightness wave (toward the goal) over a visible base glow.
       const wave = 0.5 + 0.5 * Math.sin(pt.f * Math.PI * 6 - t * 3)
-      const mat = m.material as THREE.MeshBasicMaterial
-      mat.opacity = 0.24 + 0.42 * wave
-      m.scale.setScalar(0.8 + 0.18 * wave)
+      const s = 1.05 + 0.28 * wave
+      dummy.position.set(pt.x, 0.04, pt.z)
+      dummy.rotation.set(0, pt.angle, 0)
+      dummy.scale.setScalar(s)
+      dummy.updateMatrix()
+      m.setMatrixAt(i, dummy.matrix)
     }
+    m.instanceMatrix.needsUpdate = true
   })
 
   return (
-    <group>
-      {Array.from({ length: COUNT }).map((_, i) => (
-        <mesh
-          key={i}
-          ref={(el) => {
-            markers.current[i] = el
-          }}
-          geometry={geo}
-          visible={false}
-        >
-          <meshBasicMaterial
-            color={color}
-            transparent
-            opacity={0.4}
-            depthWrite={false}
-            fog={false}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      ))}
-    </group>
+    <instancedMesh ref={meshRef} args={[geo, undefined, COUNT]} frustumCulled={false} visible={false}>
+      <meshBasicMaterial
+        color={color}
+        transparent
+        opacity={0.72}
+        depthWrite={false}
+        fog={false}
+        side={THREE.DoubleSide}
+        polygonOffset
+        polygonOffsetFactor={-1}
+        polygonOffsetUnits={-1}
+      />
+    </instancedMesh>
   )
 }
 

@@ -1,16 +1,11 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Brand } from '../components/Brand'
 import { useAuth } from '../context/AuthContext'
+import { playClick } from '../lib/soundFx'
 import './LandingPage.css'
 
 export function LandingPage() {
-  const navigate = useNavigate()
-  const { continueAsGuest, status } = useAuth()
-
-  function tryPreview() {
-    continueAsGuest()
-    navigate('/start')
-  }
+  const { status } = useAuth()
 
   return (
     <div className="page landing">
@@ -51,13 +46,11 @@ export function LandingPage() {
           <div className="landing-cta">
             <Link
               className="btn lg"
-              to={status === 'authenticated' || status === 'guest' ? '/quest' : '/auth'}
+              to={status === 'authenticated' || status === 'guest' ? '/start' : '/auth'}
+              onClick={() => playClick()}
             >
               Play Now
             </Link>
-            <button className="btn lg ghost" onClick={tryPreview}>
-              Try Preview
-            </button>
           </div>
         </div>
 

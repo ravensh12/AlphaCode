@@ -77,8 +77,23 @@ export type ExperienceLevel = 'new' | 'some' | 'class'
 /** The full per-user progress snapshot held in app state. */
 export type ProgressState = {
   experienceLevel?: ExperienceLevel
+  /**
+   * Result of the opening placement diagnostic: every world whose catalog index
+   * is <= this value is unlocked from the start, so returning/advanced players
+   * can jump ahead. -1 / undefined = no placement (normal sequential unlock).
+   */
+  placementUnlockIndex?: number
+  /** Lesson id the placement recommends starting from (for UI highlighting). */
+  recommendedLessonId?: string
   streak: StreakState
   lessons: Record<string, LessonProgress>
   /** Total times each badge type has been earned. */
   badgeCounts: BadgeCounts
+  /**
+   * "The Threshold" zone cleared — the gate between beating the Level-6 boss and
+   * unlocking the Final Gauntlet. Optional so older saved state stays valid.
+   */
+  interZoneComplete?: boolean
+  /** ISO timestamp of when the Threshold was first completed. */
+  interZoneCompletedAt?: string
 }

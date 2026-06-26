@@ -202,7 +202,7 @@ export function CourseHomePage() {
             LeetCode prep course — interactive lesson, quiz, then readiness for
             real-style problems.
           </p>
-          <div className="course-modules">
+          <div className="course-modules stagger">
             {LESSON_CATALOG.map((lesson, index) => (
               <TopicModule
                 key={lesson.id}

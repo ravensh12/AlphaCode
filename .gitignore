@@ -27,6 +27,9 @@ skills-lock.json
 # Cursor MCP config (contains a Supabase access token)
 .cursor/mcp.json
 
+# Supabase CLI local state (machine-specific, not for the repo)
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

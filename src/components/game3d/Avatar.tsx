@@ -2,7 +2,10 @@ import { useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
-export type AvatarAnim = 'idle' | 'walk' | 'run' | 'jump' | 'wave' | 'dance' | 'punch'
+export type AvatarAnim = 'idle' | 'walk' | 'run' | 'jump' | 'wave' | 'dance' | 'punch' | 'dash'
+
+/** Must match DASH_TIME in ThirdPersonController so the swing fills the lunge. */
+const SLASH_TIME = 0.32
 
 /**
  * A hand-built low-poly "explorer bot" hero, ~1.8m tall with feet at y=0.
@@ -16,13 +19,23 @@ export type AvatarAnim = 'idle' | 'walk' | 'run' | 'jump' | 'wave' | 'dance' | '
  */
 
 export function Avatar({
-  anim,
+  anim = 'idle',
   accent = '#6d4afe',
   fireRef,
+  animRef,
+  slashRef,
 }: {
-  anim: AvatarAnim
+  anim?: AvatarAnim
   accent?: string
   fireRef?: MutableRefObject<number>
+  /**
+   * When provided, the current animation is read from this ref every frame
+   * instead of the `anim` prop. This lets the controllers drive the rig
+   * imperatively (no React state / re-render from inside the render loop).
+   */
+  animRef?: MutableRefObject<AvatarAnim>
+  /** Clock time the most recent blade-dash slash started (drives the sword swing). */
+  slashRef?: MutableRefObject<number>
 }) {
   const root = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
@@ -34,6 +47,9 @@ export function Avatar({
   const armR = useRef<THREE.Group>(null)
   const gun = useRef<THREE.Group>(null)
   const flash = useRef<THREE.Group>(null)
+  const sword = useRef<THREE.Group>(null)
+  const slashArc = useRef<THREE.Mesh>(null)
+  const slashMat = useRef<THREE.MeshBasicMaterial>(null)
 
   const phase = useRef(0)
   const amp = useRef(0) // eased stride amplitude (0 idle .. 1 run)
@@ -56,8 +72,15 @@ export function Avatar({
     const dt = Math.min(dtRaw, 0.05)
     const t = state.clock.elapsedTime
 
-    const running = anim === 'run' || anim === 'walk'
-    const jumping = anim === 'jump'
+    const a = animRef ? animRef.current : anim
+    const running = a === 'run' || a === 'walk'
+    const jumping = a === 'jump'
+    const dashing = a === 'dash'
+
+    // Blade-dash slash progress: 0 (wind-up) → 1 (follow-through).
+    const slashStart = slashRef ? slashRef.current : -100
+    const sp = THREE.MathUtils.clamp((t - slashStart) / SLASH_TIME, 0, 1)
+    const slashing = sp > 0 && sp < 1
 
     // Ease stride amplitude in/out (slow in / slow out).
     const targetAmp = jumping ? 0 : running ? 1 : 0
@@ -104,7 +127,35 @@ export function Avatar({
     if (gun.current) gun.current.position.z = 0.34 - kick * 0.12
     if (flash.current) {
       flash.current.visible = kick > 0.04
-      flash.current.scale.setScalar(0.0001 + kick * 0.55)
+      flash.current.scale.setScalar(0.0001 + kick * 0.28)
+    }
+
+    // --- Blade dash: hide the gun, draw the sword, swing a big diagonal arc ---
+    if (gun.current) gun.current.visible = !dashing
+    if (sword.current) sword.current.visible = dashing
+    if (slashing && armR.current && armL.current && body.current) {
+      const swing = Math.sin(sp * Math.PI) // 0 → 1 → 0 over the slash
+      // Right (sword) arm: raise overhead, then whip across the body.
+      armR.current.rotation.x = -2.4 + sp * 3.0
+      armR.current.rotation.z = -1.5 + sp * 3.0
+      // Left arm flares out for balance.
+      armL.current.rotation.x = -0.9 - swing * 0.6
+      armL.current.rotation.z = 0.7
+      // Torso twists through the swing; whole body leans into the lunge.
+      body.current.rotation.y = THREE.MathUtils.lerp(0.7, -0.8, sp)
+      body.current.rotation.x = -0.16 - swing * 0.18
+    } else if (body.current) {
+      // Settle the twist back to neutral once the slash is done.
+      body.current.rotation.y *= 0.72
+    }
+    if (slashArc.current && slashMat.current) {
+      slashArc.current.visible = slashing
+      if (slashing) {
+        const s = 0.7 + sp * 1.8
+        slashArc.current.scale.set(s, s, s)
+        slashArc.current.rotation.z = -1.3 + sp * 2.6 // sweep the crescent across
+        slashMat.current.opacity = (1 - sp) * 0.95
+      }
     }
 
     // Body bounce + breathing squash & stretch.
@@ -216,6 +267,30 @@ export function Avatar({
             <sphereGeometry args={[0.11, 12, 12]} />
             <meshStandardMaterial color={colors.body} roughness={0.5} />
           </mesh>
+          {/* Glowing energy blade, drawn only during a dash. Extends from the
+              hand so it carves a wide arc through the swing. */}
+          <group ref={sword} position={[0, -0.62, 0]} visible={false}>
+            {/* grip */}
+            <mesh position={[0, 0.06, 0]}>
+              <boxGeometry args={[0.05, 0.16, 0.05]} />
+              <meshStandardMaterial color={colors.joint} metalness={0.6} roughness={0.3} />
+            </mesh>
+            {/* cross-guard */}
+            <mesh position={[0, -0.04, 0]}>
+              <boxGeometry args={[0.24, 0.05, 0.07]} />
+              <meshStandardMaterial color={colors.bodyDark} metalness={0.5} roughness={0.35} />
+            </mesh>
+            {/* blade */}
+            <mesh position={[0, -0.58, 0]}>
+              <boxGeometry args={[0.09, 1.02, 0.03]} />
+              <meshStandardMaterial color="#d6f7ff" emissive={colors.visor} emissiveIntensity={2.4} roughness={0.2} toneMapped={false} />
+            </mesh>
+            {/* tip */}
+            <mesh position={[0, -1.12, 0]} rotation={[0, 0, Math.PI / 4]}>
+              <boxGeometry args={[0.07, 0.09, 0.03]} />
+              <meshStandardMaterial color="#eaffff" emissive={colors.visor} emissiveIntensity={2.6} toneMapped={false} />
+            </mesh>
+          </group>
         </group>
 
         {/* blaster held in front of the chest, pointing forward (+Z) */}
@@ -249,11 +324,11 @@ export function Avatar({
           <group ref={flash} position={[0, 0.02, 0.52]} visible={false}>
             <mesh>
               <sphereGeometry args={[0.17, 10, 10]} />
-              <meshBasicMaterial color="#fff6c0" transparent opacity={0.95} toneMapped={false} fog={false} />
+              <meshBasicMaterial color="#fff6c0" transparent opacity={0.8} fog={false} />
             </mesh>
             <mesh rotation={[Math.PI / 2, 0, 0]}>
               <coneGeometry args={[0.14, 0.42, 8]} />
-              <meshBasicMaterial color="#ffce3f" transparent opacity={0.9} toneMapped={false} fog={false} />
+              <meshBasicMaterial color="#ffce3f" transparent opacity={0.75} fog={false} />
             </mesh>
           </group>
         </group>
@@ -279,6 +354,22 @@ export function Avatar({
             <meshStandardMaterial color={colors.joint} roughness={0.6} />
           </mesh>
         </group>
+
+        {/* Slash arc — a glowing crescent that flashes out in front during a
+            dash and sweeps across as the blade carves through the horde. */}
+        <mesh ref={slashArc} position={[0, 1.15, 0.55]} visible={false}>
+          <ringGeometry args={[0.85, 1.22, 28, 1, Math.PI * 0.16, Math.PI * 1.08]} />
+          <meshBasicMaterial
+            ref={slashMat}
+            color="#bff2ff"
+            transparent
+            opacity={0}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+            toneMapped={false}
+            fog={false}
+          />
+        </mesh>
       </group>
     </group>
   )
