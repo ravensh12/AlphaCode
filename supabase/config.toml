@@ -1,4 +1,4 @@
-project_id = "alphabrilliant"
+project_id = "alphacode"
 
 # AI tutor proxy — keeps the OpenAI key server-side.
 # Deploy:  supabase functions deploy ai-tutor --no-verify-jwt

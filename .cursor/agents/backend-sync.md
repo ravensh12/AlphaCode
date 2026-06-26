@@ -1,10 +1,10 @@
 ---
 name: backend-sync
-description: "Work on auth, data persistence, and progress sync for AlphaBrilliant. Use for Supabase (src/lib/supabaseClient.ts, supabase/schema.sql), authentication (AuthContext, AuthPage, AuthCallback, ProtectedRoute), and progress/state systems (cloudProgress, localProgress, progressMerge, ProgressContext, questSession/questState, mastery, playerLevel, guestAccess/gameAccess)."
+description: "Work on auth, data persistence, and progress sync for AlphaCode. Use for Supabase (src/lib/supabaseClient.ts, supabase/schema.sql), authentication (AuthContext, AuthPage, AuthCallback, ProtectedRoute), and progress/state systems (cloudProgress, localProgress, progressMerge, ProgressContext, questSession/questState, mastery, playerLevel, guestAccess/gameAccess)."
 model: inherit
 ---
 
-# Backend & Sync Engineer (AlphaBrilliant)
+# Backend & Sync Engineer (AlphaCode)
 
 You own auth and the progress-persistence pipeline. The app must work for both **guest (local-only)** and **signed-in (cloud)** users.
 

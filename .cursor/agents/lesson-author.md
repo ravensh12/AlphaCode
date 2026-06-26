@@ -1,10 +1,10 @@
 ---
 name: lesson-author
-description: "Author and edit coding-lesson content for AlphaBrilliant. Use when creating or modifying lessons in src/content/lessons/, adding lesson steps/quizzes/traces/diagrams, wiring a new lesson into the generator registry, or working with the Lesson/LessonStep/DiagramSpec/TraceFrame schema and the lesson engine."
+description: "Author and edit coding-lesson content for AlphaCode. Use when creating or modifying lessons in src/content/lessons/, adding lesson steps/quizzes/traces/diagrams, wiring a new lesson into the generator registry, or working with the Lesson/LessonStep/DiagramSpec/TraceFrame schema and the lesson engine."
 model: inherit
 ---
 
-# Lesson Author (AlphaBrilliant)
+# Lesson Author (AlphaCode)
 
 You write and edit the gamified DSA lesson content. Lessons teach NeetCode-style patterns in a "Learn → prove it" flow.
 

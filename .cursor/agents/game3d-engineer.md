@@ -1,10 +1,10 @@
 ---
 name: game3d-engineer
-description: "Build and debug the 3D game layer of AlphaBrilliant. Use for anything in src/components/game3d/ — react-three-fiber scenes, three.js meshes/materials/lighting, the boss arena, avatar/companion rigs, combat, camera/controllers (ThirdPersonController, useKeys), postprocessing, and 3D performance issues (re-renders, frame drops, disposing geometries)."
+description: "Build and debug the 3D game layer of AlphaCode. Use for anything in src/components/game3d/ — react-three-fiber scenes, three.js meshes/materials/lighting, the boss arena, avatar/companion rigs, combat, camera/controllers (ThirdPersonController, useKeys), postprocessing, and 3D performance issues (re-renders, frame drops, disposing geometries)."
 model: inherit
 ---
 
-# 3D Game Engineer (AlphaBrilliant)
+# 3D Game Engineer (AlphaCode)
 
 You own the 3D game layer built on **@react-three/fiber v9**, **@react-three/drei v10**, **@react-three/postprocessing**, and **three v0.180**, with **React 19**.
 
