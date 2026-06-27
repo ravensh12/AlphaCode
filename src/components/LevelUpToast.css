@@ -1,0 +1,74 @@
+.levelup-toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(26, 23, 48, 0.96), rgba(46, 38, 86, 0.96));
+  border: 1px solid rgba(255, 214, 92, 0.55);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 214, 92, 0.12) inset;
+  color: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: levelup-pop 0.45s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+}
+
+.levelup-toast-spark {
+  font-size: 26px;
+  color: #ffd65c;
+  filter: drop-shadow(0 0 8px rgba(255, 214, 92, 0.8));
+  animation: levelup-spin 1.2s ease-in-out infinite;
+}
+
+.levelup-toast-body {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.levelup-toast-tag {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ffd65c;
+  font-weight: 700;
+}
+
+.levelup-toast-level {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+@keyframes levelup-pop {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-16px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@keyframes levelup-spin {
+  0%,
+  100% {
+    transform: rotate(-12deg) scale(1);
+  }
+  50% {
+    transform: rotate(12deg) scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .levelup-toast,
+  .levelup-toast-spark {
+    animation: none;
+  }
+}

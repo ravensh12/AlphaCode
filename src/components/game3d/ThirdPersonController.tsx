@@ -105,6 +105,8 @@ function ThirdPersonControllerImpl({
   startPos,
   startHeading,
   dashRef,
+  shakeRef,
+  hitstopRef,
 }: {
   playerPosRef: MutableRefObject<THREE.Vector3>
   headingRef?: MutableRefObject<number>
@@ -121,6 +123,10 @@ function ThirdPersonControllerImpl({
   startHeading?: number | null
   /** Shared blade-dash state for the combat system + HUD. */
   dashRef?: MutableRefObject<DashState>
+  /** Camera-shake impulse channel (magnitude written by combat; decayed here). */
+  shakeRef?: MutableRefObject<number>
+  /** Hit-stop channel: a future clock time during which the scene runs in slow-mo. */
+  hitstopRef?: MutableRefObject<number>
 }) {
   const { camera, gl } = useThree()
   const enabledRef = useRef(true)
@@ -256,7 +262,11 @@ function ThirdPersonControllerImpl({
   }, [camera])
 
   useFrame((state, dtRaw) => {
-    const dt = Math.min(dtRaw, 0.05)
+    const nowClock = state.clock.elapsedTime
+    // Hit-stop: match the combat system's slow-mo so the hero crawls in sync with
+    // the horde during an impact beat (reads as punch, not lag).
+    const slowed = hitstopRef ? nowClock < hitstopRef.current : false
+    const dt = Math.min(dtRaw, 0.05) * (slowed ? 0.18 : 1)
     const k = paused ? {} : keys.current
 
     // Left/right arrows turn the hero (so the game is fully playable on arrows
@@ -425,6 +435,17 @@ function ThirdPersonControllerImpl({
       pos.current.z + tmpForward.current.z * AIM_AHEAD,
     )
     camera.lookAt(lookTarget.current)
+
+    // Camera shake — a quick positional jitter after impacts, then a smooth,
+    // frame-rate-independent decay so it never lingers or stutters.
+    if (shakeRef && shakeRef.current > 0.004) {
+      const s = shakeRef.current
+      camera.position.x += (Math.random() * 2 - 1) * s * 0.6
+      camera.position.y += (Math.random() * 2 - 1) * s * 0.45
+      camera.position.z += (Math.random() * 2 - 1) * s * 0.6
+      shakeRef.current = s * Math.exp(-dtRaw * 9)
+      if (shakeRef.current < 0.004) shakeRef.current = 0
+    }
 
     // The shot travels horizontally along the hero's facing (muzzle and zombies sit
     // at ~1.2m, so a level shot reaches the horde at any range).

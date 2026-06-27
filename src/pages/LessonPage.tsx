@@ -7,6 +7,8 @@ import { LESSON_CATALOG, MASTERY_UNLOCK_THRESHOLD } from '../content/catalog'
 import { emptyBadgeCounts, getBadge } from '../content/badges'
 import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
+import { usePlayerLevel } from '../context/PlayerLevelContext'
+import { answerXp } from '../lib/playerLevel'
 import { canGuestAccessLesson, canGuestAccessSection } from '../lib/guestAccess'
 import { canAccessLessonPart } from '../lib/gameAccess'
 import { getWorldState } from '../lib/questState'
@@ -642,6 +644,7 @@ export function LessonRound({
 }) {
   const isPart = learnPart != null && section === 'learn' && !isReview
   const { isGuest } = useAuth()
+  const { addXp } = usePlayerLevel()
   const { getLessonProgress } = useProgress()
   const fullLesson = useMemo(() => generateLesson(lesson.id)!, [lesson.id])
   const savedProgress = getLessonProgress(lesson.id) ?? initial
@@ -865,6 +868,7 @@ export function LessonRound({
       : undefined,
     onSave: handleSave,
     onAttempt,
+    onCorrect: ({ firstTry, responseMs }) => addXp(answerXp(true, firstTry, responseMs)),
   })
 
   engineRef.current = engine

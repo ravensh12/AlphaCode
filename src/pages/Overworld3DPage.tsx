@@ -9,6 +9,8 @@ import { PowerUnlock } from '../components/game/PowerUnlock'
 import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
 import { useGauntlet } from '../context/GauntletContext'
+import { usePlayerLevel } from '../context/PlayerLevelContext'
+import { KILL_XP } from '../lib/playerLevel'
 import { grantBossEntry, grantLessonEntry } from '../lib/gameAccess'
 import {
   BOSS_DONE_KEY,
@@ -47,7 +49,8 @@ import {
   FloorPath,
 } from '../components/game3d/Primitives3D'
 import { ThirdPersonController, type Target, type DashState } from '../components/game3d/ThirdPersonController'
-import { CombatSystem, type CombatApi } from '../components/game3d/CombatSystem'
+import { CombatSystem, type CombatApi, GUNS } from '../components/game3d/CombatSystem'
+import { playHeartbeat, playHeartPickup, playPlayerHurt } from '../lib/soundFx'
 import {
   CHECKPOINTS_3D,
   START_3D,
@@ -79,10 +82,20 @@ const SUMMARY_BY_ID: Record<string, LessonSummary> = Object.fromEntries(
 type TourSave = { world: number; stage: number }
 
 const BOSS_STAGE = GATES_PER_WORLD
-/** One fixed gun for the whole game (index into GUNS) — the top-tier rapid-fire
- * 3-pellet cannon with the widest auto-aim, so the game plays like a real
- * run-and-gun shooter (great for picking off ranged spitters at distance). */
-const FIXED_GUN_LEVEL = 5
+/** The gun starts solid (a punchy mid-tier blaster — never the awful tier-0/1
+ * slinger) and upgrades toward the top-tier cannon as the player progresses Code
+ * City, so the shooting visibly grows over a playthrough without ever feeling weak. */
+const MIN_GUN_LEVEL = 2
+
+/** Combo timing + score: chained kills within the window stack a multiplier that
+ *  boosts XP, rewarding aggressive, continuous fighting over passive kiting. */
+const COMBO_WINDOW_MS = 2600
+function comboMultiplier(combo: number): number {
+  if (combo >= 25) return 3
+  if (combo >= 12) return 2
+  if (combo >= 5) return 1.5
+  return 1
+}
 
 /** Effective travel pace (m/s) while fighting through the horde toward a goal. */
 const TRAVEL_SPEED = 5.0
@@ -410,6 +423,7 @@ export function Overworld3DPage() {
     readyForFinalGauntlet,
   } = useProgress()
   const { state: gauntlet } = useGauntlet()
+  const { addXp, info: playerLevel, title: playerTitle } = usePlayerLevel()
 
   // Render resolution adapts to the live frame rate: full sharpness on capable
   // GPUs, automatically dialled back when the horde gets thick so the game keeps
@@ -611,28 +625,63 @@ export function Overworld3DPage() {
   const [kills, setKills] = useState(0)
   const [hp, setHp] = useState(MAX_HP)
   const [hurt, setHurt] = useState(false)
+  const [invuln, setInvuln] = useState(false)
+  const [combo, setCombo] = useState(0)
   const [dead, setDead] = useState(false)
   const [deathReason, setDeathReason] = useState<'zombies' | 'time'>('zombies')
   // Bumping this remounts the controller + combat: clear zombies on a fresh run.
   const [runId, setRunId] = useState(0)
   const hurtTimer = useRef<number | null>(null)
+  const invulnTimer = useRef<number | null>(null)
   const deadRef = useRef(false)
   deadRef.current = dead
 
-  // Same gun the whole game — a solid all-rounder. Zombies scale, not the gun.
-  const gunLevel = FIXED_GUN_LEVEL
+  // Juice channels written by the combat system / controller (refs so they never
+  // re-render the scene): camera-shake magnitude + a slow-mo "hit-stop" clock time.
+  const shakeRef = useRef(0)
+  const hitstopRef = useRef(0)
+  // Combo tracking lives in refs on the hot path; mirrored to state only for HUD.
+  const comboRef = useRef(0)
+  const lastKillRef = useRef(0)
+
+  // Player i-frames last as long as the combat system suppresses damage (0.7s);
+  // mirror that here for the blink/flash tell.
+  const PLAYER_IFRAME_MS = 700
+
+  // The gun starts solid and upgrades with progress (mastered worlds / how deep
+  // into the tour you are), so the shooting visibly grows over a playthrough.
+  const gunLevel = Math.min(
+    GUNS.length - 1,
+    MIN_GUN_LEVEL + Math.max(clearedCount, Math.min(tourWorld, WORLD_COUNT - 1)),
+  )
 
   // Stable callbacks (useCallback) so the memoized CombatSystem / controller
   // don't re-render every time the HUD distance / timer ticks.
   const handleKill = useCallback(() => {
     if (deadRef.current) return
     setKills((k) => k + 1)
-  }, [])
+    const t = performance.now()
+    const chained = t - lastKillRef.current < COMBO_WINDOW_MS
+    lastKillRef.current = t
+    const next = chained ? comboRef.current + 1 : 1
+    comboRef.current = next
+    setCombo(next)
+    addXp(Math.round(KILL_XP * comboMultiplier(next)))
+  }, [addXp])
+
   const handlePlayerHit = useCallback((damage = 1) => {
     if (deadRef.current) return
+    // Taking a hit breaks the combo.
+    comboRef.current = 0
+    lastKillRef.current = 0
+    setCombo(0)
     setHurt(true)
+    setInvuln(true)
+    playPlayerHurt()
     if (hurtTimer.current) window.clearTimeout(hurtTimer.current)
     hurtTimer.current = window.setTimeout(() => setHurt(false), 260)
+    if (invulnTimer.current) window.clearTimeout(invulnTimer.current)
+    invulnTimer.current = window.setTimeout(() => setInvuln(false), PLAYER_IFRAME_MS)
     setHp((h) => {
       const next = h - Math.max(1, Math.round(damage))
       if (next <= 0) {
@@ -642,6 +691,12 @@ export function Overworld3DPage() {
       }
       return next
     })
+  }, [])
+
+  const handleHeal = useCallback(() => {
+    if (deadRef.current) return
+    playHeartPickup()
+    setHp((h) => Math.min(MAX_HP, h + 1))
   }, [])
 
   // Any death = restart the whole run at Level 1, ALWAYS from the same spawn
@@ -657,6 +712,12 @@ export function Overworld3DPage() {
     setHp(MAX_HP)
     setKills(0)
     setHurt(false)
+    setInvuln(false)
+    setCombo(0)
+    comboRef.current = 0
+    lastKillRef.current = 0
+    shakeRef.current = 0
+    hitstopRef.current = 0
     setDead(false)
     setShowIntro(true)
     setRunId((r) => r + 1)
@@ -964,6 +1025,26 @@ export function Overworld3DPage() {
     !!celebrateWorld || dead || showIntro || !!milestone || finaleVisible
   overlayPausedRef.current = overlayPaused
 
+  // Combo decays: once the chain window lapses with no new kill, drop it to zero.
+  useEffect(() => {
+    if (combo <= 0) return
+    const id = window.setInterval(() => {
+      if (performance.now() - lastKillRef.current > COMBO_WINDOW_MS) {
+        comboRef.current = 0
+        setCombo(0)
+      }
+    }, 300)
+    return () => window.clearInterval(id)
+  }, [combo])
+
+  // Low-health heartbeat: a tense double-thump while in the danger zone.
+  useEffect(() => {
+    if (hp > 3 || dead || overlayPaused) return
+    playHeartbeat()
+    const id = window.setInterval(() => playHeartbeat(), 1100)
+    return () => window.clearInterval(id)
+  }, [hp, dead, overlayPaused])
+
   // Memoized so it keeps a stable object identity across the frequent HUD
   // re-renders — otherwise the (memoized) controller's faceTarget prop would
   // change every tick and bust the memo.
@@ -1079,6 +1160,8 @@ export function Overworld3DPage() {
               startPos={savedPosRef.current}
               startHeading={savedPosRef.current?.h ?? null}
               dashRef={dashRef}
+              shakeRef={shakeRef}
+              hitstopRef={hitstopRef}
             />
             <FloorPath from={legStart} target={guidePos} color={guideColor} />
             <CombatSystem
@@ -1091,6 +1174,9 @@ export function Overworld3DPage() {
               gunLevel={gunLevel}
               onKill={handleKill}
               onPlayerHit={handlePlayerHit}
+              onHeal={handleHeal}
+              shakeRef={shakeRef}
+              hitstopRef={hitstopRef}
             />
 
             <EffectComposer multisampling={0} enableNormalPass={false}>
@@ -1113,8 +1199,10 @@ export function Overworld3DPage() {
           />
         </div>
 
-        {/* hurt flash */}
+        {/* hurt flash + i-frame shield shimmer + low-health vignette */}
         <div className={`over3d-hurt ${hurt ? 'is-on' : ''}`} aria-hidden="true" />
+        <div className={`over3d-iframe ${invuln ? 'is-on' : ''}`} aria-hidden="true" />
+        <div className={`over3d-lowhp ${hp <= 3 && !dead ? 'is-on' : ''}`} aria-hidden="true" />
 
         {/* HUD */}
         <div className="over3d-hud">
@@ -1146,6 +1234,29 @@ export function Overworld3DPage() {
                 )}
                 <span className="over3d-chip over3d-chip-ko">Horde {hordeTier}</span>
                 <span className="over3d-chip over3d-chip-ko">KO {kills}</span>
+                {combo >= 2 && (
+                  <span
+                    className={`over3d-chip over3d-chip-combo ${comboMultiplier(combo) > 1 ? 'is-hot' : ''}`}
+                  >
+                    Combo {combo}
+                    {comboMultiplier(combo) > 1 && <b> ×{comboMultiplier(combo)}</b>}
+                  </span>
+                )}
+                <span className="over3d-chip over3d-chip-gun" title="Your current blaster">
+                  {GUNS[gunLevel].name}
+                </span>
+                <span
+                  className="over3d-chip over3d-chip-level"
+                  title={`${playerLevel.intoLevel}/${playerLevel.needed} XP to next level`}
+                >
+                  Lv {playerLevel.level} · {playerTitle}
+                  <span className="over3d-level-bar" aria-hidden="true">
+                    <span
+                      className="over3d-level-bar-fill"
+                      style={{ width: `${Math.round(playerLevel.fraction * 100)}%` }}
+                    />
+                  </span>
+                </span>
               </div>
             </div>
           </div>

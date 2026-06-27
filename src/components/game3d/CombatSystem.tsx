@@ -3,6 +3,13 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { GROUND_HALF } from './layout'
 import { COMBAT_SNAP_KEY } from '../../lib/questSession'
+import {
+  playEnemyHit,
+  playEnemyKill,
+  playCrit,
+  playSlamWindup,
+  playSpitCharge,
+} from '../../lib/soundFx'
 import type { DashState } from './ThirdPersonController'
 
 export type ZombieSnap = { x: number; z: number; hp: number; facing: number; variant?: number }
@@ -74,8 +81,11 @@ type ZombieSlot = {
   seed: number
   /** Which breed this is — drives speed, toughness, size, colour + contact damage. */
   variant: number
-  /** Spitters only: clock time the next acid bolt may fire. */
+  /** Spitters/brutes: clock time the next ranged shot / slam may begin. */
   cd: number
+  /** >0 while winding up a telegraphed attack (acid charge or brute slam); the
+   *  attack resolves at `castAt + windup`. 0 = not casting. */
+  castAt: number
 }
 
 type SpitSlot = {
@@ -91,6 +101,15 @@ type ArrowSlot = {
   vel: THREE.Vector3
   life: number
   damage: number
+  /** True when the player aimed this themselves (auto-aim didn't bend it). */
+  aimed: boolean
+}
+
+/** A dropped heart pickup that tops the player's HP back up. */
+type PickupSlot = {
+  active: boolean
+  pos: THREE.Vector3
+  bornAt: number
 }
 
 // The whole horde renders as a handful of INSTANCED meshes (one per body part)
@@ -129,6 +148,44 @@ const DESPAWN_DIST_SQ = DESPAWN_DIST * DESPAWN_DIST
 
 const DEATH_BURST = 0.5 // seconds the death poof plays
 const BURST_POOL = 20 // overlapping death poofs handled by a small ring buffer
+
+// --- Player invulnerability (i-frames) -----------------------------------
+// After taking a hit the player can't be damaged again for a short beat, so a
+// pack arriving together can't chunk you from full to dead in one frame. The
+// overworld mirrors this exact window for the blink/flash tell.
+const PLAYER_IFRAME = 0.7
+
+// --- Weak-point / precision crits ----------------------------------------
+// A bolt the player lined up themselves (auto-aim didn't have to bend it) is a
+// "clean" shot and crits more often — aiming is rewarded, button-mashing less so.
+const CRIT_DMG_MULT = 2
+const CRIT_CHANCE_AIMED = 0.5
+const CRIT_CHANCE_ASSISTED = 0.12
+
+// --- Spitter acid telegraph ----------------------------------------------
+const SPIT_WINDUP = 0.42 // glow/charge time before an acid bolt actually launches
+
+// --- Brute slam ----------------------------------------------------------
+const SLAM_RANGE = 6.5 // brute begins a slam wind-up inside this range
+const SLAM_RANGE_SQ = SLAM_RANGE * SLAM_RANGE
+const SLAM_WINDUP = 0.7 // telegraph time before the shockwave lands
+const SLAM_HIT_R = 4.2 // shockwave radius when it lands
+const SLAM_HIT_R_SQ = SLAM_HIT_R * SLAM_HIT_R
+const SLAM_DMG = 2
+const SLAM_CD = 2.4 // min seconds between a brute's slams
+
+// --- Health drops --------------------------------------------------------
+const MAX_PICKUPS = 14
+const PICKUP_LIFE = 12 // seconds a dropped heart lingers before fading
+const PICKUP_R = 1.7 // collection radius
+const PICKUP_R_SQ = PICKUP_R * PICKUP_R
+const DROP_CHANCE = [0.06, 0.05, 0.32, 0.09, 0.07] // per-variant heart drop odds
+
+// --- Audio throttle ------------------------------------------------------
+// 90 zombies can generate a torrent of hit/kill events; cap the voices so the
+// mixer stays clean and the fight reads instead of becoming white noise.
+const HIT_SFX_GAP = 0.05
+const KILL_SFX_GAP = 0.06
 
 /* ----------------------------------------------------------- Zombie breeds
  * The horde is no longer one kind of shambler — it's a mix of distinct,
@@ -194,7 +251,10 @@ function CombatSystemImpl({
   gunLevel = 0,
   onKill,
   onPlayerHit,
+  onHeal,
   dashRef,
+  shakeRef,
+  hitstopRef,
 }: {
   playerPosRef: MutableRefObject<THREE.Vector3>
   apiRef: MutableRefObject<CombatApi | null>
@@ -206,8 +266,14 @@ function CombatSystemImpl({
   onKill: () => void
   /** Called when a zombie/acid reaches the player; `damage` = hearts lost (breed-specific). */
   onPlayerHit: (damage?: number) => void
+  /** Called when the player walks over a dropped heart. */
+  onHeal?: () => void
   /** Shared blade-dash state — drives the slicing sweep + i-frames. */
   dashRef?: MutableRefObject<DashState>
+  /** Camera-shake impulse channel (write magnitude; the controller decays it). */
+  shakeRef?: MutableRefObject<number>
+  /** Hit-stop channel: set to a future clock time to briefly slow the whole scene. */
+  hitstopRef?: MutableRefObject<number>
 }) {
   const diffRef = useRef(0)
   diffRef.current = difficulty
@@ -227,6 +293,7 @@ function CombatSystemImpl({
       seed: Math.random() * 10,
       variant: VAR_NORMAL,
       cd: 0,
+      castAt: 0,
     }))
     // Restore the horde that was alive before a trip to the list view so it
     // doesn't all vanish and respawn. Negative born/hit times = "already risen,
@@ -247,6 +314,7 @@ function CombatSystemImpl({
         z.seed = Math.random() * 10
         z.variant = s.variant ?? VAR_NORMAL
         z.cd = 0
+        z.castAt = 0
       }
     }
     return pool
@@ -260,9 +328,43 @@ function CombatSystemImpl({
         vel: new THREE.Vector3(),
         life: 0,
         damage: 1,
+        aimed: false,
       })),
     [],
   )
+
+  // Dropped hearts the player can run over to recover HP.
+  const pickups = useMemo<PickupSlot[]>(
+    () =>
+      Array.from({ length: MAX_PICKUPS }, () => ({
+        active: false,
+        pos: new THREE.Vector3(),
+        bornAt: 0,
+      })),
+    [],
+  )
+
+  // Player i-frames + audio throttles (clock times). Live in refs so they never
+  // trigger a React re-render from inside the frame loop.
+  const invulnUntil = useRef(-10)
+  const lastHitSfx = useRef(-10)
+  const lastKillSfx = useRef(-10)
+
+  function kick(now: number, shake: number, stopFor = 0) {
+    if (shakeRef && shake > shakeRef.current) shakeRef.current = shake
+    if (hitstopRef && stopFor > 0) hitstopRef.current = Math.max(hitstopRef.current, now + stopFor)
+  }
+
+  function dropHeart(x: number, z: number, now: number) {
+    for (let i = 0; i < pickups.length; i++) {
+      if (!pickups[i].active) {
+        pickups[i].active = true
+        pickups[i].pos.set(x, 0, z)
+        pickups[i].bornAt = now
+        return
+      }
+    }
+  }
 
   // Enemy acid bolts lobbed by spitters — the player has to dodge (or dash) them.
   const spits = useMemo<SpitSlot[]>(
@@ -284,9 +386,9 @@ function CombatSystemImpl({
   const inited = useRef(false)
 
   // --- Death poofs: a small ring buffer of expanding shockwaves ------------
-  type Burst = { active: boolean; at: number; x: number; z: number }
+  type Burst = { active: boolean; at: number; x: number; z: number; crit: boolean }
   const bursts = useMemo<Burst[]>(
-    () => Array.from({ length: BURST_POOL }, () => ({ active: false, at: 0, x: 0, z: 0 })),
+    () => Array.from({ length: BURST_POOL }, () => ({ active: false, at: 0, x: 0, z: 0, crit: false })),
     [],
   )
   const burstCursor = useRef(0)
@@ -298,7 +400,7 @@ function CombatSystemImpl({
     () => Array.from({ length: BURST_POOL }, () => ({ current: null as THREE.MeshBasicMaterial | null })),
     [],
   )
-  function spawnBurst(x: number, z: number, now: number) {
+  function spawnBurst(x: number, z: number, now: number, crit = false) {
     const i = burstCursor.current
     burstCursor.current = (i + 1) % BURST_POOL
     const b = bursts[i]
@@ -306,6 +408,7 @@ function CombatSystemImpl({
     b.at = now
     b.x = x
     b.z = z
+    b.crit = crit
   }
 
   // Spitter looses an acid bolt from its chest toward the player's chest.
@@ -340,6 +443,7 @@ function CombatSystemImpl({
   const boltHeadRef = useRef<THREE.InstancedMesh>(null)
   const boltTailRef = useRef<THREE.InstancedMesh>(null)
   const spitRef = useRef<THREE.InstancedMesh>(null)
+  const pickupRef = useRef<THREE.InstancedMesh>(null)
 
   const geo = useMemo(() => {
     const torso = new THREE.BoxGeometry(0.52, 0.7, 0.36)
@@ -360,7 +464,10 @@ function CombatSystemImpl({
     boltTail.translate(0, 0, -0.45)
     // Spitter acid bolt — a glob of toxic sludge.
     const spit = new THREE.SphereGeometry(0.16, 10, 10)
-    return { torso, head, eyes, arm, leg, boltCore, boltHead, boltTail, spit }
+    // Dropped health orb — a single glowing gem (one instanced draw call for the
+    // whole drop pool). Reads as a pickup via its pink glow + bob/spin.
+    const heart = new THREE.OctahedronGeometry(0.32, 0)
+    return { torso, head, eyes, arm, leg, boltCore, boltHead, boltTail, spit, heart }
   }, [])
 
   const mats = useMemo(() => {
@@ -376,6 +483,7 @@ function CombatSystemImpl({
       boltHead: new THREE.MeshBasicMaterial({ color: '#eafdff', toneMapped: false, fog: false }),
       boltTail: new THREE.MeshBasicMaterial({ color: '#46d6ff', transparent: true, opacity: 0.4, toneMapped: false, fog: false }),
       spit: new THREE.MeshStandardMaterial({ color: '#b6ff3a', emissive: '#7dff1a', emissiveIntensity: 1.4, roughness: 0.5, toneMapped: false }),
+      heart: new THREE.MeshStandardMaterial({ color: '#ff5b7e', emissive: '#ff2d6a', emissiveIntensity: 1.6, roughness: 0.35, toneMapped: false }),
     }
   }, [])
 
@@ -420,6 +528,9 @@ function CombatSystemImpl({
         new THREE.Color('#6f4fae'),
       ],
       flash: new THREE.Color('#ff5630'),
+      // Telegraph glows: spitters charge acid-green, brutes rear up molten-orange.
+      spitGlow: new THREE.Color('#e6ff7a'),
+      slamGlow: new THREE.Color('#ff8a2a'),
     }),
     [],
   )
@@ -454,6 +565,9 @@ function CombatSystemImpl({
           best = z
         }
       }
+      // A "clean" shot = the player already had a zombie under the reticle, so
+      // auto-aim didn't have to bend the bolt. Those reward precision with crits.
+      const aimed = best === null
       if (best) {
         v.set(best.pos.x - origin.x, best.pos.y + 1.1 - origin.y, best.pos.z - origin.z).normalize()
       }
@@ -470,6 +584,7 @@ function CombatSystemImpl({
         slot.active = true
         slot.life = ARROW_LIFE
         slot.damage = gun.damage
+        slot.aimed = aimed
         slot.pos.copy(origin)
         slot.vel
           .set(Math.sin(ang) * horiz, v.y, Math.cos(ang) * horiz)
@@ -506,11 +621,20 @@ function CombatSystemImpl({
         for (let i = 0; i < MAX_SPITS; i++) spitRef.current.setMatrixAt(i, scratch.hidden)
         spitRef.current.instanceMatrix.needsUpdate = true
       }
+      if (pickupRef.current) {
+        for (let i = 0; i < MAX_PICKUPS; i++) pickupRef.current.setMatrixAt(i, scratch.hidden)
+        pickupRef.current.instanceMatrix.needsUpdate = true
+      }
     }
     if (paused) return
-    const dt = Math.min(dtRaw, 0.05)
-    const player = playerPosRef.current
     const now = state.clock.elapsedTime
+    // Hit-stop: briefly slow the whole simulation right after a big impact so
+    // hits read as weighty. Scales time, so zombies, bolts and acid all crawl
+    // together for a few frames — reads as punch, not lag.
+    const slowed = hitstopRef ? now < hitstopRef.current : false
+    const dt = Math.min(dtRaw, 0.05) * (slowed ? 0.18 : 1)
+    const player = playerPosRef.current
+    const invuln = now < invulnUntil.current
 
     // Blade-dash sweep (slices walkers + grants i-frames against contact + acid).
     const dash = dashRef?.current
@@ -553,6 +677,7 @@ function CombatSystemImpl({
         slot.hitAt = -10
         slot.bornAt = now
         slot.seed = Math.random() * 10
+        slot.castAt = 0
         // Spitters wait a beat before their first shot so they don't all volley at once.
         slot.cd = variant === VAR_SPITTER ? now + 0.5 + Math.random() * 0.9 : 0
       }
@@ -580,6 +705,11 @@ function CombatSystemImpl({
           z.state = 'die'
           z.dieAt = now
           spawnBurst(z.pos.x, z.pos.z, now)
+          if (now - lastKillSfx.current > KILL_SFX_GAP) {
+            lastKillSfx.current = now
+            playEnemyKill()
+          }
+          if (Math.random() < (DROP_CHANCE[z.variant] ?? 0.06)) dropHeart(z.pos.x, z.pos.z, now)
           onKill()
           continue
         }
@@ -590,9 +720,18 @@ function CombatSystemImpl({
         continue
       }
       if (d2 <= ATTACK_DIST * ATTACK_DIST) {
-        // Reaches the player: deal this breed's damage (unless dashing = i-frames),
-        // then crumple.
-        if (!dashActive) onPlayerHit(vdef.dmg)
+        // Reaches the player: deal this breed's damage unless the player is
+        // dashing or still inside their post-hit i-frames. During i-frames the
+        // attacker is shoved back instead so it can't camp and instantly re-hit.
+        if (dashActive || invuln) {
+          const d = Math.sqrt(d2) || 1
+          z.pos.x -= (dx / d) * 2.2
+          z.pos.z -= (dz / d) * 2.2
+          continue
+        }
+        onPlayerHit(vdef.dmg)
+        invulnUntil.current = now + PLAYER_IFRAME
+        kick(now, 0.6, 0.07)
         z.state = 'die'
         z.dieAt = now
         spawnBurst(z.pos.x, z.pos.z, now)
@@ -601,12 +740,23 @@ function CombatSystemImpl({
       // Freeze briefly after being struck so hits feel like they land.
       if (now - z.hitAt < STAGGER_TIME) continue
 
-      // Spitters hold their distance and lob acid; the player has to dodge it.
+      // Spitters hold their distance and lob acid — but only after a visible
+      // wind-up (a charge glow) so the player can read it and dodge.
       if (vdef.ranged) {
         const dist = Math.sqrt(d2) || 1
+        if (z.castAt > 0) {
+          // Mid-charge: stand and deliver, then fire when the wind-up completes.
+          if (now >= z.castAt + SPIT_WINDUP) {
+            fireSpit(z.pos.x, z.pos.z, player.x, player.z)
+            z.castAt = 0
+          }
+          continue
+        }
         if (now >= z.cd && dist <= SPIT_RANGE) {
-          fireSpit(z.pos.x, z.pos.z, player.x, player.z)
-          z.cd = now + SPIT_INTERVAL * (0.8 + Math.random() * 0.6)
+          z.castAt = now
+          z.cd = now + SPIT_INTERVAL * (0.9 + Math.random() * 0.6)
+          playSpitCharge()
+          continue
         }
         let dir = 0
         if (dist > SPIT_RANGE) dir = 1 // close in until in range
@@ -617,6 +767,32 @@ function CombatSystemImpl({
           z.pos.z += dz * step
         }
         continue
+      }
+
+      // Brutes telegraph a ground-slam when they lumber into range: they rear up
+      // (wind-up glow), then drop a shockwave. Out-spaced = punished, kited = safe.
+      if (z.variant === VAR_BRUTE) {
+        if (z.castAt > 0) {
+          if (now >= z.castAt + SLAM_WINDUP) {
+            z.castAt = 0
+            z.cd = now + SLAM_CD
+            spawnBurst(z.pos.x, z.pos.z, now)
+            kick(now, 0.45, 0.05)
+            const sdx = player.x - z.pos.x
+            const sdz = player.z - z.pos.z
+            if (sdx * sdx + sdz * sdz <= SLAM_HIT_R_SQ && !dashActive && !invuln) {
+              onPlayerHit(SLAM_DMG)
+              invulnUntil.current = now + PLAYER_IFRAME
+              kick(now, 0.7, 0.08)
+            }
+          }
+          continue // rooted mid-slam
+        }
+        if (now >= z.cd && d2 <= SLAM_RANGE_SQ) {
+          z.castAt = now
+          playSlamWindup()
+          continue
+        }
       }
 
       // Each melee breed has its own pace; runners + mutants put on a closing burst.
@@ -649,9 +825,20 @@ function CombatSystemImpl({
         const hz = z.pos.z - a.pos.z
         if (hx * hx + hy * hy + hz * hz < HIT_RADIUS_SQ) {
           a.active = false
-          z.hp -= a.damage
+          // Precision/weak-point crit: clean (self-aimed) shots crit far more.
+          const crit = Math.random() < (a.aimed ? CRIT_CHANCE_AIMED : CRIT_CHANCE_ASSISTED)
+          const dmg = crit ? a.damage * CRIT_DMG_MULT : a.damage
+          z.hp -= dmg
           z.hitAt = now
+          if (crit) {
+            playCrit()
+            kick(now, 0.18)
+          }
           if (z.hp > 0) {
+            if (now - lastHitSfx.current > HIT_SFX_GAP) {
+              lastHitSfx.current = now
+              playEnemyHit()
+            }
             // Knockback along the arrow's travel direction.
             const len = Math.hypot(a.vel.x, a.vel.z) || 1
             z.pos.x += (a.vel.x / len) * 0.6
@@ -659,7 +846,14 @@ function CombatSystemImpl({
           } else {
             z.state = 'die'
             z.dieAt = now
-            spawnBurst(z.pos.x, z.pos.z, now)
+            spawnBurst(z.pos.x, z.pos.z, now, crit)
+            if (now - lastKillSfx.current > KILL_SFX_GAP) {
+              lastKillSfx.current = now
+              playEnemyKill()
+            }
+            // Brutes are a slog, so they pay out — a heart on top of a small shake.
+            if (z.variant === VAR_BRUTE) kick(now, 0.3, 0.05)
+            if (Math.random() < (DROP_CHANCE[z.variant] ?? 0.06)) dropHeart(z.pos.x, z.pos.z, now)
             onKill()
           }
           break
@@ -695,7 +889,27 @@ function CombatSystemImpl({
       const hdz = s.pos.z - player.z
       if (hdx * hdx + hdy * hdy + hdz * hdz < SPIT_HIT_R_SQ) {
         s.active = false
-        if (!dashActive) onPlayerHit(1)
+        if (!dashActive && !invuln) {
+          onPlayerHit(1)
+          invulnUntil.current = now + PLAYER_IFRAME
+          kick(now, 0.5, 0.06)
+        }
+      }
+    }
+
+    // --- Heart pickups: bob, fade, and collect on contact ----------------
+    for (let pi = 0; pi < pickups.length; pi++) {
+      const pk = pickups[pi]
+      if (!pk.active) continue
+      if (now - pk.bornAt > PICKUP_LIFE) {
+        pk.active = false
+        continue
+      }
+      const pdx = pk.pos.x - player.x
+      const pdz = pk.pos.z - player.z
+      if (pdx * pdx + pdz * pdz < PICKUP_R_SQ) {
+        pk.active = false
+        onHeal?.()
       }
     }
 
@@ -709,6 +923,7 @@ function CombatSystemImpl({
     const legR = legRRef.current
     const {
       o, mBody, mTorso, mHead, mNode, hidden, col, varTorso, varHead, varArm, flash,
+      spitGlow, slamGlow,
     } = scratch
 
     if (torso && head && eyes && armL && armR && legL && legR) {
@@ -724,6 +939,11 @@ function CombatSystemImpl({
           legR.setMatrixAt(i, hidden)
           continue
         }
+
+        // Telegraph progress (0..1) while this breed winds up an attack.
+        const casting = z.state === 'walk' && z.castAt > 0
+        const castWindup = z.variant === VAR_BRUTE ? SLAM_WINDUP : SPIT_WINDUP
+        const castP = casting ? THREE.MathUtils.clamp((now - z.castAt) / castWindup, 0, 1) : 0
 
         let bodyY: number
         let rotX = 0
@@ -779,8 +999,13 @@ function CombatSystemImpl({
         }
 
         // Body root — each breed has its own overall size (brutes loom, runners
-        // are small and wiry).
-        const vscale = VARIANTS[z.variant].scale
+        // are small and wiry). A telegraphing attacker swells as it charges.
+        const windScale = casting
+          ? z.variant === VAR_BRUTE
+            ? 1 + 0.22 * castP
+            : 1 + 0.12 * Math.sin(castP * Math.PI)
+          : 1
+        const vscale = VARIANTS[z.variant].scale * windScale
         o.position.set(z.pos.x, bodyY, z.pos.z)
         o.rotation.set(rotX, z.facing + yawExtra, rotZ)
         o.scale.set(sx * vscale, sy * vscale, sz * vscale)
@@ -841,13 +1066,18 @@ function CombatSystemImpl({
         mNode.multiplyMatrices(mBody, o.matrix)
         legR.setMatrixAt(i, mNode)
 
-        // Per-breed tint + red hit-flash.
+        // Per-breed tint + red hit-flash + a pulsing telegraph glow while casting.
         const vi = z.variant
+        const teleAmt = casting ? (0.35 + 0.5 * Math.abs(Math.sin(now * 16))) * castP : 0
+        const teleCol = z.variant === VAR_BRUTE ? slamGlow : spitGlow
         col.copy(varTorso[vi]).lerp(flash, flashAmt)
+        if (teleAmt > 0) col.lerp(teleCol, teleAmt)
         torso.setColorAt(i, col)
         col.copy(varHead[vi]).lerp(flash, flashAmt)
+        if (teleAmt > 0) col.lerp(teleCol, teleAmt)
         head.setColorAt(i, col)
         col.copy(varArm[vi]).lerp(flash, flashAmt)
+        if (teleAmt > 0) col.lerp(teleCol, teleAmt)
         armL.setColorAt(i, col)
         armR.setColorAt(i, col)
       }
@@ -933,7 +1163,30 @@ function CombatSystemImpl({
       mesh.position.set(b.x, 0.08, b.z)
       const s = 0.4 + bp * 2.6
       mesh.scale.set(s, s, s)
-      if (mat) mat.opacity = (1 - bp) * 0.95
+      if (mat) {
+        mat.opacity = (1 - bp) * 0.95
+        mat.color.set(b.crit ? '#ffd65c' : '#b6ff5c')
+      }
+    }
+
+    // --- Heart pickups (instanced) ---------------------------------------
+    const pkMesh = pickupRef.current
+    if (pkMesh) {
+      for (let i = 0; i < pickups.length; i++) {
+        const pk = pickups[i]
+        if (!pk.active) {
+          pkMesh.setMatrixAt(i, hidden)
+          continue
+        }
+        const age = now - pk.bornAt
+        const remain = THREE.MathUtils.clamp((PICKUP_LIFE - age) / 1.5, 0, 1)
+        o.position.set(pk.pos.x, 0.7 + Math.sin(now * 3 + i) * 0.14, pk.pos.z)
+        o.rotation.set(0, now * 2.2 + i, 0)
+        o.scale.set(remain, remain, remain)
+        o.updateMatrix()
+        pkMesh.setMatrixAt(i, o.matrix)
+      }
+      pkMesh.instanceMatrix.needsUpdate = true
     }
   })
 
@@ -955,6 +1208,8 @@ function CombatSystemImpl({
       <instancedMesh ref={boltTailRef} args={[geo.boltTail, mats.boltTail, MAX_ARROWS]} frustumCulled={false} />
 
       <instancedMesh ref={spitRef} args={[geo.spit, mats.spit, MAX_SPITS]} frustumCulled={false} />
+
+      <instancedMesh ref={pickupRef} args={[geo.heart, mats.heart, MAX_PICKUPS]} frustumCulled={false} />
 
       {bursts.map((_, i) => (
         <mesh

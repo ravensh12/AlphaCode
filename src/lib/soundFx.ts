@@ -254,6 +254,89 @@ export function playLevelUp(): void {
   blip(c, master, now + 0.38, 1479.98, 0.5, 'sine', 0.1)
 }
 
+// --- Combat effects --------------------------------------------------------
+// These are the overworld zombie-fight voices. They're deliberately short and
+// quiet so a churning horde never turns the mix to mush; callers throttle the
+// high-frequency ones (hits/kills) on their side.
+
+/** Wet, soft thud when a bolt connects with a walker (non-fatal). */
+export function playEnemyHit(): void {
+  if (muted) return
+  const c = ensure()
+  if (!c || !master) return
+  const now = c.currentTime
+  noiseBurst(c, master, now, 0.05, 0.07, 300, 2200, 600)
+  blip(c, master, now, 150, 0.05, 'sine', 0.05, 90)
+}
+
+/** Crunchy squelch when a walker is put down. */
+export function playEnemyKill(): void {
+  if (muted) return
+  const c = ensure()
+  if (!c || !master) return
+  const now = c.currentTime
+  noiseBurst(c, master, now, 0.12, 0.12, 200, 1600, 400)
+  blip(c, master, now, 120, 0.14, 'triangle', 0.08, 60)
+}
+
+/** Bright precision ping for a weak-point / crit hit. */
+export function playCrit(): void {
+  if (muted) return
+  const c = ensure()
+  if (!c || !master) return
+  const now = c.currentTime
+  blip(c, master, now, 1320, 0.1, 'square', 0.12, 1980)
+  blip(c, master, now + 0.04, 1980, 0.12, 'sine', 0.08)
+}
+
+/** Heavy, low impact when the player takes damage. */
+export function playPlayerHurt(): void {
+  if (muted) return
+  const c = ensure()
+  if (!c || !master) return
+  const now = c.currentTime
+  blip(c, master, now, 220, 0.22, 'sawtooth', 0.16, 70)
+  noiseBurst(c, master, now, 0.16, 0.14, 80, 900)
+}
+
+/** A telegraph whoomp — a heavy enemy is winding up a slam. */
+export function playSlamWindup(): void {
+  if (muted) return
+  const c = ensure()
+  if (!c || !master) return
+  const now = c.currentTime
+  blip(c, master, now, 90, 0.34, 'sine', 0.12, 200)
+}
+
+/** Acid spit charge — a short rising hiss so ranged shots are dodgeable. */
+export function playSpitCharge(): void {
+  if (muted) return
+  const c = ensure()
+  if (!c || !master) return
+  const now = c.currentTime
+  noiseBurst(c, master, now, 0.22, 0.07, 1200, 5000, 9000)
+}
+
+/** Warm chime when a dropped heart is collected. */
+export function playHeartPickup(): void {
+  if (muted) return
+  const c = ensure()
+  if (!c || !master) return
+  const now = c.currentTime
+  blip(c, master, now, 784, 0.12, 'triangle', 0.13)
+  blip(c, master, now + 0.08, 1175, 0.18, 'sine', 0.11)
+}
+
+/** Low double-thump heartbeat for the low-health warning. */
+export function playHeartbeat(): void {
+  if (muted) return
+  const c = ensure()
+  if (!c || !master) return
+  const now = c.currentTime
+  blip(c, master, now, 70, 0.12, 'sine', 0.16, 52)
+  blip(c, master, now + 0.16, 64, 0.16, 'sine', 0.13, 46)
+}
+
 // --- Ergonomic hook --------------------------------------------------------
 
 /**

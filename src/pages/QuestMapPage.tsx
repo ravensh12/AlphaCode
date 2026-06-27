@@ -136,22 +136,38 @@ export function QuestMapPage() {
                 </strong>
                 <span>
                   {gauntlet.finalBossBeaten
-                    ? 'You beat the Architect. Revisit the Mastery Trial any time, or fight again.'
+                    ? 'You beat the Architect. Redo the boss fight from the Threshold — animation, Mastery Trial, then the boss — or review the test.'
                     : `You passed the Mastery Trial${gauntlet.bestScore ? ` — best ${gauntlet.bestScore}%` : ''}. Review your answers, retake the test, or face the final boss.`}
                 </span>
               </span>
             </div>
             <div className="quest-gauntlet-actions">
-              <Link className="quest-gauntlet-action" to="/final/exam?mode=review">
-                Review test
-              </Link>
-              <Link className="quest-gauntlet-action" to="/final/exam">
-                Retake test
-              </Link>
-              <Link className="quest-gauntlet-action is-primary" to="/final/boss">
-                Final boss fight
-                <IconArrowRight size={18} />
-              </Link>
+              {gauntlet.finalBossBeaten ? (
+                <>
+                  {/* Once the Architect is down, the only paths are a full redo
+                      (animation -> Mastery Trial -> boss) or studying the test. */}
+                  <Link className="quest-gauntlet-action is-primary" to="/threshold">
+                    Redo boss fight
+                    <IconArrowRight size={18} />
+                  </Link>
+                  <Link className="quest-gauntlet-action" to="/final/exam?mode=review">
+                    Review test
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link className="quest-gauntlet-action" to="/final/exam?mode=review">
+                    Review test
+                  </Link>
+                  <Link className="quest-gauntlet-action" to="/final/exam">
+                    Retake test
+                  </Link>
+                  <Link className="quest-gauntlet-action is-primary" to="/final/boss">
+                    Final boss fight
+                    <IconArrowRight size={18} />
+                  </Link>
+                </>
+              )}
             </div>
           </section>
         )}

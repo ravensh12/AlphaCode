@@ -83,8 +83,9 @@ export function BossBattlePage() {
     setPhase('fight')
   }
 
-  // Winning the fight is what clears the level (marks it mastered so the
-  // overworld advances and the next gun unlocks).
+  // Winning the fight clears the level and advances the campaign, but it no
+  // longer fakes a perfect score — the embedded quiz drives masteryScore, so the
+  // recorded mastery honestly reflects how well the player answered.
   function handleWin() {
     if (world) {
       const current = getLessonProgress(world.id)
@@ -93,7 +94,6 @@ export function BossBattlePage() {
           ...current,
           status: 'completed',
           unlockNextLesson: true,
-          masteryScore: Math.max(current.masteryScore ?? 0, 100),
         })
       }
       // Signal the overworld to advance the tour — only because the boss was

@@ -640,7 +640,7 @@ export function startMusic() {
       ctx = new (window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
       master = ctx.createGain()
-      master.gain.value = 0.24 // denser, faster mix — leave headroom
+      master.gain.value = 0.3 // denser, faster mix — sits clearly under combat SFX
       // Punchy master bus: hard compressor glues + thickens the relentless assault.
       const comp = ctx.createDynamicsCompressor()
       comp.threshold.value = -22
