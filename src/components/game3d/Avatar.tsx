@@ -1,8 +1,8 @@
-import { useMemo, useRef, type MutableRefObject } from 'react'
+import { memo, useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
-export type AvatarAnim = 'idle' | 'walk' | 'run' | 'jump' | 'wave' | 'dance' | 'punch' | 'dash'
+export type AvatarAnim = 'idle' | 'walk' | 'run' | 'jump' | 'wave' | 'dance' | 'punch' | 'dash' | 'crouch'
 
 /** Must match DASH_TIME in ThirdPersonController so the swing fills the lunge. */
 const SLASH_TIME = 0.32
@@ -18,7 +18,7 @@ const SLASH_TIME = 0.32
  *  - arcs & secondary action (arms swing opposite the legs)
  */
 
-export function Avatar({
+export const Avatar = memo(function Avatar({
   anim = 'idle',
   accent = '#6d4afe',
   fireRef,
@@ -53,6 +53,7 @@ export function Avatar({
 
   const phase = useRef(0)
   const amp = useRef(0) // eased stride amplitude (0 idle .. 1 run)
+  const crouchAmt = useRef(0) // eased lay-low crouch (0 standing .. 1 hunkered)
   const antennaVel = useRef(0)
   const antennaAng = useRef(0)
 
@@ -73,17 +74,22 @@ export function Avatar({
     const t = state.clock.elapsedTime
 
     const a = animRef ? animRef.current : anim
-    const running = a === 'run' || a === 'walk'
+    const crouching = a === 'crouch'
+    const running = (a === 'run' || a === 'walk') && !crouching
     const jumping = a === 'jump'
     const dashing = a === 'dash'
+
+    // Ease the lay-low crouch in/out so it settles smoothly to the ground.
+    crouchAmt.current += ((crouching ? 1 : 0) - crouchAmt.current) * Math.min(1, dt * 10)
 
     // Blade-dash slash progress: 0 (wind-up) → 1 (follow-through).
     const slashStart = slashRef ? slashRef.current : -100
     const sp = THREE.MathUtils.clamp((t - slashStart) / SLASH_TIME, 0, 1)
     const slashing = sp > 0 && sp < 1
 
-    // Ease stride amplitude in/out (slow in / slow out).
-    const targetAmp = jumping ? 0 : running ? 1 : 0
+    // Ease stride amplitude in/out (slow in / slow out). Crouching kills the
+    // stride so the legs fold under instead of swinging.
+    const targetAmp = jumping || crouching ? 0 : running ? 1 : 0
     amp.current += (targetAmp - amp.current) * Math.min(1, dt * 8)
 
     const cadence = running ? 11 : 2.2
@@ -168,6 +174,49 @@ export function Avatar({
     }
     if (head.current) {
       head.current.rotation.z = Math.sin(t * 1.3) * 0.04 * (1 - amp.current)
+    }
+
+    // --- Lay-low crouch: a real knee-bend squat with planted feet --------
+    // No knee joint on this rig, so we fake a believable bend: COMPRESS the legs
+    // (squash) and drop the hips by exactly the amount the legs shortened, so the
+    // feet stay glued to the ground instead of sinking or floating.
+    const cr = crouchAmt.current
+    if (cr > 0.001) {
+      const legScale = 1 - cr * 0.4 // legs fold to ~60% height at full crouch
+      const drop = 0.78 * (1 - legScale) // hip-to-foot reach * compression
+      const breath = Math.sin(t * 2.6) * 0.01 * cr // subtle "held breath" sway
+
+      if (legL.current && legR.current) {
+        legL.current.scale.y = legScale
+        legR.current.scale.y = legScale
+        // Thighs angle slightly forward + knees splay out, like a braced squat.
+        legL.current.rotation.x += cr * 0.18
+        legR.current.rotation.x += cr * 0.18
+        legL.current.rotation.z = -cr * 0.26
+        legR.current.rotation.z = cr * 0.26
+      }
+      if (body.current) {
+        body.current.position.y -= drop - breath
+        body.current.rotation.x -= cr * 0.28 // chest hunches forward over the knees
+      }
+      if (armL.current && armR.current && !dashing && !slashing) {
+        // Forearms drop and tuck in — a compact, low silhouette.
+        armL.current.rotation.x += cr * 0.45
+        armR.current.rotation.x += cr * 0.35
+        armL.current.rotation.z += cr * 0.18
+        armR.current.rotation.z -= cr * 0.18
+      }
+      if (head.current) head.current.rotation.x = cr * 0.28 // counter the hunch — keep eyes forward
+    } else {
+      if (legL.current) {
+        legL.current.scale.y = 1
+        legL.current.rotation.z = 0
+      }
+      if (legR.current) {
+        legR.current.scale.y = 1
+        legR.current.rotation.z = 0
+      }
+      if (head.current) head.current.rotation.x = 0
     }
 
     // Antenna follow-through: a damped spring chasing the body's motion.
@@ -373,4 +422,4 @@ export function Avatar({
       </group>
     </group>
   )
-}
+})

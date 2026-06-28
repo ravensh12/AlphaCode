@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
-import { AiTutorPanel } from '../components/final/AiTutorPanel'
+import { ReviewTutor } from '../components/ReviewTutor'
 import { useProgress } from '../context/ProgressContext'
 import { useGauntlet } from '../context/GauntletContext'
 import { FINAL_EXAM } from '../content/finalExam'
 import { gradeFor, isConceptMastered, EXAM_PASS_PERCENT } from '../lib/gauntletProgress'
 import type { ExamQuestion } from '../types/finalGauntlet'
-import { IconCheck, IconX, IconArrowRight, IconArrowLeft, IconBolt } from '../components/icons'
+import { IconCheck, IconX, IconArrowRight, IconArrowLeft } from '../components/icons'
 import './FinalExamPage.css'
 
 /* ------------------------------------------------------------- helpers */
@@ -170,6 +170,7 @@ export function FinalExamPage() {
           </div>
 
           <h2 className="fx-review-title">All questions</h2>
+          <div className="review-grid">
           <ol className="fx-review-list">
             {FINAL_EXAM.map((q, i) => (
               <li key={q.id} className="fx-review-item is-correct">
@@ -195,6 +196,21 @@ export function FinalExamPage() {
               </li>
             ))}
           </ol>
+
+          <ReviewTutor
+            items={FINAL_EXAM.map((q, i) => ({
+              label: `Q${i + 1} · ${conceptShort(q.concept)}`,
+              context: {
+                prompt: q.prompt,
+                code: q.code,
+                concept: q.conceptLabel,
+                hint: q.hint,
+                answered: true,
+              },
+            }))}
+            heading="Ask Bit about any question"
+          />
+          </div>
 
           <div className="fx-results-actions fx-results-actions--bottom">
             <Link className="fx-btn fx-btn-primary fx-btn-lg" to="/final/exam">
@@ -251,7 +267,7 @@ export function FinalExamPage() {
     <div className="page fx-page">
       <AppHeader />
 
-      <div className="fx-shell">
+      <div className="fx-shell fx-shell--solo">
         <main className="fx-main">
           <header className="fx-progress">
             <div className="fx-progress-bar">
@@ -260,17 +276,19 @@ export function FinalExamPage() {
             <span className="fx-progress-label">
               Question {index + 1} of {TOTAL}
             </span>
-            <button
-              type="button"
-              className="fx-skip-test"
-              title="Testing shortcut: mark the trial passed and jump to the boss"
-              onClick={() => {
-                completeExam(100)
-                navigate('/final/boss')
-              }}
-            >
-              Skip test → Boss
-            </button>
+            {import.meta.env.DEV && (
+              <button
+                type="button"
+                className="fx-skip-test"
+                title="Testing shortcut (dev only): mark the trial passed and jump to the boss"
+                onClick={() => {
+                  completeExam(100)
+                  navigate('/final/boss')
+                }}
+              >
+                Skip test → Boss
+              </button>
+            )}
           </header>
 
           <p className="fx-no-feedback-note">
@@ -368,21 +386,6 @@ export function FinalExamPage() {
             ))}
           </div>
         </main>
-
-        <aside className="fx-aside">
-          <AiTutorPanel
-            context={{
-              prompt: current.prompt,
-              code: current.code,
-              concept: current.conceptLabel,
-              hint: current.hint,
-              answered: false,
-            }}
-          />
-          <div className="fx-aside-note">
-            <IconBolt size={14} /> Bit nudges your thinking — it won&rsquo;t tell you if you&rsquo;re right.
-          </div>
-        </aside>
       </div>
     </div>
   )
@@ -562,6 +565,7 @@ function FinalExamReview({
       </div>
 
       <h2 className="fx-review-title">Review — every question explained</h2>
+      <div className="review-grid">
       <ol className="fx-review-list">
         {detail.map(({ q, given, correct }, i) => (
           <li key={q.id} className={`fx-review-item ${correct ? 'is-correct' : 'is-wrong'}`}>
@@ -594,6 +598,23 @@ function FinalExamReview({
           </li>
         ))}
       </ol>
+
+      <ReviewTutor
+        items={[...detail]
+          .sort((a, b) => Number(a.correct) - Number(b.correct))
+          .map(({ q }, i) => ({
+            label: `Q${i + 1} · ${conceptShort(q.concept)}`,
+            context: {
+              prompt: q.prompt,
+              code: q.code,
+              concept: q.conceptLabel,
+              hint: q.hint,
+              answered: true,
+            },
+          }))}
+        heading="Ask Bit about your answers"
+      />
+      </div>
 
       <div className="fx-results-actions fx-results-actions--bottom">
         {passed ? (

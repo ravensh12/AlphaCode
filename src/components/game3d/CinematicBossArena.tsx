@@ -469,7 +469,7 @@ const VexScene = memo(function VexScene({
       const fresh = !downSet.current.has(k)
       downSet.current.add(k)
       if (k === 'f') holdFire.current = true
-      if (k === 'j' && fresh) reqSlice.current = true
+      if (k === 'q' && fresh) reqSlice.current = true
       if (k === 'shift' && fresh) reqDash.current = true
       if (k === 'k' && fresh) reqRoll.current = true
       if (k === 'l' && fresh) reqParry.current = true
@@ -1512,7 +1512,7 @@ export function CinematicBossArena({
 
       {/* Ability legend */}
       <div style={{ position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.82)', fontSize: 12.5, fontWeight: 600, textShadow: '0 2px 6px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
-        WASD move · Click/J slice · F/RMB shoot · Shift dash · Space jump · K roll · <span style={{ color: accent }}>L PARRY</span>
+        WASD move · Click/Q slice · F/RMB shoot · Shift dash · Space jump · K roll · <span style={{ color: accent }}>L PARRY</span>
       </div>
 
       <div style={{ position: 'absolute', top: '50%', left: '50%', width: 6, height: 6, marginLeft: -3, marginTop: -3, borderRadius: '50%', background: 'rgba(255,255,255,0.55)' }} />

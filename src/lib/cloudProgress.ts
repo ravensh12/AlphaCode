@@ -12,6 +12,8 @@ import type {
 import { emptyState } from './localProgress'
 import { generateLesson } from '../content/lessons'
 import { isLearnComplete, normalizeLessonProgress, withLearnCompletedFlag } from './lessonSections'
+import type { ConceptSkill } from './learnerModel'
+import type { ConceptId } from '../types/lesson'
 import {
   badgeCountsFromEarnedList,
   normalizeBadgeCounts,
@@ -38,6 +40,18 @@ type LessonProgressRow = {
   quiz_step_index?: number | null
   learn_frame_index?: number | null
   quiz_frame_index?: number | null
+}
+
+type ConceptMasteryRow = {
+  concept_id: string
+  ability: number
+  confidence: number
+  seen: number
+  correct_first_try: number
+  box: number
+  due_at: string | null
+  last_seen_at: string | null
+  recent_results: boolean[]
 }
 
 /** Columns guaranteed to exist in the original schema. */
@@ -204,6 +218,43 @@ export async function loadCloud(userId: string): Promise<ProgressState> {
     }
   } catch {
     /* last_review column not present yet */
+  }
+
+  // Best-effort: per-concept learner model. The table may not exist on older
+  // databases, so a failure here must never break core progress loading.
+  try {
+    const { data, error } = await sb
+      .from('concept_mastery')
+      .select(
+        'concept_id, ability, confidence, seen, correct_first_try, box, due_at, last_seen_at, recent_results',
+      )
+      .eq('user_id', userId)
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const concepts: Partial<Record<ConceptId, ConceptSkill>> = {}
+      let latest = 0
+      for (const r of data as ConceptMasteryRow[]) {
+        const dueAt = r.due_at ? Date.parse(r.due_at) : 0
+        const lastSeenAt = r.last_seen_at ? Date.parse(r.last_seen_at) : 0
+        latest = Math.max(latest, lastSeenAt)
+        concepts[r.concept_id as ConceptId] = {
+          conceptId: r.concept_id as ConceptId,
+          ability: r.ability ?? 0.5,
+          confidence: r.confidence ?? 0,
+          seen: r.seen ?? 0,
+          correctFirstTry: r.correct_first_try ?? 0,
+          box: r.box ?? 1,
+          dueAt,
+          lastSeenAt,
+          recentResults: Array.isArray(r.recent_results) ? r.recent_results : [],
+        }
+      }
+      state.learnerModel = {
+        concepts,
+        updatedAt: new Date(latest || Date.now()).toISOString(),
+      }
+    }
+  } catch {
+    /* concept_mastery table not present yet */
   }
 
   // Backfill learnCompleted for rows saved before section flags existed.
@@ -374,6 +425,33 @@ export async function deleteLessonCloud(
     .delete()
     .eq('user_id', userId)
     .eq('lesson_id', lessonId)
+}
+
+/**
+ * Persist the touched concept skills. Best-effort: if the table doesn't exist
+ * yet the write fails silently so the local model still holds.
+ */
+export async function saveConceptMasteryCloud(
+  userId: string,
+  skills: ConceptSkill[],
+): Promise<void> {
+  if (skills.length === 0) return
+  const rows = skills.map((s) => ({
+    user_id: userId,
+    concept_id: s.conceptId,
+    ability: s.ability,
+    confidence: s.confidence,
+    seen: s.seen,
+    correct_first_try: s.correctFirstTry,
+    box: s.box,
+    due_at: new Date(s.dueAt).toISOString(),
+    last_seen_at: new Date(s.lastSeenAt).toISOString(),
+    recent_results: s.recentResults,
+    updated_at: new Date().toISOString(),
+  }))
+  await client()
+    .from('concept_mastery')
+    .upsert(rows, { onConflict: 'user_id,concept_id' })
 }
 
 export async function insertAttemptCloud(

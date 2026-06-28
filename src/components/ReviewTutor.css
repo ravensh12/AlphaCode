@@ -1,0 +1,70 @@
+.review-tutor {
+  margin-top: 20px;
+  width: 100%;
+}
+
+/* Side-by-side review layout: the question breakdown scrolls on the left while
+   Bit stays pinned on the right and follows you down the page. */
+.review-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 22px;
+  align-items: start;
+  width: 100%;
+  text-align: left;
+  margin-top: 20px;
+}
+
+.review-grid > .review-tutor {
+  margin-top: 0;
+  position: sticky;
+  top: 16px;
+  align-self: start;
+}
+
+/* Stack on narrow screens — the tutor drops below the questions. */
+@media (max-width: 900px) {
+  .review-grid {
+    grid-template-columns: 1fr;
+  }
+  .review-grid > .review-tutor {
+    position: static;
+    top: auto;
+  }
+}
+
+.review-tutor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.review-tutor-title {
+  font-family: var(--display, inherit);
+  font-size: 17px;
+  margin: 0;
+}
+
+.review-tutor-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--cc-text-soft, #8a93a6);
+  font-weight: 700;
+}
+
+.review-tutor-pick select {
+  font: inherit;
+  font-weight: 700;
+  color: var(--cc-text, inherit);
+  background: var(--cc-glass, rgba(255, 255, 255, 0.06));
+  border: 1.5px solid var(--cc-line-strong, rgba(255, 255, 255, 0.18));
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  max-width: 220px;
+}

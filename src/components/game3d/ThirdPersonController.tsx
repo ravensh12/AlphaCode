@@ -51,11 +51,13 @@ const BOUND = GROUND_HALF - 8
 const ENTER_RADIUS = 7.5
 const BODY_R = 0.7 // hero collision radius vs. building footprints
 
-// --- Blade dash: a fast forward lunge that slashes through everything ------
-const DASH_SPEED = 32 // m/s burst while dashing (covers a long slicing corridor)
-const DASH_TIME = 0.34 // seconds the lunge + i-frames last
-const DASH_CD = 0.85 // short cooldown so the dash is a core, repeatable tool
-const DASH_RADIUS = 4.8 // wide slicing sweep — clears whole packs in one pass
+// --- Blade dash: a precise dodge-lunge that cuts what you pass THROUGH ------
+// Tuned as a skill tool, not a panic button: a real cooldown means you must time
+// it to dodge a slam/acid or carve an escape lane — not spam it to nuke packs.
+const DASH_SPEED = 30 // m/s burst while dashing
+const DASH_TIME = 0.32 // seconds the lunge + i-frames last
+const DASH_CD = 2.4 // meaningful cooldown — the dash is a committed decision
+const DASH_RADIUS = 2.8 // tighter sweep — cuts what you dash through, not the whole field
 
 /** Slide the hero out of any building/car footprint (circle vs. AABB). */
 function resolveCollisions(p: THREE.Vector3) {
@@ -105,6 +107,8 @@ function ThirdPersonControllerImpl({
   startPos,
   startHeading,
   dashRef,
+  stealthRef,
+  onStealthChange,
   shakeRef,
   hitstopRef,
 }: {
@@ -123,6 +127,10 @@ function ThirdPersonControllerImpl({
   startHeading?: number | null
   /** Shared blade-dash state for the combat system + HUD. */
   dashRef?: MutableRefObject<DashState>
+  /** Shared stealth state — set active while the player holds crouch (C). */
+  stealthRef?: MutableRefObject<{ active: boolean }>
+  /** Notifies the HUD when stealth toggles (throttled to real changes). */
+  onStealthChange?: (active: boolean) => void
   /** Camera-shake impulse channel (magnitude written by combat; decayed here). */
   shakeRef?: MutableRefObject<number>
   /** Hit-stop channel: a future clock time during which the scene runs in slow-mo. */
@@ -164,6 +172,11 @@ function ThirdPersonControllerImpl({
   const jumpReq = useRef(false)
   const squash = useRef(0) // landing squash timer
   const lastNearby = useRef<string | null>(null)
+
+  // Crouch / lay-low (stealth): held key. While down the hero moves slowly and
+  // the horde loses its lock on you (handled in CombatSystem via stealthRef).
+  const crouchHeld = useRef(false)
+  const stealthOn = useRef(false)
 
   // Blade dash.
   const dashReq = useRef(false)
@@ -251,6 +264,22 @@ function ThirdPersonControllerImpl({
     return () => window.removeEventListener('keydown', onKey)
   }, [paused])
 
+  // Crouch / lay-low key (C) — held. Releasing stands back up.
+  useEffect(() => {
+    function onDown(e: KeyboardEvent) {
+      if (e.key === 'c' || e.key === 'C') crouchHeld.current = true
+    }
+    function onUp(e: KeyboardEvent) {
+      if (e.key === 'c' || e.key === 'C') crouchHeld.current = false
+    }
+    window.addEventListener('keydown', onDown)
+    window.addEventListener('keyup', onUp)
+    return () => {
+      window.removeEventListener('keydown', onDown)
+      window.removeEventListener('keyup', onUp)
+    }
+  }, [])
+
   useEffect(() => {
     const yaw = spawnYaw
     const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
@@ -298,6 +327,9 @@ function ThirdPersonControllerImpl({
       }
     }
 
+    // Crouch / lay-low: slow, quiet movement that breaks the horde's lock.
+    const crouching = crouchHeld.current && !dashing && !paused
+
     // Move along the aim direction: W/↑ forward, S/↓ backward (no spinning),
     // A/D strafe. A dash overrides this with a fast forward lunge.
     const fwd = (k['w'] || k['arrowup'] ? 1 : 0) - (k['s'] || k['arrowdown'] ? 1 : 0)
@@ -316,7 +348,12 @@ function ThirdPersonControllerImpl({
       moving = tmpMove.current.lengthSq() > 0.001
       if (moving) {
         tmpMove.current.normalize()
-        const speed = (k['shift'] ? SPRINT_SPEED : RUN_SPEED) * dt
+        const baseSpeed = crouching
+          ? RUN_SPEED * 0.6
+          : k['shift']
+            ? SPRINT_SPEED
+            : RUN_SPEED
+        const speed = baseSpeed * dt
         pos.current.x += tmpMove.current.x * speed
         pos.current.z += tmpMove.current.z * speed
       }
@@ -365,6 +402,7 @@ function ThirdPersonControllerImpl({
     // Animation state.
     if (dashing) want('dash')
     else if (!grounded.current) want('jump')
+    else if (crouching) want('crouch')
     else if (moving) want('run')
     else want('idle')
 
@@ -418,6 +456,13 @@ function ThirdPersonControllerImpl({
       dsr.radius = DASH_RADIUS
       dsr.cd01 = THREE.MathUtils.clamp(1 - (dashCdUntil.current - now) / DASH_CD, 0, 1)
       dsr.ready = now >= dashCdUntil.current
+    }
+
+    // Publish stealth state for the combat system + HUD.
+    if (stealthRef) stealthRef.current.active = crouching
+    if (crouching !== stealthOn.current) {
+      stealthOn.current = crouching
+      onStealthChange?.(crouching)
     }
 
     // Camera follows directly behind the aim direction (eased — slow in/out),

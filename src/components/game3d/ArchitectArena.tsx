@@ -53,11 +53,11 @@ import {
 
 /* ------------------------------------------------------------- Tuning */
 
-const PLAYER_HP = 14
-const BOSS_HP_MAX = 200
-const P2_AT = Math.round(BOSS_HP_MAX * 0.75) // 150
-const P3_AT = Math.round(BOSS_HP_MAX * 0.5) // 100
-const P4_AT = Math.round(BOSS_HP_MAX * 0.25) // 50
+const PLAYER_HP = 12
+const BOSS_HP_MAX = 300
+const P2_AT = Math.round(BOSS_HP_MAX * 0.75)
+const P3_AT = Math.round(BOSS_HP_MAX * 0.5)
+const P4_AT = Math.round(BOSS_HP_MAX * 0.25)
 
 const BOUND = 24
 const CAM_BACK = 8.2
@@ -482,6 +482,14 @@ const ArchitectScene = memo(function ArchitectScene({
   const vexAnimRef = useRef<ArchitectAnim>('idle')
   const cullFrames = useRef(0)
 
+  // ---- Echo clones (the boss "splits into multiple") ----
+  const cloneARef = useRef<THREE.Group>(null)
+  const cloneBRef = useRef<THREE.Group>(null)
+  const cloneAPos = useRef(new THREE.Vector3())
+  const cloneBPos = useRef(new THREE.Vector3())
+  const cloneCullA = useRef(0)
+  const cloneCullB = useRef(0)
+
   const atkState = useRef<'gap' | 'tele' | 'active' | 'recover'>('gap')
   const atkName = useRef<string>('')
   const atkT = useRef(0)
@@ -565,6 +573,19 @@ const ArchitectScene = memo(function ArchitectScene({
     o.lock = lock
     return true
   }
+  function emitCloneFan(from: THREE.Vector3, phase: Phase) {
+    const shots = phase >= 4 ? 7 : 5
+    tmpDir.current.set(pos.current.x - from.x, 0, pos.current.z - from.z).normalize()
+    const base = Math.atan2(tmpDir.current.x, tmpDir.current.z)
+    for (let s = 0; s < shots; s++) {
+      const ang = base + (s - (shots - 1) / 2) * 0.2
+      spawnOrb(from.x, 1.5, from.z, Math.sin(ang) * 3, 0, Math.cos(ang) * 3, 0, 0.6)
+    }
+  }
+  /** How many echo-clones are active this phase. */
+  function cloneCountFor(phase: Phase): number {
+    return phase >= 3 ? 2 : phase >= 2 ? 1 : 0
+  }
   function spawnDebris(x: number, y: number, z: number, vx: number, vy: number, vz: number) {
     const d = debris.find((q) => !q.active)
     if (!d) return
@@ -639,7 +660,7 @@ const ArchitectScene = memo(function ArchitectScene({
       const fresh = !downSet.current.has(k)
       downSet.current.add(k)
       if (k === 'f') holdFire.current = true
-      if (k === 'j' && fresh) reqSlice.current = true
+      if (k === 'q' && fresh) reqSlice.current = true
       if (k === 'shift' && fresh) reqDash.current = true
       if (k === 'k' && fresh) reqRoll.current = true
       if (k === 'l' && fresh) reqParry.current = true
@@ -772,7 +793,7 @@ const ArchitectScene = memo(function ArchitectScene({
     const name = atkName.current
     onBossAttack()
     if (name === 'glyphFan') {
-      const shots = phase === 1 ? 5 : phase === 2 ? 7 : phase === 3 ? 9 : 11
+      const shots = phase === 1 ? 6 : phase === 2 ? 9 : phase === 3 ? 11 : 14
       tmpDir.current.set(pos.current.x - bossPos.current.x, 0, pos.current.z - bossPos.current.z).normalize()
       const base = Math.atan2(tmpDir.current.x, tmpDir.current.z)
       for (let s = 0; s < shots; s++) {
@@ -780,6 +801,10 @@ const ArchitectScene = memo(function ArchitectScene({
         // Slow drift first; homing lock fires them after ~0.6s.
         spawnOrb(bossPos.current.x, bossPos.current.y + 1.5, bossPos.current.z, Math.sin(ang) * 3, 0, Math.cos(ang) * 3, 0, 0.6)
       }
+      // Echo-clones loose their own fans, so volleys come from several directions.
+      const cc = cloneCountFor(phase)
+      if (cc >= 1) emitCloneFan(cloneAPos.current, phase)
+      if (cc >= 2) emitCloneFan(cloneBPos.current, phase)
     } else if (name === 'debris') {
       const chunks = phase >= 3 ? 6 : 4
       tmpDir.current.set(pos.current.x - bossPos.current.x, 0, pos.current.z - bossPos.current.z).normalize()
@@ -815,6 +840,10 @@ const ArchitectScene = memo(function ArchitectScene({
         spawnOrb(bossPos.current.x, bossPos.current.y + 1.5, bossPos.current.z, Math.cos(a) * 15, 0, Math.sin(a) * 15, 1)
       }
       fireDShock(bossPos.current.x, bossPos.current.z, BOUND)
+      // Clones add their own radial bursts to the deletion protocol.
+      const ccu = cloneCountFor(phase)
+      if (ccu >= 1) emitCloneFan(cloneAPos.current, phase)
+      if (ccu >= 2) emitCloneFan(cloneBPos.current, phase)
       if (dirRef.current) dirRef.current.shake(0.7)
       triggerFlash(1.0)
       sfx.boom()
@@ -1153,6 +1182,18 @@ const ArchitectScene = memo(function ArchitectScene({
       }
     }
 
+    /* ---- echo clones: flank the Architect and attack alongside him ---- */
+    const cloneCount = dead ? 0 : cloneCountFor(phase)
+    const cloneAng = t * 0.5
+    placeEchoClone(
+      cloneARef.current, cloneAPos.current, cloneCullA, cloneAng,
+      cloneCount >= 1, bossPos.current.x, bossPos.current.z, pos.current.x, pos.current.z,
+    )
+    placeEchoClone(
+      cloneBRef.current, cloneBPos.current, cloneCullB, cloneAng + Math.PI,
+      cloneCount >= 2, bossPos.current.x, bossPos.current.z, pos.current.x, pos.current.z,
+    )
+
     /* ---- camera ---- */
     tmpFwd.current.set(bossPos.current.x - pos.current.x, 0, bossPos.current.z - pos.current.z)
     if (tmpFwd.current.lengthSq() < 1e-6) tmpFwd.current.set(0, 0, 1)
@@ -1267,7 +1308,8 @@ const ArchitectScene = memo(function ArchitectScene({
           atkT.current += dt
           if (atkT.current >= durs(atkName.current)[2]) {
             atkState.current = 'gap'
-            gapT.current = phase === 1 ? 1.4 : phase === 2 ? 1.05 : phase === 3 ? 0.85 : 0.65
+            // Relentless: shorter breathers between attacks at every phase.
+            gapT.current = phase === 1 ? 1.05 : phase === 2 ? 0.78 : phase === 3 ? 0.58 : 0.42
           }
           break
         }
@@ -1277,7 +1319,7 @@ const ArchitectScene = memo(function ArchitectScene({
     /* ---- orbs (glyph-blades) ---- */
     if (orbsMesh.current) {
       const m = orbsMesh.current
-      const homeSpeed = phase <= 2 ? 12 : 15
+      const homeSpeed = phase <= 2 ? 14 : 18
       for (let i = 0; i < orbs.length; i++) {
         const o = orbs[i]
         if (!o.active) {
@@ -1532,6 +1574,33 @@ const ArchitectScene = memo(function ArchitectScene({
         />
       </group>
 
+      {/* Echo clones — the Architect splits into multiple, mirroring his rig and
+          firing alongside him in later phases. */}
+      <group ref={cloneARef} scale={BOSS_SCALE * 0.96} visible={false}>
+        <Architect3D
+          accent={accent}
+          phaseRef={phaseRef}
+          animRef={vexAnimRef}
+          hitRef={hitRef}
+          attackRef={attackRef}
+          staggerRef={staggerRef}
+          phaseBreakRef={phaseBreakRef}
+          dead={dead}
+        />
+      </group>
+      <group ref={cloneBRef} scale={BOSS_SCALE * 0.96} visible={false}>
+        <Architect3D
+          accent={accent}
+          phaseRef={phaseRef}
+          animRef={vexAnimRef}
+          hitRef={hitRef}
+          attackRef={attackRef}
+          staggerRef={staggerRef}
+          phaseBreakRef={phaseBreakRef}
+          dead={dead}
+        />
+      </group>
+
       <WeaponTrail ref={playerTrail} color={accent} width={0.22} segments={20} fade={0.16} />
 
       {/* Lightning bolt columns. */}
@@ -1599,6 +1668,43 @@ const ArchitectScene = memo(function ArchitectScene({
     </group>
   )
 })
+
+/** Position an echo-clone flanking the boss (or hide it when inactive). */
+function placeEchoClone(
+  group: THREE.Group | null,
+  posVec: THREE.Vector3,
+  cull: { current: number },
+  ang: number,
+  active: boolean,
+  bx: number,
+  bz: number,
+  px: number,
+  pz: number,
+) {
+  if (!group) return
+  if (!active) {
+    if (group.visible) group.visible = false
+    return
+  }
+  group.visible = true
+  const r = 6.5
+  let cx = bx + Math.cos(ang) * r
+  let cz = bz + Math.sin(ang) * r
+  const rr = Math.hypot(cx, cz)
+  if (rr > BOUND - 2) {
+    cx *= (BOUND - 2) / rr
+    cz *= (BOUND - 2) / rr
+  }
+  posVec.set(cx, 0, cz)
+  group.position.set(cx, 0, cz)
+  group.rotation.y = Math.atan2(px - cx, pz - cz)
+  if (cull.current < 12) {
+    cull.current++
+    group.traverse((o) => {
+      o.frustumCulled = false
+    })
+  }
+}
 
 /** Park an instanced slot off-screen at zero scale. */
 function hideInstance(m: THREE.InstancedMesh, i: number) {
@@ -1772,7 +1878,7 @@ export function ArchitectArena({
       )}
 
       <div style={{ position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.82)', fontSize: 12.5, fontWeight: 600, textShadow: '0 2px 6px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
-        WASD move · Click/J slice · F/RMB shoot · Shift dash · Space jump · K roll · <span style={{ color: accent }}>L PARRY</span>
+        WASD move · Click/Q slice · F/RMB shoot · Shift dash · Space jump · K roll · <span style={{ color: accent }}>L PARRY</span>
       </div>
 
       <div style={{ position: 'absolute', top: '50%', left: '50%', width: 6, height: 6, marginLeft: -3, marginTop: -3, borderRadius: '50%', background: 'rgba(255,255,255,0.55)' }} />

@@ -54,13 +54,16 @@ export type Gun = {
 }
 
 /** One gun per checkpoint (index 0 = Checkpoint 1). Weak → devastating. */
+// Auto-aim is deliberately SLIGHT now — it only nudges a near-miss onto a target,
+// it won't snap across the screen. Your own aim carries the shot, so precision +
+// tracking are real skills (Fortnite-style), while early guns still feel clumsy.
 export const GUNS: Gun[] = [
-  { name: 'Rusty Slinger', cooldown: 0.85, damage: 1, pellets: 1, spread: 0.14, fan: 0, aimConeCos: Math.cos(0.07), boltSpeed: 44 },
-  { name: 'Scrap Pistol', cooldown: 0.55, damage: 1, pellets: 1, spread: 0.085, fan: 0, aimConeCos: Math.cos(0.16), boltSpeed: 60 },
-  { name: 'Bolt Repeater', cooldown: 0.36, damage: 2, pellets: 1, spread: 0.05, fan: 0, aimConeCos: Math.cos(0.24), boltSpeed: 76 },
-  { name: 'Twin Blaster', cooldown: 0.30, damage: 2, pellets: 2, spread: 0.05, fan: 0.06, aimConeCos: Math.cos(0.30), boltSpeed: 88 },
-  { name: 'Pulse Rifle', cooldown: 0.18, damage: 3, pellets: 2, spread: 0.03, fan: 0.05, aimConeCos: Math.cos(0.36), boltSpeed: 102 },
-  { name: 'Pattern Cannon', cooldown: 0.11, damage: 3, pellets: 3, spread: 0.035, fan: 0.07, aimConeCos: Math.cos(0.42), boltSpeed: 118 },
+  { name: 'Rusty Slinger', cooldown: 0.85, damage: 1, pellets: 1, spread: 0.14, fan: 0, aimConeCos: Math.cos(0.04), boltSpeed: 44 },
+  { name: 'Scrap Pistol', cooldown: 0.55, damage: 1, pellets: 1, spread: 0.085, fan: 0, aimConeCos: Math.cos(0.07), boltSpeed: 60 },
+  { name: 'Bolt Repeater', cooldown: 0.36, damage: 2, pellets: 1, spread: 0.05, fan: 0, aimConeCos: Math.cos(0.10), boltSpeed: 76 },
+  { name: 'Twin Blaster', cooldown: 0.30, damage: 2, pellets: 2, spread: 0.05, fan: 0.06, aimConeCos: Math.cos(0.12), boltSpeed: 88 },
+  { name: 'Pulse Rifle', cooldown: 0.18, damage: 3, pellets: 2, spread: 0.03, fan: 0.05, aimConeCos: Math.cos(0.14), boltSpeed: 102 },
+  { name: 'Pattern Cannon', cooldown: 0.11, damage: 3, pellets: 3, spread: 0.035, fan: 0.07, aimConeCos: Math.cos(0.16), boltSpeed: 118 },
 ]
 
 export function gunForLevel(level: number): Gun {
@@ -181,6 +184,20 @@ const PICKUP_R = 1.7 // collection radius
 const PICKUP_R_SQ = PICKUP_R * PICKUP_R
 const DROP_CHANCE = [0.06, 0.05, 0.32, 0.09, 0.07] // per-variant heart drop odds
 
+// --- Gun heat / overheat (Phase 9: skill + sword-vs-gun decisions) -------
+// The blaster builds heat as you fire and JAMS if you redline it, so you can't
+// just hold the trigger forever — you must fire in disciplined bursts or switch
+// to the sword. Fast/overcharged guns heat up quicker, making them a trade-off.
+const HEAT_PER_SHOT = 0.075 // heat added per trigger pull (0..1 scale)
+const HEAT_DECAY = 0.55 // heat shed per second while not firing
+const OVERHEAT_MS = 1500 // jam duration once the gun redlines
+
+// --- Armor matchups ------------------------------------------------------
+// Brutes wear bullet-deflecting plate: bolts barely dent them, but a sword dash
+// cleaves straight through. Reading the crowd and picking the right tool is the
+// core skill. (Spitters kite at range, so they're the gun's job.)
+const BRUTE_BULLET_MUL = 0.34 // brutes take ~1/3 bolt damage
+
 // --- Audio throttle ------------------------------------------------------
 // 90 zombies can generate a torrent of hit/kill events; cap the voices so the
 // mixer stays clean and the fight reads instead of becoming white noise.
@@ -198,6 +215,7 @@ const VAR_RUNNER = 1 // lean, sickly-yellow sprinter: very fast, very fragile
 const VAR_BRUTE = 2 // bloated dark-crimson tank: slow, huge, soaks damage, hits hard
 const VAR_MUTANT = 3 // glowing toxic mutant: quick, lunges, tougher than it looks
 const VAR_SPITTER = 4 // purple caster: hangs back and lobs acid bolts you must dodge
+const VAR_GLITCH = 5 // cyan "knowledge glitch": a special carrier — killing it triggers a concept question
 
 type VariantDef = {
   speedMul: number
@@ -220,7 +238,34 @@ const VARIANTS: VariantDef[] = [
   { speedMul: 0.58, hpMul: 2.4, hpAdd: 5, scale: 1.55, dmg: 2, gait: 0.64, lunge: false, ranged: false },
   { speedMul: 1.4, hpMul: 1.3, hpAdd: 1, scale: 1.06, dmg: 1, gait: 1.35, lunge: true, ranged: false },
   { speedMul: 0.95, hpMul: 1.1, hpAdd: 1, scale: 0.98, dmg: 1, gait: 1.0, lunge: false, ranged: true },
+  // Glitch carrier — slow, conspicuous, tanky so the player must commit to it.
+  { speedMul: 0.7, hpMul: 2.0, hpAdd: 4, scale: 1.25, dmg: 1, gait: 1.1, lunge: false, ranged: false },
 ]
+
+// --- Knowledge glitch (Phase 5) ------------------------------------------
+const GLITCH_SPAWN_EVERY = 26 // seconds between glitch spawns (when one is wanted)
+const GLITCH_SPAWN_R = 40 // distance from the player a glitch rises at
+
+// --- Weapon crates (Phase 7) ---------------------------------------------
+const MAX_CRATES = 2
+const CRATE_LIFE = 40 // seconds a crate lingers before fading
+const CRATE_R = 2.6 // collection radius
+const CRATE_R_SQ = CRATE_R * CRATE_R
+const CRATE_SPAWN_EVERY = 9 // try to keep one weapon chest beckoning at all times
+const CRATE_MIN_DIST = 30 // chests appear at a distance — you go get them
+const CRATE_MAX_DIST = 58
+
+// --- Stealth (Phase 7) ---------------------------------------------------
+// While the player is laying low, zombies beyond this range lose their lock and
+// drift, and spawns pause — so hiding actually lets the horde thin out.
+const STEALTH_LOSE_DIST = 8 // crouch breaks the lock on anything past this range
+const STEALTH_LOSE_DIST_SQ = STEALTH_LOSE_DIST * STEALTH_LOSE_DIST
+
+// --- Nightfall (Phase 8) -------------------------------------------------
+const NIGHT_SPEED_MUL = 1.7 // zombies turn frighteningly fast after dark
+const NIGHT_SPAWN_MUL = 0.62 // ...and pour out faster (lower interval)
+const SHELTER_R = 6.5 // radius of a safe house — inside it the player is untouchable
+const SHELTER_R_SQ = SHELTER_R * SHELTER_R
 
 /** Closing-burst trigger range (squared) for lungers. */
 const LUNGE_DIST_SQ = 15 * 15
@@ -249,10 +294,19 @@ function CombatSystemImpl({
   paused,
   difficulty = 0,
   gunLevel = 0,
+  heartBonus = 0,
+  intensity = 0,
+  wantGlitch = false,
+  night = false,
+  shelters,
   onKill,
   onPlayerHit,
   onHeal,
+  onGlitchKill,
+  onChest,
   dashRef,
+  stealthRef,
+  gunHeatRef,
   shakeRef,
   hitstopRef,
 }: {
@@ -263,13 +317,31 @@ function CombatSystemImpl({
   difficulty?: number
   /** Current gun tier (0 = worst). Improves each checkpoint. */
   gunLevel?: number
+  /** Extra heart-drop chance per kill (learner-adaptive mercy for strugglers). */
+  heartBonus?: number
+  /** 0..1 progress through the current checkpoint siege — escalates the waves. */
+  intensity?: number
+  /** When true, the system seeds occasional Glitch carriers (knowledge-zombies). */
+  wantGlitch?: boolean
+  /** Night phase — zombies turn fast + deadly and the player must hide. */
+  night?: boolean
+  /** Safe-house positions; standing inside one during night = total safety. */
+  shelters?: { x: number; z: number }[]
   onKill: () => void
   /** Called when a zombie/acid reaches the player; `damage` = hearts lost (breed-specific). */
   onPlayerHit: (damage?: number) => void
   /** Called when the player walks over a dropped heart. */
   onHeal?: () => void
+  /** Called when a Glitch carrier is destroyed — triggers a knowledge surge. */
+  onGlitchKill?: () => void
+  /** Called when the player collects a weapon crate — triggers an overcharge. */
+  onChest?: () => void
   /** Shared blade-dash state — drives the slicing sweep + i-frames. */
   dashRef?: MutableRefObject<DashState>
+  /** Shared stealth state — when active, spawns pause and far zombies lose lock. */
+  stealthRef?: MutableRefObject<{ active: boolean }>
+  /** Shared gun-heat readout for the HUD (0..1 heat + overheated/jammed flag). */
+  gunHeatRef?: MutableRefObject<{ heat: number; overheated: boolean }>
   /** Camera-shake impulse channel (write magnitude; the controller decays it). */
   shakeRef?: MutableRefObject<number>
   /** Hit-stop channel: set to a future clock time to briefly slow the whole scene. */
@@ -277,9 +349,29 @@ function CombatSystemImpl({
 }) {
   const diffRef = useRef(0)
   diffRef.current = difficulty
+  const heartBonusRef = useRef(0)
+  heartBonusRef.current = heartBonus
+  const intensityRef = useRef(0)
+  intensityRef.current = intensity
+  const wantGlitchRef = useRef(false)
+  wantGlitchRef.current = wantGlitch
+  const nightRef = useRef(false)
+  nightRef.current = night
+  const sheltersRef = useRef(shelters)
+  sheltersRef.current = shelters
+  const onGlitchKillRef = useRef(onGlitchKill)
+  onGlitchKillRef.current = onGlitchKill
+  const onChestRef = useRef(onChest)
+  onChestRef.current = onChest
+  const glitchTimer = useRef(0)
+  const glitchActive = useRef(false)
+  const crateTimer = useRef(CRATE_SPAWN_EVERY * 0.5)
   const gunRef = useRef(GUNS[0])
   gunRef.current = gunForLevel(gunLevel)
   const lastFire = useRef(-9999)
+  // Gun heat (0..1) + the clock time the gun is jammed until after a redline.
+  const heatAmt = useRef(0)
+  const overheatUntil = useRef(0)
   const zombies = useMemo<ZombieSlot[]>(() => {
     const pool: ZombieSlot[] = Array.from({ length: MAX_ZOMBIES }, () => ({
       active: false,
@@ -343,6 +435,37 @@ function CombatSystemImpl({
       })),
     [],
   )
+
+  // Weapon crates the player can detour for — collecting one overcharges the gun.
+  const crates = useMemo<PickupSlot[]>(
+    () =>
+      Array.from({ length: MAX_CRATES }, () => ({
+        active: false,
+        pos: new THREE.Vector3(),
+        bornAt: 0,
+      })),
+    [],
+  )
+
+  function spawnCrate(px: number, pz: number, now: number) {
+    for (let i = 0; i < crates.length; i++) {
+      if (crates[i].active) continue
+      const ang = Math.random() * Math.PI * 2
+      const r = CRATE_MIN_DIST + Math.random() * (CRATE_MAX_DIST - CRATE_MIN_DIST)
+      let x = px + Math.cos(ang) * r
+      let z = pz + Math.sin(ang) * r
+      const edge = GROUND_HALF - 8
+      const d = Math.hypot(x, z)
+      if (d > edge) {
+        x *= edge / d
+        z *= edge / d
+      }
+      crates[i].active = true
+      crates[i].pos.set(x, 0, z)
+      crates[i].bornAt = now
+      return
+    }
+  }
 
   // Player i-frames + audio throttles (clock times). Live in refs so they never
   // trigger a React re-render from inside the frame loop.
@@ -444,6 +567,8 @@ function CombatSystemImpl({
   const boltTailRef = useRef<THREE.InstancedMesh>(null)
   const spitRef = useRef<THREE.InstancedMesh>(null)
   const pickupRef = useRef<THREE.InstancedMesh>(null)
+  const crateRef = useRef<THREE.InstancedMesh>(null)
+  const crateBeamRef = useRef<THREE.InstancedMesh>(null)
 
   const geo = useMemo(() => {
     const torso = new THREE.BoxGeometry(0.52, 0.7, 0.36)
@@ -467,7 +592,12 @@ function CombatSystemImpl({
     // Dropped health orb — a single glowing gem (one instanced draw call for the
     // whole drop pool). Reads as a pickup via its pink glow + bob/spin.
     const heart = new THREE.OctahedronGeometry(0.32, 0)
-    return { torso, head, eyes, arm, leg, boltCore, boltHead, boltTail, spit, heart }
+    // Weapon chest — a chunky glowing supply box…
+    const crate = new THREE.BoxGeometry(1.1, 1.1, 1.1)
+    // …with a tall light beam so you can spot it from across the city.
+    const crateBeam = new THREE.CylinderGeometry(0.7, 0.7, 40, 12, 1, true)
+    crateBeam.translate(0, 20, 0)
+    return { torso, head, eyes, arm, leg, boltCore, boltHead, boltTail, spit, heart, crate, crateBeam }
   }, [])
 
   const mats = useMemo(() => {
@@ -484,6 +614,8 @@ function CombatSystemImpl({
       boltTail: new THREE.MeshBasicMaterial({ color: '#46d6ff', transparent: true, opacity: 0.4, toneMapped: false, fog: false }),
       spit: new THREE.MeshStandardMaterial({ color: '#b6ff3a', emissive: '#7dff1a', emissiveIntensity: 1.4, roughness: 0.5, toneMapped: false }),
       heart: new THREE.MeshStandardMaterial({ color: '#ff5b7e', emissive: '#ff2d6a', emissiveIntensity: 1.6, roughness: 0.35, toneMapped: false }),
+      crate: new THREE.MeshStandardMaterial({ color: '#ffcf57', emissive: '#ff9b1a', emissiveIntensity: 1.1, roughness: 0.4, metalness: 0.3, toneMapped: false }),
+      crateBeam: new THREE.MeshBasicMaterial({ color: '#ffd76a', transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false, toneMapped: false, fog: false }),
     }
   }, [])
 
@@ -512,6 +644,7 @@ function CombatSystemImpl({
         new THREE.Color('#5a2526'),
         new THREE.Color('#27a83a'),
         new THREE.Color('#553a86'),
+        new THREE.Color('#16c7d6'),
       ],
       varHead: [
         new THREE.Color('#82a554'),
@@ -519,6 +652,7 @@ function CombatSystemImpl({
         new THREE.Color('#7a3433'),
         new THREE.Color('#5cf06a'),
         new THREE.Color('#9a73e0'),
+        new THREE.Color('#5ef2ff'),
       ],
       varArm: [
         new THREE.Color('#6f8f49'),
@@ -526,7 +660,9 @@ function CombatSystemImpl({
         new THREE.Color('#642a2a'),
         new THREE.Color('#3fae49'),
         new THREE.Color('#6f4fae'),
+        new THREE.Color('#2bd6e6'),
       ],
+      glitchGlow: new THREE.Color('#7af7ff'),
       flash: new THREE.Color('#ff5630'),
       // Telegraph glows: spitters charge acid-green, brutes rear up molten-orange.
       spitGlow: new THREE.Color('#e6ff7a'),
@@ -541,8 +677,18 @@ function CombatSystemImpl({
       const gun = gunRef.current
       // Rate of fire — weak guns shoot slowly, top guns rip.
       const now = performance.now()
+      // Jammed: the gun redlined and is venting heat — reach for the sword (Q).
+      if (now < overheatUntil.current) return false
       if (now - lastFire.current < gun.cooldown * 1000) return false
       lastFire.current = now
+
+      // Build heat; redline = a forced cooldown so you can't hold-fire forever.
+      heatAmt.current += HEAT_PER_SHOT
+      if (heatAmt.current >= 1) {
+        heatAmt.current = 1
+        overheatUntil.current = now + OVERHEAT_MS
+        if (shakeRef) shakeRef.current = Math.max(shakeRef.current, 0.3)
+      }
 
       // Travel along the laser sight the player sees.
       const v = fireDir.current.copy(dir).normalize()
@@ -625,6 +771,14 @@ function CombatSystemImpl({
         for (let i = 0; i < MAX_PICKUPS; i++) pickupRef.current.setMatrixAt(i, scratch.hidden)
         pickupRef.current.instanceMatrix.needsUpdate = true
       }
+      if (crateRef.current) {
+        for (let i = 0; i < MAX_CRATES; i++) crateRef.current.setMatrixAt(i, scratch.hidden)
+        crateRef.current.instanceMatrix.needsUpdate = true
+      }
+      if (crateBeamRef.current) {
+        for (let i = 0; i < MAX_CRATES; i++) crateBeamRef.current.setMatrixAt(i, scratch.hidden)
+        crateBeamRef.current.instanceMatrix.needsUpdate = true
+      }
     }
     if (paused) return
     const now = state.clock.elapsedTime
@@ -634,26 +788,68 @@ function CombatSystemImpl({
     const slowed = hitstopRef ? now < hitstopRef.current : false
     const dt = Math.min(dtRaw, 0.05) * (slowed ? 0.18 : 1)
     const player = playerPosRef.current
-    const invuln = now < invulnUntil.current
+    const isNight = nightRef.current
+
+    // Safe house: inside any shelter zone during the night, the player is
+    // completely untouchable — the heart of "find shelter or die".
+    let sheltered = false
+    if (isNight && sheltersRef.current) {
+      const sh = sheltersRef.current
+      for (let i = 0; i < sh.length; i++) {
+        const sdx = sh[i].x - player.x
+        const sdz = sh[i].z - player.z
+        if (sdx * sdx + sdz * sdz <= SHELTER_R_SQ) {
+          sheltered = true
+          break
+        }
+      }
+    }
+    // Sheltering counts as full invulnerability for every damage source below.
+    const invuln = now < invulnUntil.current || sheltered
+
+    // Gun heat cools over time; publish it (and the jammed flag) for the HUD.
+    const nowMs = performance.now()
+    const overheated = nowMs < overheatUntil.current
+    heatAmt.current = Math.max(
+      0,
+      heatAmt.current - HEAT_DECAY * (overheated ? 0.6 : 1) * dt,
+    )
+    if (gunHeatRef) {
+      gunHeatRef.current.heat = heatAmt.current
+      gunHeatRef.current.overheated = overheated
+    }
 
     // Blade-dash sweep (slices walkers + grants i-frames against contact + acid).
     const dash = dashRef?.current
     const dashActive = !!dash && dash.active
     const dashR2 = dash ? dash.radius * dash.radius : 0
 
+    // Stealth: while laying low, spawns pause and far zombies lose their lock.
+    // Sheltering makes ALL zombies disengage, not just distant ones.
+    const stealthed = !!stealthRef?.current?.active
+
     // Difficulty tier (1 = first checkpoint). Already punchy at tier 1 to hook the
     // player, then a gentle climb so later levels aren't a brick wall.
     const tier = Math.max(1, diffRef.current)
-    const speed = Math.min(7.8, ZOMBIE_SPEED + (tier - 1) * 0.26)
-    const spawnEvery = Math.max(0.22, SPAWN_EVERY - (tier - 1) * 0.03)
-    const spawnHp = ZOMBIE_HP + Math.min(7, Math.floor((tier - 1) / 2))
+    // Siege escalation: the deeper into a checkpoint's hold-out you are, the
+    // thicker and faster the waves get — building to a frantic climax.
+    const inten = intensityRef.current
+    // After dark the horde turns fast + relentless — standing your ground is death.
+    const speed =
+      Math.min(8.4, ZOMBIE_SPEED + (tier - 1) * 0.26 + inten * 1.2) *
+      (isNight ? NIGHT_SPEED_MUL : 1)
+    const spawnEvery =
+      Math.max(0.2, (SPAWN_EVERY - (tier - 1) * 0.03) * (1 - inten * 0.4)) *
+      (isNight ? NIGHT_SPAWN_MUL : 1)
+    const spawnHp = ZOMBIE_HP + Math.min(7, Math.floor((tier - 1) / 2)) + Math.round(inten * 2)
 
     // --- Spawning ---------------------------------------------------------
+    // Laying low pauses the wave spawner, so hiding actually thins the horde.
     spawnTimer.current += dt
-    if (spawnTimer.current >= spawnEvery) {
+    if (!stealthed && spawnTimer.current >= spawnEvery) {
       spawnTimer.current = 0
       // Hordes — spawn big packs even early so there's always plenty to blast.
-      const burst = tier >= 8 ? 12 : tier >= 3 ? 10 : 7
+      const burst = (tier >= 8 ? 12 : tier >= 3 ? 10 : 7) + Math.round(inten * 5)
       for (let b = 0; b < burst; b++) {
         const slot = zombies.find((z) => !z.active)
         if (!slot) break
@@ -683,6 +879,46 @@ function CombatSystemImpl({
       }
     }
 
+    // --- Knowledge glitch: a single special carrier when one is wanted ----
+    if (wantGlitchRef.current && !glitchActive.current && !stealthed) {
+      glitchTimer.current += dt
+      if (glitchTimer.current >= GLITCH_SPAWN_EVERY) {
+        glitchTimer.current = 0
+        const slot = zombies.find((z) => !z.active)
+        if (slot) {
+          const ang = Math.random() * Math.PI * 2
+          let x = player.x + Math.cos(ang) * GLITCH_SPAWN_R
+          let z = player.z + Math.sin(ang) * GLITCH_SPAWN_R
+          const edge = GROUND_HALF - 6
+          const d = Math.hypot(x, z)
+          if (d > edge) {
+            x *= edge / d
+            z *= edge / d
+          }
+          const vdef = VARIANTS[VAR_GLITCH]
+          slot.active = true
+          slot.state = 'walk'
+          slot.variant = VAR_GLITCH
+          slot.hp = Math.max(1, Math.round(spawnHp * vdef.hpMul) + vdef.hpAdd)
+          slot.pos.set(x, 0, z)
+          slot.hitAt = -10
+          slot.bornAt = now
+          slot.seed = Math.random() * 10
+          slot.castAt = 0
+          slot.cd = 0
+          glitchActive.current = true
+        }
+      }
+    }
+
+    // --- Weapon chest: always keep one beckoning objective on the map -----
+    crateTimer.current += dt
+    if (crateTimer.current >= CRATE_SPAWN_EVERY) {
+      crateTimer.current = 0
+      const anyCrate = crates.some((c) => c.active)
+      if (!anyCrate) spawnCrate(player.x, player.z, now)
+    }
+
     // --- Zombies ----------------------------------------------------------
     for (let zi = 0; zi < zombies.length; zi++) {
       const z = zombies[zi]
@@ -709,7 +945,12 @@ function CombatSystemImpl({
             lastKillSfx.current = now
             playEnemyKill()
           }
-          if (Math.random() < (DROP_CHANCE[z.variant] ?? 0.06)) dropHeart(z.pos.x, z.pos.z, now)
+          if (Math.random() < (DROP_CHANCE[z.variant] ?? 0.06) + heartBonusRef.current)
+            dropHeart(z.pos.x, z.pos.z, now)
+          if (z.variant === VAR_GLITCH) {
+            glitchActive.current = false
+            onGlitchKillRef.current?.()
+          }
           onKill()
           continue
         }
@@ -717,6 +958,20 @@ function CombatSystemImpl({
 
       if (d2 > DESPAWN_DIST_SQ) {
         z.active = false
+        if (z.variant === VAR_GLITCH) glitchActive.current = false
+        continue
+      }
+      // Inside a safe house, EVERY zombie disengages and idles.
+      if (sheltered) continue
+      // Laying low fools the shamblers: melee breeds past close range lose your
+      // trail and wander AWAY, so crouching shakes a chase. BUT spitters are
+      // SENSORS — they keep their lock and keep sniping, so you can't just hide
+      // from everything; you still have to deal with the ranged casters.
+      if (stealthed && d2 > STEALTH_LOSE_DIST_SQ && !vdef.ranged) {
+        const d = Math.sqrt(d2) || 1
+        z.pos.x -= (dx / d) * speed * 0.35 * dt
+        z.pos.z -= (dz / d) * speed * 0.35 * dt
+        z.facing = Math.atan2(-dx, -dz)
         continue
       }
       if (d2 <= ATTACK_DIST * ATTACK_DIST) {
@@ -729,11 +984,12 @@ function CombatSystemImpl({
           z.pos.z -= (dz / d) * 2.2
           continue
         }
-        onPlayerHit(vdef.dmg)
+        onPlayerHit(vdef.dmg + (isNight ? 1 : 0))
         invulnUntil.current = now + PLAYER_IFRAME
         kick(now, 0.6, 0.07)
         z.state = 'die'
         z.dieAt = now
+        if (z.variant === VAR_GLITCH) glitchActive.current = false
         spawnBurst(z.pos.x, z.pos.z, now)
         continue
       }
@@ -827,7 +1083,9 @@ function CombatSystemImpl({
           a.active = false
           // Precision/weak-point crit: clean (self-aimed) shots crit far more.
           const crit = Math.random() < (a.aimed ? CRIT_CHANCE_AIMED : CRIT_CHANCE_ASSISTED)
-          const dmg = crit ? a.damage * CRIT_DMG_MULT : a.damage
+          let dmg = crit ? a.damage * CRIT_DMG_MULT : a.damage
+          // Brutes are bullet-armored — chip them with bolts or (better) sword them.
+          if (z.variant === VAR_BRUTE) dmg = Math.max(1, Math.round(dmg * BRUTE_BULLET_MUL))
           z.hp -= dmg
           z.hitAt = now
           if (crit) {
@@ -853,7 +1111,12 @@ function CombatSystemImpl({
             }
             // Brutes are a slog, so they pay out — a heart on top of a small shake.
             if (z.variant === VAR_BRUTE) kick(now, 0.3, 0.05)
-            if (Math.random() < (DROP_CHANCE[z.variant] ?? 0.06)) dropHeart(z.pos.x, z.pos.z, now)
+            if (Math.random() < (DROP_CHANCE[z.variant] ?? 0.06) + heartBonusRef.current)
+              dropHeart(z.pos.x, z.pos.z, now)
+            if (z.variant === VAR_GLITCH) {
+              glitchActive.current = false
+              onGlitchKillRef.current?.()
+            }
             onKill()
           }
           break
@@ -890,7 +1153,7 @@ function CombatSystemImpl({
       if (hdx * hdx + hdy * hdy + hdz * hdz < SPIT_HIT_R_SQ) {
         s.active = false
         if (!dashActive && !invuln) {
-          onPlayerHit(1)
+          onPlayerHit(isNight ? 2 : 1)
           invulnUntil.current = now + PLAYER_IFRAME
           kick(now, 0.5, 0.06)
         }
@@ -913,6 +1176,23 @@ function CombatSystemImpl({
       }
     }
 
+    // --- Weapon crates: fade out over time, collect on contact -----------
+    for (let ci = 0; ci < crates.length; ci++) {
+      const cr = crates[ci]
+      if (!cr.active) continue
+      if (now - cr.bornAt > CRATE_LIFE) {
+        cr.active = false
+        continue
+      }
+      const cdx = cr.pos.x - player.x
+      const cdz = cr.pos.z - player.z
+      if (cdx * cdx + cdz * cdz < CRATE_R_SQ) {
+        cr.active = false
+        kick(now, 0.25, 0.04)
+        onChestRef.current?.()
+      }
+    }
+
     // --- One instanced visual pass for the whole horde -------------------
     const torso = torsoRef.current
     const head = headRef.current
@@ -923,7 +1203,7 @@ function CombatSystemImpl({
     const legR = legRRef.current
     const {
       o, mBody, mTorso, mHead, mNode, hidden, col, varTorso, varHead, varArm, flash,
-      spitGlow, slamGlow,
+      spitGlow, slamGlow, glitchGlow,
     } = scratch
 
     if (torso && head && eyes && armL && armR && legL && legR) {
@@ -1067,17 +1347,25 @@ function CombatSystemImpl({
         legR.setMatrixAt(i, mNode)
 
         // Per-breed tint + red hit-flash + a pulsing telegraph glow while casting.
+        // Glitch carriers pulse cyan constantly so they read as "special".
         const vi = z.variant
         const teleAmt = casting ? (0.35 + 0.5 * Math.abs(Math.sin(now * 16))) * castP : 0
         const teleCol = z.variant === VAR_BRUTE ? slamGlow : spitGlow
+        const glitchAmt =
+          z.variant === VAR_GLITCH && z.state === 'walk'
+            ? 0.3 + 0.45 * Math.abs(Math.sin(now * 6 + z.seed))
+            : 0
         col.copy(varTorso[vi]).lerp(flash, flashAmt)
         if (teleAmt > 0) col.lerp(teleCol, teleAmt)
+        if (glitchAmt > 0) col.lerp(glitchGlow, glitchAmt)
         torso.setColorAt(i, col)
         col.copy(varHead[vi]).lerp(flash, flashAmt)
         if (teleAmt > 0) col.lerp(teleCol, teleAmt)
+        if (glitchAmt > 0) col.lerp(glitchGlow, glitchAmt)
         head.setColorAt(i, col)
         col.copy(varArm[vi]).lerp(flash, flashAmt)
         if (teleAmt > 0) col.lerp(teleCol, teleAmt)
+        if (glitchAmt > 0) col.lerp(glitchGlow, glitchAmt)
         armL.setColorAt(i, col)
         armR.setColorAt(i, col)
       }
@@ -1188,6 +1476,37 @@ function CombatSystemImpl({
       }
       pkMesh.instanceMatrix.needsUpdate = true
     }
+
+    // --- Weapon chests + their guiding light beams (instanced) -----------
+    const crMesh = crateRef.current
+    const beamMesh = crateBeamRef.current
+    if (crMesh) {
+      for (let i = 0; i < crates.length; i++) {
+        const cr = crates[i]
+        if (!cr.active) {
+          crMesh.setMatrixAt(i, hidden)
+          if (beamMesh) beamMesh.setMatrixAt(i, hidden)
+          continue
+        }
+        const age = now - cr.bornAt
+        const remain = THREE.MathUtils.clamp((CRATE_LIFE - age) / 2, 0, 1)
+        o.position.set(cr.pos.x, 0.6 + Math.sin(now * 2 + i) * 0.14, cr.pos.z)
+        o.rotation.set(0, now * 1.1 + i, 0)
+        o.scale.set(remain, remain, remain)
+        o.updateMatrix()
+        crMesh.setMatrixAt(i, o.matrix)
+        if (beamMesh) {
+          const pulse = 0.85 + Math.sin(now * 3 + i) * 0.15
+          o.position.set(cr.pos.x, 0, cr.pos.z)
+          o.rotation.set(0, 0, 0)
+          o.scale.set(pulse, 1, pulse)
+          o.updateMatrix()
+          beamMesh.setMatrixAt(i, o.matrix)
+        }
+      }
+      crMesh.instanceMatrix.needsUpdate = true
+      if (beamMesh) beamMesh.instanceMatrix.needsUpdate = true
+    }
   })
 
   return (
@@ -1210,6 +1529,9 @@ function CombatSystemImpl({
       <instancedMesh ref={spitRef} args={[geo.spit, mats.spit, MAX_SPITS]} frustumCulled={false} />
 
       <instancedMesh ref={pickupRef} args={[geo.heart, mats.heart, MAX_PICKUPS]} frustumCulled={false} />
+
+      <instancedMesh ref={crateRef} args={[geo.crate, mats.crate, MAX_CRATES]} frustumCulled={false} />
+      <instancedMesh ref={crateBeamRef} args={[geo.crateBeam, mats.crateBeam, MAX_CRATES]} frustumCulled={false} />
 
       {bursts.map((_, i) => (
         <mesh

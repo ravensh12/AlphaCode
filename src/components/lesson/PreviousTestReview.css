@@ -1,0 +1,64 @@
+/* Trigger button sits in the lesson top bar, next to the exit arrow. */
+.lp-review-prev {
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+/* Dark modal — inherits the .lp Code City night vars from its ancestor. */
+.prevtest-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 5vh 16px;
+  overflow-y: auto;
+  background: rgba(5, 9, 12, 0.7);
+  backdrop-filter: blur(6px);
+  animation: prevtestFade 0.18s ease both;
+}
+
+.prevtest-modal {
+  width: 100%;
+  max-width: 1040px;
+  background: var(--cc-glass-3, rgba(7, 14, 14, 0.92));
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+  border-radius: var(--radius-lg, 20px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  padding: 22px 22px 26px;
+  color: var(--cc-text, #eef7f2);
+}
+
+.prevtest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.prevtest-title {
+  font-family: var(--display);
+  font-size: 21px;
+  margin: 0;
+  color: var(--cc-text, #eef7f2);
+}
+
+.prevtest-sub {
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--cc-text-soft, #9bbcb2);
+}
+
+@keyframes prevtestFade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -112,6 +112,22 @@
   border-left: 4px solid var(--lime);
 }
 
+/* Daily warm-up card (spaced retrieval entry point) */
+.course-warmup {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.course-warmup:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+}
+
 /* Review banner */
 .course-review-banner {
   display: flex;

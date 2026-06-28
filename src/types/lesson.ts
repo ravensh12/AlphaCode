@@ -136,6 +136,11 @@ export type Lesson = {
     minimumMastery?: number
   }
   steps: LessonStep[]
+  /**
+   * Set when the quiz was personalized to the learner: 'lightened' = fewer
+   * questions for a strong learner, 'reinforced' = extra practice for a weak one.
+   */
+  adapted?: 'lightened' | 'reinforced'
 }
 
 export type LessonSummary = {

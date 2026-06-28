@@ -10,6 +10,7 @@ import {
   ReviewBreakdown,
   stepToReview,
 } from '../components/lesson/ReviewBreakdown'
+import { ReviewTutor, type ReviewTutorItem } from '../components/ReviewTutor'
 import { LessonNotice, LessonRound } from './LessonPage'
 import type { LessonResult } from '../hooks/useLessonEngine'
 import type { Lesson } from '../types/lesson'
@@ -117,10 +118,27 @@ export function ReviewPage() {
   )
   const missedCount = missedIds.length
 
+  // Bit review helper, built from the full lesson steps (richer concept + hint
+  // context). Only interactive (answerable) steps; missed ones first.
+  const tutorItems: ReviewTutorItem[] = review.steps
+    .filter((s) => s.targetVariables && s.targetVariables.length > 0)
+    .map((s) => ({ s, missed: missedIds.includes(s.id) }))
+    .sort((a, b) => Number(b.missed) - Number(a.missed))
+    .map(({ s, missed }, i) => ({
+      label: `Q${i + 1}${missed ? ' · missed' : ''}`,
+      context: {
+        prompt: s.prompt,
+        code: s.code,
+        concept: s.conceptTags?.join(' · ') || lessonTitle,
+        hint: s.hints?.[0] ?? s.feedback?.incorrect ?? '',
+        answered: true,
+      },
+    }))
+
   return (
     <div className="page">
       <AppHeader />
-      <main className="container lp">
+      <main className="container lp lp-review">
         <div className="lp-top">
           <Link to={`/world/${lessonId}`} className="lp-exit" aria-label="Back to world">
             <IconArrowLeft size={18} />
@@ -155,7 +173,14 @@ export function ReviewPage() {
             </div>
           </div>
 
-          <ReviewBreakdown reviews={reviews} />
+          {tutorItems.length > 0 ? (
+            <div className="review-grid">
+              <ReviewBreakdown reviews={reviews} />
+              <ReviewTutor items={tutorItems} />
+            </div>
+          ) : (
+            <ReviewBreakdown reviews={reviews} />
+          )}
 
           <div className="completion-actions">
             {missedCount > 0 && (

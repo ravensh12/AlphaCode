@@ -10,8 +10,9 @@ import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
 import { useGauntlet } from '../context/GauntletContext'
 import { usePlayerLevel } from '../context/PlayerLevelContext'
-import { KILL_XP } from '../lib/playerLevel'
+import { KILL_XP, answerXp } from '../lib/playerLevel'
 import { grantBossEntry, grantLessonEntry } from '../lib/gameAccess'
+import { prefetchBossBattle } from '../lib/prefetchBattle'
 import {
   BOSS_DONE_KEY,
   clearQuestRun,
@@ -21,6 +22,7 @@ import {
   PART_DONE_KEY,
   POS_KEY,
   SKIP_SPAWN_KEY,
+  spawnAtLevel,
   TOUR_KEY,
 } from '../lib/questSession'
 import {
@@ -34,9 +36,13 @@ import { LESSON_CATALOG } from '../content/catalog'
 import { WORLDS, WORLD_COUNT, type World } from '../content/adventure'
 import { getWorldState } from '../lib/questState'
 import {
+  combatAdjustForBand,
   hordeTierAtPosition,
   questHordeTier,
 } from '../lib/hordeTier'
+import { targetConcept, weakestBand } from '../lib/learnerModel'
+import { getMicroQuestion, type MicroQuestion } from '../content/microQuestions'
+import type { ConceptId } from '../types/lesson'
 import type { LessonSummary } from '../types/lesson'
 import {
   Ground,
@@ -59,7 +65,6 @@ import {
   WORLD_GATES,
   GATES_PER_WORLD,
   questDoor,
-  roadRoute,
   type Vec2,
 } from '../components/game3d/layout'
 import { IconBolt, IconGrid, IconCompass } from '../components/icons'
@@ -78,6 +83,13 @@ const SUMMARY_BY_ID: Record<string, LessonSummary> = Object.fromEntries(
   LESSON_CATALOG.map((l) => [l.id, l]),
 )
 
+// Safe houses: the spawn plaza + every checkpoint gate along the route. During
+// the night these glow and become the player's shelter from the fast horde.
+const SHELTERS: Vec2[] = [
+  { x: START_3D.x, z: START_3D.z },
+  ...WORLD_GATES.flat().map((g) => ({ x: g.x, z: g.z })),
+]
+
 // stage 0..GATES_PER_WORLD-1 = a lesson-part gate; stage === GATES_PER_WORLD = boss.
 type TourSave = { world: number; stage: number }
 
@@ -85,7 +97,38 @@ const BOSS_STAGE = GATES_PER_WORLD
 /** The gun starts solid (a punchy mid-tier blaster — never the awful tier-0/1
  * slinger) and upgrades toward the top-tier cannon as the player progresses Code
  * City, so the shooting visibly grows over a playthrough without ever feeling weak. */
-const MIN_GUN_LEVEL = 2
+// Start weak on purpose — you must LOOT chests to build a real arsenal (Fortnite).
+const MIN_GUN_LEVEL = 1
+
+/** How long a collected weapon crate overcharges the gun to the top tier. */
+const OVERCHARGE_MS = 18000
+
+/**
+ * Hold-out siege: each checkpoint is a survival gauntlet. You must survive this
+ * many seconds of escalating waves before the gate UNLOCKS and you can enter.
+ * Combined with the walk-in, a checkpoint takes roughly a couple of minutes.
+ * Level 1 is a gentle onboarding ramp (short holds) before the full siege.
+ */
+const LEG_HOLD_SECONDS = 95
+const FIRST_LEVEL_HOLD_SECONDS = 30
+const EARLY_LEVEL_HOLD_SECONDS = 60
+
+/**
+ * Seconds you must hold out at a checkpoint, by level index (0-based). A gentle
+ * ramp: Level 1 onboards at 30s, Levels 2–4 sit at 60s, and the full siege
+ * (95s) kicks in from Level 5 onward.
+ */
+function legHoldSecondsFor(world: number): number {
+  if (world === 0) return FIRST_LEVEL_HOLD_SECONDS
+  if (world < 4) return EARLY_LEVEL_HOLD_SECONDS // Levels 2–4
+  return LEG_HOLD_SECONDS // Level 5+
+}
+
+/** Day/night cycle: seconds of daylight, then a survival night. */
+const DAY_LENGTH = 32
+const NIGHT_LENGTH = 18
+/** Safe-house radius (kept in sync with CombatSystem's SHELTER_R). */
+const SHELTER_R = 6.5
 
 /** Combo timing + score: chained kills within the window stack a multiplier that
  *  boosts XP, rewarding aggressive, continuous fighting over passive kiting. */
@@ -95,19 +138,6 @@ function comboMultiplier(combo: number): number {
   if (combo >= 12) return 2
   if (combo >= 5) return 1.5
   return 1
-}
-
-/** Effective travel pace (m/s) while fighting through the horde toward a goal. */
-const TRAVEL_SPEED = 5.0
-/** Base slack (seconds) on top of travel time for aiming + clearing zombies. */
-const LEG_BUFFER = 22
-
-function routeLength(pts: Vec2[]): number {
-  let total = 0
-  for (let i = 0; i < pts.length - 1; i++) {
-    total += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].z - pts[i].z)
-  }
-  return total
 }
 
 /** Where the player begins the given leg (previous objective door). */
@@ -127,23 +157,6 @@ function legOrigin(world: number, stage: number, atBoss: boolean): Vec2 {
     return questDoor(CHECKPOINTS_3D[world - 1].boss, 6.5)
   }
   return WORLD_GATES[world][stage - 1]
-}
-
-/**
- * Seconds allowed for one leg — scaled to the actual road distance so every
- * checkpoint is comfortably reachable, with a slight per-level tightening so the
- * run keeps getting harder without ever feeling unfair.
- */
-function legSeconds(world: number, stage: number, atBoss: boolean, fromX?: number, fromZ?: number): number {
-  const target = atBoss ? CHECKPOINTS_3D[world].boss : WORLD_GATES[world][stage]
-  // Measure from where the player actually is (falls back to the leg's spawn
-  // point) so the budget is always honestly proportional to the road distance.
-  const from =
-    fromX != null && fromZ != null ? { x: fromX, z: fromZ } : legOrigin(world, stage, atBoss)
-  const dist = routeLength(roadRoute(from, target))
-  const tighten = 1 - Math.min(0.1, world * 0.02) // only ~10% tighter by Level 6
-  const raw = (dist / TRAVEL_SPEED + LEG_BUFFER) * tighten
-  return Math.max(24, Math.round(raw))
 }
 
 type Milestone = { title: string; body: string }
@@ -264,11 +277,15 @@ function MiniMap({
   headingRef,
   states,
   activeIndex,
+  night,
+  shelterTarget,
 }: {
   playerPosRef: React.MutableRefObject<THREE.Vector3>
   headingRef: React.MutableRefObject<number>
   states: WorldStateEntry[]
   activeIndex: number
+  night?: boolean
+  shelterTarget?: { x: number; z: number } | null
 }) {
   const SIZE = 152
   const R = GROUND_HALF
@@ -336,6 +353,28 @@ function MiniMap({
               />
             )
           })}
+          {/* safe houses — shown at night so you can navigate to shelter */}
+          {night &&
+            SHELTERS.map((s, i) => {
+              const p = proj(s)
+              const isTarget =
+                !!shelterTarget &&
+                Math.abs(shelterTarget.x - s.x) < 1 &&
+                Math.abs(shelterTarget.z - s.z) < 1
+              return (
+                <circle
+                  key={`mm-safe-${i}`}
+                  cx={p.x}
+                  cy={p.y}
+                  r={isTarget ? 4.5 : 2.4}
+                  fill="#5ef2ff"
+                  stroke={isTarget ? '#ffffff' : 'none'}
+                  strokeWidth={isTarget ? 1.4 : 0}
+                  className={isTarget ? 'mm-active' : undefined}
+                  opacity={isTarget ? 1 : 0.7}
+                />
+              )
+            })}
           {/* player */}
           <g transform={`translate(${me.x} ${me.y}) rotate(${me.deg})`}>
             <path d="M0,-6 L4,5 L0,2.5 L-4,5 Z" fill="#ffffff" stroke="#0b1322" strokeWidth={0.8} />
@@ -421,6 +460,8 @@ export function Overworld3DPage() {
     lessons,
     interZoneComplete,
     readyForFinalGauntlet,
+    learnerModel,
+    recordConceptResult,
   } = useProgress()
   const { state: gauntlet } = useGauntlet()
   const { addXp, info: playerLevel, title: playerTitle } = usePlayerLevel()
@@ -525,6 +566,18 @@ export function Overworld3DPage() {
   const positionLabel = tourDone
     ? 'All levels cleared!'
     : questPositionLabel(tourWorldClamped, stageClamped, atBoss)
+
+  // Adaptive combat: tune the horde + timer to how well the learner knows the
+  // concept this level teaches. Struggling = gentler & more time; confident =
+  // tougher & tighter. This is what makes the run different per kid.
+  const learnerBand = useMemo(
+    () => weakestBand(learnerModel, LESSON_CATALOG[tourWorldClamped]?.conceptTags ?? []),
+    [learnerModel, tourWorldClamped],
+  )
+  const combatAdjust = useMemo(
+    () => combatAdjustForBand(learnerBand),
+    [learnerBand],
+  )
   const questTier = questHordeTier(tourWorldClamped, stageClamped, atBoss)
 
   const worldEntries = useMemo(
@@ -620,6 +673,15 @@ export function Overworld3DPage() {
     ready: true,
   })
 
+  // Shared stealth state: the controller writes it (crouch), CombatSystem reads
+  // it to pause spawns + drop aggro on far zombies.
+  const stealthRef = useRef<{ active: boolean }>({ active: false })
+  // Shared gun-heat readout: CombatSystem writes it, the HUD polls it.
+  const gunHeatRef = useRef<{ heat: number; overheated: boolean }>({
+    heat: 0,
+    overheated: false,
+  })
+
   // Combat: pooled zombies + arrows live in CombatSystem; we keep score/HP here.
   const combatApi = useRef<CombatApi | null>(null)
   const [kills, setKills] = useState(0)
@@ -628,7 +690,31 @@ export function Overworld3DPage() {
   const [invuln, setInvuln] = useState(false)
   const [combo, setCombo] = useState(0)
   const [dead, setDead] = useState(false)
-  const [deathReason, setDeathReason] = useState<'zombies' | 'time'>('zombies')
+  // Stealth HUD flag (mirrors stealthRef for the on-screen indicator).
+  const [stealthOn, setStealthOn] = useState(false)
+  // Gun heat HUD (0..1) + jammed flag, polled from gunHeatRef.
+  const [gunHeat, setGunHeat] = useState(0)
+  const [gunJammed, setGunJammed] = useState(false)
+  // Knowledge surge: the concept question raised by destroying a Glitch carrier.
+  const [surge, setSurge] = useState<MicroQuestion | null>(null)
+  const [surgeResult, setSurgeResult] = useState<null | 'right' | 'wrong'>(null)
+  // Weapon overcharge: clock (ms) until a collected crate's boost expires.
+  const [overchargeUntil, setOverchargeUntil] = useState(0)
+  const [overcharge, setOvercharge] = useState(false)
+  // Permanent (run-scoped) gun tiers earned by collecting weapon chests.
+  const [crateGunBonus, setCrateGunBonus] = useState(0)
+  // Day/night cycle. At night the horde turns deadly and the player must shelter.
+  const [night, setNight] = useState(false)
+  const [nightLeft, setNightLeft] = useState(0)
+  const [sheltered, setSheltered] = useState(false)
+  // Nearest safe house (distance + on-screen arrow bearing) for night navigation.
+  const [shelterInfo, setShelterInfo] = useState<
+    { dist: number; angleDeg: number; x: number; z: number } | null
+  >(null)
+  const nightRef = useRef(false)
+  nightRef.current = night
+  const dayClockRef = useRef(0)
+  const nightClockRef = useRef(0)
   // Bumping this remounts the controller + combat: clear zombies on a fresh run.
   const [runId, setRunId] = useState(0)
   const hurtTimer = useRef<number | null>(null)
@@ -650,9 +736,20 @@ export function Overworld3DPage() {
 
   // The gun starts solid and upgrades with progress (mastered worlds / how deep
   // into the tour you are), so the shooting visibly grows over a playthrough.
-  const gunLevel = Math.min(
+  // Base gun grows with progress; weapon chests you hunt down stack on top.
+  const baseGunLevel = Math.min(
     GUNS.length - 1,
     MIN_GUN_LEVEL + Math.max(clearedCount, Math.min(tourWorld, WORLD_COUNT - 1)),
+  )
+  const gunLevel = Math.min(GUNS.length - 1, baseGunLevel + crateGunBonus)
+  // A freshly collected crate also overcharges the gun to the very top for a bit.
+  const effectiveGunLevel = overcharge ? GUNS.length - 1 : gunLevel
+
+  // Concept to target with knowledge-zombies right now: something due for review,
+  // else the learner's weakest practiced concept. Undefined for brand-new players.
+  const targetConceptId = useMemo(
+    () => targetConcept(learnerModel),
+    [learnerModel],
   )
 
   // Stable callbacks (useCallback) so the memoized CombatSystem / controller
@@ -685,7 +782,6 @@ export function Overworld3DPage() {
     setHp((h) => {
       const next = h - Math.max(1, Math.round(damage))
       if (next <= 0) {
-        setDeathReason('zombies')
         setDead(true)
         return 0
       }
@@ -699,15 +795,92 @@ export function Overworld3DPage() {
     setHp((h) => Math.min(MAX_HP, h + 1))
   }, [])
 
-  // Any death = restart the whole run at Level 1, ALWAYS from the same spawn
-  // plaza facing the first checkpoint. Hearts and timer reset; lessons stay saved.
-  function restartGame() {
-    clearQuestRun()
-    savedPosRef.current = null
-    playerPosRef.current.set(START_3D.x, 0, START_3D.z)
-    const firstDoor = questDoor(WORLD_GATES[0][0])
-    headingRef.current = Math.atan2(firstDoor.x - START_3D.x, firstDoor.z - START_3D.z)
-    setTourWorld(0)
+  // A Glitch carrier was destroyed → raise its concept question (knowledge surge).
+  const targetConceptRef = useRef<ConceptId | undefined>(targetConceptId)
+  targetConceptRef.current = targetConceptId
+  const handleGlitchKill = useCallback(() => {
+    if (deadRef.current) return
+    const concept = targetConceptRef.current
+    if (!concept) return
+    const q = getMicroQuestion(concept)
+    if (!q) return
+    setSurgeResult(null)
+    setSurge(q)
+  }, [])
+
+  // A weapon crate was collected → permanently upgrade the gun for this run
+  // (stacking toward the top tier) and overcharge it for a short burst.
+  const handleChest = useCallback(() => {
+    if (deadRef.current) return
+    playHeartPickup()
+    setCrateGunBonus((b) => b + 1)
+    setOverchargeUntil(performance.now() + OVERCHARGE_MS)
+    setOvercharge(true)
+  }, [])
+
+  // Stealth indicator (the controller calls this only when crouch toggles).
+  const handleStealthChange = useCallback((active: boolean) => {
+    setStealthOn(active)
+  }, [])
+
+  // Answer the knowledge-surge question: feed the learner model + reward.
+  const answerSurge = useCallback(
+    (choiceIndex: number) => {
+      setSurge((q) => {
+        if (!q) return null
+        const correct = choiceIndex === q.answerIndex
+        recordConceptResult({
+          conceptIds: [q.concept],
+          firstTry: true,
+          correct,
+        })
+        if (correct) {
+          addXp(answerXp(true, true, 2500))
+          setHp((h) => Math.min(MAX_HP, h + 2))
+        }
+        setSurgeResult(correct ? 'right' : 'wrong')
+        return q
+      })
+      // Auto-dismiss shortly after showing the result.
+      window.setTimeout(() => {
+        setSurge(null)
+        setSurgeResult(null)
+      }, 1400)
+    },
+    [recordConceptResult, addXp],
+  )
+
+  // Expire the weapon overcharge when its window runs out.
+  useEffect(() => {
+    if (!overcharge) return
+    const remaining = overchargeUntil - performance.now()
+    if (remaining <= 0) {
+      setOvercharge(false)
+      return
+    }
+    const id = window.setTimeout(() => setOvercharge(false), remaining)
+    return () => window.clearTimeout(id)
+  }, [overcharge, overchargeUntil])
+
+  // Shared respawn — drop the player at the START of `targetWorld` (Checkpoint 1),
+  // reset hearts / timer / night / chest guns, and remount combat fresh. Lesson
+  // mastery is untouched. Death keeps you on your CURRENT level by default; a
+  // separate option sends you back to Level 1.
+  function respawnAt(targetWorld: number) {
+    const clamped = Math.max(0, Math.min(WORLD_COUNT - 1, targetWorld))
+    const spawn = spawnAtLevel(clamped)
+    // Clear any stale run flags / horde snapshot so we don't restore old state.
+    try {
+      sessionStorage.removeItem(PART_DONE_KEY)
+      sessionStorage.removeItem(BOSS_DONE_KEY)
+      sessionStorage.removeItem(COMBAT_SNAP_KEY)
+    } catch {
+      /* ignore */
+    }
+    savedPosRef.current = { x: spawn.x, z: spawn.z, h: spawn.h }
+    playerPosRef.current.set(spawn.x, 0, spawn.z)
+    headingRef.current = spawn.h
+    setTourWorld(clamped)
     setTourStage(0)
     setHp(MAX_HP)
     setKills(0)
@@ -719,13 +892,36 @@ export function Overworld3DPage() {
     shakeRef.current = 0
     hitstopRef.current = 0
     setDead(false)
-    setShowIntro(true)
     setRunId((r) => r + 1)
+    // Reset the day/night cycle to a fresh dawn.
+    dayClockRef.current = 0
+    nightClockRef.current = 0
+    setNight(false)
+    setNightLeft(0)
+    setSheltered(false)
+    // Lose your hard-won chest guns on death — go find them again.
+    setCrateGunBonus(0)
+    setOvercharge(false)
+  }
+
+  // Default death restart: drop back in at the start of the level you reached.
+  function restartLevel() {
+    respawnAt(tourWorldClamped)
+  }
+
+  // Optional full reset: wipe the run and start over at Level 1.
+  function restartGame() {
+    clearQuestRun()
+    respawnAt(0)
+    setShowIntro(true)
   }
 
   // Live distance to the current objective for the guide readout.
   const [objDist, setObjDist] = useState<number | null>(null)
   const [hordeTier, setHordeTier] = useState(1)
+  // Horde tier after the learner-model adjustment (gentler when struggling,
+  // tougher when confident). Used for combat + the HUD readout.
+  const effectiveHordeTier = Math.max(1, hordeTier + combatAdjust.tierDelta)
   const [dashCd, setDashCd] = useState(1) // 0 = just used .. 1 = ready
   const lastDistRef = useRef<number | null>(null)
   const lastHordeRef = useRef(1)
@@ -757,6 +953,36 @@ export function Overworld3DPage() {
         lastDashCdRef.current = cd
         setDashCd(cd)
       }
+      // Gun heat readout for the HUD.
+      const gh = gunHeatRef.current
+      setGunHeat((prev) => (Math.abs(prev - gh.heat) > 0.04 ? gh.heat : prev))
+      setGunJammed((prev) => (prev !== gh.overheated ? gh.overheated : prev))
+      // Safe-house navigation (only at night): nearest shelter + distance + a
+      // bearing arrow relative to where the player is facing.
+      if (nightRef.current) {
+        let nd2 = Infinity
+        let nx = 0
+        let nz = 0
+        for (let i = 0; i < SHELTERS.length; i++) {
+          const sdx = SHELTERS[i].x - p.x
+          const sdz = SHELTERS[i].z - p.z
+          const d2 = sdx * sdx + sdz * sdz
+          if (d2 < nd2) {
+            nd2 = d2
+            nx = SHELTERS[i].x
+            nz = SHELTERS[i].z
+          }
+        }
+        const dist = Math.sqrt(nd2)
+        const inShelter = dist <= SHELTER_R
+        setSheltered((prev) => (prev !== inShelter ? inShelter : prev))
+        const bearing = Math.atan2(nx - p.x, nz - p.z)
+        const angleDeg = ((bearing - headingRef.current) * 180) / Math.PI
+        setShelterInfo({ dist: Math.round(dist), angleDeg, x: nx, z: nz })
+      } else {
+        setSheltered((prev) => (prev ? false : prev))
+        setShelterInfo((prev) => (prev ? null : prev))
+      }
       // Remember map position so popping over to the list returns you here.
       try {
         sessionStorage.setItem(
@@ -769,6 +995,33 @@ export function Overworld3DPage() {
     }, 250)
     return () => window.clearInterval(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // --- Day / night cycle -------------------------------------------------
+  // Daylight runs the normal race-the-checkpoint loop. After DAY_LENGTH the sun
+  // sets: the horde turns fast + deadly and the checkpoint clock pauses while a
+  // "survive until dawn" countdown runs. Reach a glowing safe house (or hide) or
+  // you'll be overrun. Survive NIGHT_LENGTH seconds and day returns.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (overlayPausedRef.current || deadRef.current || tourDoneRef.current) return
+      if (!nightRef.current) {
+        dayClockRef.current += 1
+        if (dayClockRef.current >= DAY_LENGTH) {
+          dayClockRef.current = 0
+          nightClockRef.current = NIGHT_LENGTH
+          setNight(true)
+          setNightLeft(NIGHT_LENGTH)
+        }
+      } else {
+        nightClockRef.current -= 1
+        setNightLeft(Math.max(0, nightClockRef.current))
+        if (nightClockRef.current <= 0) {
+          setNight(false)
+        }
+      }
+    }, 1000)
+    return () => window.clearInterval(id)
   }, [])
 
   // How-to-play popup. Shows ONLY at a fresh game start or when jumped into a
@@ -798,62 +1051,59 @@ export function Overworld3DPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // --- Countdown to the next checkpoint -----------------------------------
-  // Reach each objective before the clock runs out, or the whole run resets.
-  const [timeLeft, setTimeLeft] = useState<number | null>(null)
-  const timeLeftRef = useRef<number | null>(null)
-  const lastTimerDisplayRef = useRef<number | null>(null)
-  timeLeftRef.current = timeLeft
+  // --- Hold-out siege to open the next checkpoint -------------------------
+  // Each checkpoint is a survival gauntlet: hold out against escalating waves
+  // (through nightfalls and all) for LEG_HOLD_SECONDS, and the gate UNLOCKS.
+  // Death is only by losing all your hearts — no arbitrary distance timer.
+  // The ref is the source of truth for the survival counter — it is owned by the
+  // tick + reset effects only. Do NOT sync it from state every render, or the
+  // frequent HUD re-renders would keep overwriting the interval's progress and
+  // freeze the meter.
+  const [legHeld, setLegHeld] = useState(0)
+  const legHeldRef = useRef(0)
+  // Brief "checkpoint still locked" flash when you try to enter too early.
+  const [holdDenied, setHoldDenied] = useState(false)
   const tourDoneRef = useRef(tourDone)
   tourDoneRef.current = tourDone
 
+  // How long this checkpoint's siege lasts (Level 1 is a short onboarding ramp).
+  const legHoldTarget = legHoldSecondsFor(tourWorldClamped)
+  const legHoldTargetRef = useRef(legHoldTarget)
+  legHoldTargetRef.current = legHoldTarget
+
+  const legReady = tourDone || legHeld >= legHoldTarget
+  const legReadyRef = useRef(legReady)
+  legReadyRef.current = legReady
+  // 0..1 leg progress — drives wave escalation in the combat system.
+  const legProgress = Math.min(1, legHeld / Math.max(1, legHoldTarget))
+
   // A unique id for the current leg of the journey. Changes whenever the
-  // objective (gate / boss) or the run resets — that's when we reset the clock.
+  // objective (gate / boss) or the run resets — that's when we reset the siege.
   const objectiveKey = tourDone
     ? 'done'
     : `${tourWorldClamped}:${stageClamped}:${atBoss ? 'boss' : 'gate'}:${runId}`
 
-  // Pause the clock whenever any overlay is up (assigned after those flags
+  // Pause the siege whenever any overlay is up (assigned after those flags
   // exist, below). The ref is read inside the tick effect.
   const overlayPausedRef = useRef(false)
 
-  // New leg → set a fresh time budget scaled to the distance you must cover.
+  // New leg → reset the hold-out meter.
   useEffect(() => {
-    if (tourDone) {
-      setTimeLeft(null)
-      lastTimerDisplayRef.current = null
-      return
-    }
-    // Time budget tracks the real road distance from the player to the goal,
-    // eased down a little each level so later runs are tighter but always fair.
-    const p = playerPosRef.current
-    const secs = legSeconds(tourWorldClamped, stageClamped, atBoss, p.x, p.z)
-    lastTimerDisplayRef.current = Math.ceil(secs)
-    setTimeLeft(secs)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setLegHeld(0)
+    legHeldRef.current = 0
+    setHoldDenied(false)
   }, [objectiveKey])
 
-  // Tick the clock; hitting zero is a game over (full restart).
+  // Count up survival time while actively fighting the leg (nightfall included).
   useEffect(() => {
     const id = window.setInterval(() => {
       if (overlayPausedRef.current || deadRef.current || tourDoneRef.current) return
-      const cur = timeLeftRef.current
-      if (cur == null) return
-      const next = cur - 0.25
-      if (next <= 0) {
-        timeLeftRef.current = 0
-        lastTimerDisplayRef.current = 0
-        setTimeLeft(0)
-        setDeathReason('time')
-        setDead(true)
-      } else {
-        timeLeftRef.current = next
-        const displaySec = Math.ceil(next)
-        if (displaySec !== lastTimerDisplayRef.current) {
-          lastTimerDisplayRef.current = displaySec
-          setTimeLeft(next)
-        }
-      }
+      const target = legHoldTargetRef.current
+      const cur = legHeldRef.current
+      if (cur >= target) return
+      const next = Math.min(target, cur + 0.25)
+      legHeldRef.current = next
+      setLegHeld(next)
     }, 250)
     return () => window.clearInterval(id)
   }, [])
@@ -879,10 +1129,17 @@ export function Overworld3DPage() {
   // Leaving the overworld in-app (e.g. opening the list) → stash the live horde
   // so it's restored on return instead of vanishing and respawning. A death /
   // restart clears the snapshot separately and doesn't unmount the page here.
+  // Alias the ref object (not its `.current`) into a local so the cleanup reads
+  // the LATEST combat handle at unmount time. We must NOT capture `.current`
+  // itself here: CombatSystem remounts via its `key` on respawn (without
+  // re-running this mount-only effect), so a value captured now would snapshot a
+  // stale, orphaned horde. Reading through the aliased ref always sees the live
+  // handle.
   useEffect(() => {
+    const combatApiHolder = combatApi
     return () => {
       try {
-        const api = combatApi.current
+        const api = combatApiHolder.current
         if (api) sessionStorage.setItem(COMBAT_SNAP_KEY, JSON.stringify(api.snapshot()))
       } catch {
         /* ignore */
@@ -954,6 +1211,12 @@ export function Overworld3DPage() {
 
   function enter(t: Target | null) {
     if (!t || t.locked) return
+    // The checkpoint is sealed until you've survived the siege — keep fighting.
+    if (!legReadyRef.current) {
+      setHoldDenied(true)
+      window.setTimeout(() => setHoldDenied(false), 1600)
+      return
+    }
     if (t.kind === 'lesson') {
       const part = t.part ?? 0
       const nextStage = Math.min(BOSS_STAGE, part + 1)
@@ -974,6 +1237,7 @@ export function Overworld3DPage() {
       const next = nextWorld < WORLD_COUNT ? questDoor(WORLD_GATES[nextWorld][0]) : null
       setSpawn(here, next)
       grantBossEntry(t.world.index)
+      prefetchBossBattle()
       navigate(`/battle/${t.world.id}`)
     }
   }
@@ -1022,7 +1286,7 @@ export function Overworld3DPage() {
 
   // Pause the countdown + combat while any blocking overlay is on screen.
   const overlayPaused =
-    !!celebrateWorld || dead || showIntro || !!milestone || finaleVisible
+    !!celebrateWorld || dead || showIntro || !!milestone || finaleVisible || !!surge
   overlayPausedRef.current = overlayPaused
 
   // Combo decays: once the chain window lapses with no new kill, drop it to zero.
@@ -1147,6 +1411,44 @@ export function Overworld3DPage() {
               isGuest={isGuest}
             />
 
+            {/* Safe houses — tall light beacons (Minecraft-style), lit at night.
+                The nearest one burns brightest so you always know where to run. */}
+            {night &&
+              SHELTERS.map((s, i) => {
+                const isNearest =
+                  !!shelterInfo &&
+                  Math.abs(shelterInfo.x - s.x) < 1 &&
+                  Math.abs(shelterInfo.z - s.z) < 1
+                return (
+                  <group key={`safe-${i}`} position={[s.x, 0, s.z]}>
+                    <mesh position={[0, 40, 0]}>
+                      <cylinderGeometry args={[SHELTER_R, SHELTER_R, 80, 24, 1, true]} />
+                      <meshBasicMaterial
+                        color={isNearest ? '#9bffe9' : '#5ef2ff'}
+                        transparent
+                        opacity={isNearest ? 0.3 : 0.13}
+                        side={THREE.DoubleSide}
+                        depthWrite={false}
+                        toneMapped={false}
+                        fog={false}
+                      />
+                    </mesh>
+                    <mesh rotation-x={-Math.PI / 2} position={[0, 0.06, 0]}>
+                      <ringGeometry args={[SHELTER_R - 0.7, SHELTER_R, 40]} />
+                      <meshBasicMaterial
+                        color="#5ef2ff"
+                        transparent
+                        opacity={isNearest ? 0.9 : 0.45}
+                        side={THREE.DoubleSide}
+                        depthWrite={false}
+                        toneMapped={false}
+                        fog={false}
+                      />
+                    </mesh>
+                  </group>
+                )
+              })}
+
             <ThirdPersonController
               key={`ctrl-${runId}`}
               playerPosRef={playerPosRef}
@@ -1160,6 +1462,8 @@ export function Overworld3DPage() {
               startPos={savedPosRef.current}
               startHeading={savedPosRef.current?.h ?? null}
               dashRef={dashRef}
+              stealthRef={stealthRef}
+              onStealthChange={handleStealthChange}
               shakeRef={shakeRef}
               hitstopRef={hitstopRef}
             />
@@ -1168,13 +1472,22 @@ export function Overworld3DPage() {
               key={`combat-${runId}`}
               playerPosRef={playerPosRef}
               dashRef={dashRef}
+              stealthRef={stealthRef}
+              gunHeatRef={gunHeatRef}
               apiRef={combatApi}
               paused={overlayPaused}
-              difficulty={hordeTier}
-              gunLevel={gunLevel}
+              difficulty={effectiveHordeTier}
+              gunLevel={effectiveGunLevel}
+              heartBonus={combatAdjust.heartBonus}
+              intensity={legProgress}
+              wantGlitch={!tourDone && !!targetConceptId}
+              night={night}
+              shelters={SHELTERS}
               onKill={handleKill}
               onPlayerHit={handlePlayerHit}
               onHeal={handleHeal}
+              onGlitchKill={handleGlitchKill}
+              onChest={handleChest}
               shakeRef={shakeRef}
               hitstopRef={hitstopRef}
             />
@@ -1196,6 +1509,8 @@ export function Overworld3DPage() {
             headingRef={headingRef}
             states={states}
             activeIndex={tourDone ? -1 : tourWorldClamped}
+            night={night}
+            shelterTarget={shelterInfo}
           />
         </div>
 
@@ -1203,6 +1518,63 @@ export function Overworld3DPage() {
         <div className={`over3d-hurt ${hurt ? 'is-on' : ''}`} aria-hidden="true" />
         <div className={`over3d-iframe ${invuln ? 'is-on' : ''}`} aria-hidden="true" />
         <div className={`over3d-lowhp ${hp <= 3 && !dead ? 'is-on' : ''}`} aria-hidden="true" />
+        {/* Night darkening — tints the whole view after dusk. */}
+        <div className={`over3d-night ${night ? 'is-on' : ''}`} aria-hidden="true" />
+
+        {/* Hold-out siege banner — the gate is sealed until you survive it */}
+        {!tourDone && !dead && !night && (
+          <div className={`over3d-holdbar ${legReady ? 'is-open' : ''} ${holdDenied ? 'is-denied' : ''}`}>
+            {legReady ? (
+              <>
+                <span className="over3d-holdbar-title">✅ CHECKPOINT OPEN</span>
+                <span className="over3d-holdbar-hint">Reach the gate and press E</span>
+              </>
+            ) : (
+              <>
+                <span className="over3d-holdbar-title">
+                  {holdDenied ? '🔒 CHECKPOINT CLOSED — survive the siege!' : '🔒 CHECKPOINT CLOSED'}
+                </span>
+                <span className="over3d-holdbar-timer">
+                  {Math.max(0, Math.ceil(legHoldTarget - legHeld))}s
+                </span>
+                <span className="over3d-holdbar-track" aria-hidden="true">
+                  <span
+                    className="over3d-holdbar-fill"
+                    style={{ width: `${Math.round(legProgress * 100)}%` }}
+                  />
+                </span>
+                <span className="over3d-holdbar-hint">Hold the line until it opens</span>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Nightfall survival banner */}
+        {night && !dead && (
+          <div className={`over3d-nightbar ${sheltered ? 'is-safe' : ''}`}>
+            <span className="over3d-nightbar-title">
+              {sheltered ? '🛡️ Safe — wait for dawn' : '🌙 NIGHTFALL'}
+            </span>
+            <span className="over3d-nightbar-timer">Dawn in {Math.ceil(nightLeft)}s</span>
+            {!sheltered && shelterInfo && (
+              <span className="over3d-nightbar-shelter">
+                <span
+                  className="over3d-shelter-arrow"
+                  style={{ transform: `rotate(${shelterInfo.angleDeg}deg)` }}
+                  aria-hidden="true"
+                >
+                  ↑
+                </span>
+                Shelter {shelterInfo.dist}m
+              </span>
+            )}
+            {!sheltered && (
+              <span className="over3d-nightbar-hint">
+                Run to the cyan beacon · hold <kbd>C</kbd> to hide &amp; shake them
+              </span>
+            )}
+          </div>
+        )}
 
         {/* HUD */}
         <div className="over3d-hud">
@@ -1223,16 +1595,10 @@ export function Overworld3DPage() {
                 <span>
                   {tourDone
                     ? 'Tour complete!'
-                    : `${objDist != null ? `${objDist}m to goal` : 'Follow the trail'} · Horde ${hordeTier}`}
+                    : `${objDist != null ? `${objDist}m to goal` : 'Follow the trail'} · Horde ${effectiveHordeTier}`}
                 </span>
               </div>
               <div className="over3d-stats">
-                {!tourDone && timeLeft != null && (
-                  <span className={`over3d-chip over3d-chip-timer ${timeLeft <= 10 ? 'is-low' : ''}`}>
-                    {Math.ceil(timeLeft)}s
-                  </span>
-                )}
-                <span className="over3d-chip over3d-chip-ko">Horde {hordeTier}</span>
                 <span className="over3d-chip over3d-chip-ko">KO {kills}</span>
                 {combo >= 2 && (
                   <span
@@ -1242,8 +1608,28 @@ export function Overworld3DPage() {
                     {comboMultiplier(combo) > 1 && <b> ×{comboMultiplier(combo)}</b>}
                   </span>
                 )}
-                <span className="over3d-chip over3d-chip-gun" title="Your current blaster">
-                  {GUNS[gunLevel].name}
+                {overcharge && (
+                  <span className="over3d-chip over3d-chip-combo is-hot" title="Weapon crate overcharge">
+                    ⚡ OVERCHARGE
+                  </span>
+                )}
+                {stealthOn && (
+                  <span className="over3d-chip over3d-chip-ko" title="Laying low — the horde loses track of you">
+                    🥷 Hidden
+                  </span>
+                )}
+                <span className="over3d-chip over3d-chip-gun" title="Your current blaster — find chests to upgrade it">
+                  {overcharge ? `${GUNS[GUNS.length - 1].name} ⚡` : GUNS[gunLevel].name}
+                  {crateGunBonus > 0 && <b> +{crateGunBonus}</b>}
+                </span>
+                <span
+                  className={`over3d-chip over3d-heat ${gunJammed ? 'is-jammed' : gunHeat > 0.75 ? 'is-hot' : ''}`}
+                  title="Gun heat — fire in bursts or it jams. Use the sword (Q) to vent the pressure."
+                >
+                  {gunJammed ? 'JAMMED — use sword!' : 'Heat'}
+                  <span className="over3d-heat-track" aria-hidden="true">
+                    <span className="over3d-heat-fill" style={{ width: `${Math.round(gunHeat * 100)}%` }} />
+                  </span>
                 </span>
                 <span
                   className="over3d-chip over3d-chip-level"
@@ -1266,21 +1652,69 @@ export function Overworld3DPage() {
         {dead && (
           <div className="over3d-death">
             <div className="over3d-death-card">
-              <h2>{deathReason === 'time' ? 'Out of time!' : 'You were overwhelmed!'}</h2>
+              <h2>You were overwhelmed!</h2>
               <p>
-                {deathReason === 'time'
-                  ? 'You didn’t reach the checkpoint before the timer ran out. '
-                  : 'The horde took you down. '}
-                The whole run resets to <strong>Level 1 · Checkpoint 1</strong>.
-                Finished lessons stay saved.
+                The horde took you down. You’ll drop back in at the start of{' '}
+                <strong>Level {levelNumber(tourWorldClamped)}</strong>. Finished lessons stay saved.
               </p>
               <div className="over3d-death-stats">
                 <span>KOs this run: <strong>{kills}</strong></span>
                 <span>Reached: <strong>{positionLabel}</strong></span>
               </div>
-              <button type="button" className="over3d-death-btn" onClick={restartGame}>
-                Restart from Level 1
-              </button>
+              <div className="over3d-death-actions">
+                <button type="button" className="over3d-death-btn" onClick={restartLevel}>
+                  Restart Level {levelNumber(tourWorldClamped)}
+                </button>
+                {tourWorldClamped > 0 && (
+                  <button
+                    type="button"
+                    className="over3d-death-btn over3d-death-btn-ghost"
+                    onClick={restartGame}
+                  >
+                    Restart from Level 1
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Knowledge surge — a destroyed Glitch carrier raises a concept question */}
+        {surge && (
+          <div className="over3d-death">
+            <div className="over3d-death-card over3d-surge-card">
+              <span className="over3d-surge-tag">⚡ Knowledge Surge</span>
+              <h2 className="over3d-surge-q">{surge.prompt}</h2>
+              <div className="over3d-surge-choices">
+                {surge.choices.map((choice, i) => {
+                  const reveal = surgeResult != null
+                  const isAnswer = i === surge.answerIndex
+                  const cls = reveal
+                    ? isAnswer
+                      ? 'is-right'
+                      : 'is-dim'
+                    : ''
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      className={`over3d-surge-choice ${cls}`}
+                      disabled={reveal}
+                      onClick={() => answerSurge(i)}
+                    >
+                      {choice}
+                    </button>
+                  )
+                })}
+              </div>
+              {surgeResult === 'right' && (
+                <p className="over3d-surge-msg is-right">Surge absorbed! +XP and +2 hearts.</p>
+              )}
+              {surgeResult === 'wrong' && (
+                <p className="over3d-surge-msg is-wrong">
+                  Not quite — you’ll see this concept again soon.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -1298,8 +1732,26 @@ export function Overworld3DPage() {
                   checkpoint in a level, then defeat the <strong>boss</strong> to unlock the next.
                 </li>
                 <li>
-                  Each level has <strong>{CHECKPOINTS_PER_LEVEL} checkpoints</strong>. Fight through
-                  the zombie horde, follow the trail, and beat the clock to reach each one.
+                  Each checkpoint is a <strong>siege</strong>: <strong>hold the line</strong> against
+                  escalating waves until the gate <strong>unlocks</strong>, then push in and press E.
+                  Camping gets you swarmed — keep moving, looting, and picking your targets.
+                </li>
+                <li>
+                  Follow the <strong>gold light beam</strong> to a <strong>weapon chest</strong> —
+                  each one permanently upgrades your gun for the run. Hold{' '}
+                  <strong>C to lay low</strong> and shake the shamblers — but{' '}
+                  <strong>spitters still see you</strong>, so gun them down. Destroy cyan{' '}
+                  <strong>Glitches</strong> for a Knowledge Surge question.
+                </li>
+                <li>
+                  <strong>Pick your weapon:</strong> the <strong>gun</strong> overheats if you
+                  hold the trigger — fire in bursts and use it on <strong>spitters</strong> at
+                  range. The <strong>sword</strong> (<kbd>Q</kbd>) dodges and cleaves swarms, and
+                  it’s the only thing that drops <strong>armored brutes</strong> fast.
+                </li>
+                <li>
+                  Watch for <strong>nightfall</strong> — the horde turns fast and deadly. Sprint
+                  to a glowing <strong>safe house</strong> (or hide) and survive until dawn.
                 </li>
                 <li>
                   Lose your hearts or the timer and the <strong>run restarts at Level 1</strong> —
@@ -1460,6 +1912,7 @@ export function Overworld3DPage() {
           <span><kbd>←</kbd><kbd>→</kbd> turn</span>
           <span><kbd>Shift</kbd> sprint</span>
           <span><kbd>Q</kbd> blade dash</span>
+          <span><kbd>C</kbd> lay low</span>
           <span><kbd>Space</kbd> jump</span>
           <span><kbd>F</kbd> shoot</span>
         </div>

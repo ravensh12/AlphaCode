@@ -16,7 +16,12 @@ import type {
   ProgressState,
   StreakState,
 } from '../types/progress'
-import type { LessonSummary } from '../types/lesson'
+import type { ConceptId, LessonSummary } from '../types/lesson'
+import {
+  emptyLearnerModel,
+  updateConcept,
+  type LearnerModel,
+} from '../lib/learnerModel'
 import { FIRST_LESSON_ID, LESSON_CATALOG } from '../content/catalog'
 import {
   badgesUnlockedCount,
@@ -42,6 +47,7 @@ import {
   insertAttemptCloud,
   loadCloud,
   saveBadgesCloud,
+  saveConceptMasteryCloud,
   saveExperienceCloud,
   saveInterZoneCloud,
   saveStreakCloud,
@@ -84,6 +90,15 @@ type ProgressContextValue = {
   saveLessonProgress: (progress: LessonProgress) => void
   saveLessonReview: (lessonId: string, review: LessonReview) => void
   logAttempt: (attempt: AttemptRecord) => void
+  /** Per-concept learner model — the personalization spine (may be empty). */
+  learnerModel: LearnerModel
+  /** Fold one resolved interactive question into the learner model. */
+  recordConceptResult: (info: {
+    conceptIds: ConceptId[]
+    firstTry: boolean
+    correct: boolean
+    responseMs?: number
+  }) => void
   awardBadges: (counts: Partial<BadgeCounts>) => void
   resetLesson: (lessonId: string) => void
   restartQuizProgress: (lessonId: string) => void
@@ -302,6 +317,7 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       badgeCounts: state.badgeCounts ?? emptyState().badgeCounts,
       totalBadgeCount: totalBadgeCount(state.badgeCounts ?? emptyState().badgeCounts),
       badgesUnlockedCount: badgesUnlockedCount(state.badgeCounts ?? emptyState().badgeCounts),
+      learnerModel: state.learnerModel ?? emptyLearnerModel(),
       getLessonProgress,
       isLessonUnlocked: isUnlocked,
 
@@ -411,6 +427,23 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
 
       logAttempt: (attempt) => {
         if (cloudActive && userId) insertAttemptCloud(userId, attempt).catch(warn)
+      },
+
+      recordConceptResult: ({ conceptIds, firstTry, correct, responseMs }) => {
+        if (!conceptIds || conceptIds.length === 0) return
+        const prev = stateRef.current
+        const now = Date.now()
+        let model = prev.learnerModel ?? emptyLearnerModel()
+        for (const cid of conceptIds) {
+          model = updateConcept(model, cid, { firstTry, correct, responseMs }, now)
+        }
+        commit({ ...prev, learnerModel: model })
+        if (cloudActive && userId) {
+          const touched = conceptIds
+            .map((c) => model.concepts[c])
+            .filter((s): s is NonNullable<typeof s> => !!s)
+          saveConceptMasteryCloud(userId, touched).catch(warn)
+        }
       },
 
       awardBadges: (counts) => {

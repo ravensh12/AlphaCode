@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import type { Lesson, LessonStep, VariableValue } from '../types/lesson'
+import type { ConceptId, Lesson, LessonStep, VariableValue } from '../types/lesson'
 import type { AttemptRecord, LessonProgress } from '../types/progress'
 import { computeQuizMastery, meetsUnlockThreshold } from '../lib/mastery'
 import { playCorrect, playWrong } from '../lib/soundFx'
@@ -231,6 +231,17 @@ export function useLessonEngine(
     onAttempt?: (attempt: AttemptRecord) => void
     /** Fired on each correct answer — used to grant speed-based XP. */
     onCorrect?: (info: { firstTry: boolean; responseMs: number }) => void
+    /**
+     * Fired once per resolved interactive question — feeds the per-concept
+     * learner model that powers personalization. `firstTry` is true only when
+     * the very first attempt was correct.
+     */
+    onConceptResult?: (info: {
+      conceptIds: ConceptId[]
+      firstTry: boolean
+      correct: boolean
+      responseMs?: number
+    }) => void
   },
 ): LessonEngine {
   const interactiveTotal = useMemo(
@@ -497,6 +508,16 @@ export function useLessonEngine(
       })
     }
 
+    // Feed the learner model once per resolved question (correct branch).
+    if (allCorrect) {
+      options?.onConceptResult?.({
+        conceptIds: step.conceptTags ?? [],
+        firstTry,
+        correct: true,
+        responseMs: performance.now() - answerStartRef.current,
+      })
+    }
+
     const onLastFrame = !isTrace || frameIndex >= frameCount - 1
 
     setAgg((prev) => {
@@ -547,6 +568,12 @@ export function useLessonEngine(
     playWrong()
 
     if (attemptsNow >= MISTAKES_BEFORE_RESTART) {
+      // Resolved as a miss — feed the learner model once.
+      options?.onConceptResult?.({
+        conceptIds: step.conceptTags ?? [],
+        firstTry: false,
+        correct: false,
+      })
       if (isCheckpointStep(step) && step.checkpointStartStepId) {
         const startIdx = lesson.steps.findIndex(
           (s) => s.id === step.checkpointStartStepId,

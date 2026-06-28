@@ -6,6 +6,7 @@ import {
 } from '../components/game3d/layout'
 import { WORLDS } from '../content/adventure'
 import type { WorldState } from './questState'
+import type { ConceptBand } from './learnerModel'
 
 /** Radius (m) around a gate / academy / boss where its horde tier applies. */
 const ZONE_R = 100
@@ -74,6 +75,34 @@ export function hordeTierAtPosition(
   if (dStart < 70) return 1
 
   return Math.max(1, tier)
+}
+
+/**
+ * Adaptive combat tuning derived from the learner's mastery of the current
+ * concept. Struggling learners get a gentler horde and more time so the game
+ * never punishes them for still learning; confident learners get a tougher,
+ * more rewarding fight. This is the game half of personalization.
+ */
+export type CombatAdjust = {
+  /** Added to the position-based horde tier (clamped to >= 1 by the caller). */
+  tierDelta: number
+  /** Multiplier on the per-leg timer budget (>1 = more time). */
+  timeMul: number
+  /** Extra heart-drop chance added per kill (0..1). */
+  heartBonus: number
+}
+
+export function combatAdjustForBand(band: ConceptBand): CombatAdjust {
+  switch (band) {
+    case 'weak':
+      return { tierDelta: -1, timeMul: 1.3, heartBonus: 0.06 }
+    case 'developing':
+      return { tierDelta: 0, timeMul: 1.1, heartBonus: 0.02 }
+    case 'solid':
+      return { tierDelta: 0, timeMul: 1.0, heartBonus: 0 }
+    case 'mastered':
+      return { tierDelta: 1, timeMul: 0.9, heartBonus: 0 }
+  }
 }
 
 /** Strip gate progress for locked worlds or worlds ahead of the main quest line. */

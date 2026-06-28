@@ -133,3 +133,37 @@ create policy "attempts_select_own" on public.attempts
 drop policy if exists "attempts_insert_own" on public.attempts;
 create policy "attempts_insert_own" on public.attempts
   for insert with check (auth.uid() = user_id);
+
+-- =========================================================
+-- concept_mastery: per-concept learner model (the personalization spine)
+-- One row per (user, concept). Drives adaptive lessons, spaced repetition,
+-- adaptive combat, and the Coder Profile dashboard.
+-- =========================================================
+create table if not exists public.concept_mastery (
+  user_id uuid not null references auth.users on delete cascade,
+  concept_id text not null,
+  ability real not null default 0.5,
+  confidence real not null default 0,
+  seen int not null default 0,
+  correct_first_try int not null default 0,
+  box int not null default 1,
+  due_at timestamptz,
+  last_seen_at timestamptz,
+  recent_results jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, concept_id)
+);
+
+alter table public.concept_mastery enable row level security;
+
+drop policy if exists "concept_mastery_select_own" on public.concept_mastery;
+create policy "concept_mastery_select_own" on public.concept_mastery
+  for select using (auth.uid() = user_id);
+
+drop policy if exists "concept_mastery_insert_own" on public.concept_mastery;
+create policy "concept_mastery_insert_own" on public.concept_mastery
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "concept_mastery_update_own" on public.concept_mastery;
+create policy "concept_mastery_update_own" on public.concept_mastery
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);

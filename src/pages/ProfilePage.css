@@ -1,0 +1,265 @@
+/* Profile uses the same Code City night theme as the lessons (.lp provides the
+   cc-* vars + the night-sky backdrop; here we just style the profile content). */
+
+.profile-main {
+  max-width: 720px;
+}
+
+/* ---------- Hero ---------- */
+.profile-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.profile-name {
+  font-family: var(--display);
+  font-size: 32px;
+  margin: 4px 0 2px;
+  color: var(--cc-text);
+}
+
+.profile-sub {
+  margin: 0;
+  color: var(--cc-text-soft);
+  font-weight: 700;
+}
+
+.profile-stats {
+  display: flex;
+  gap: 10px;
+}
+
+.profile-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 88px;
+  padding: 12px 14px;
+  background: var(--cc-glass);
+  border: 1.5px solid var(--cc-line-strong);
+  border-radius: var(--radius);
+  color: var(--cc-text);
+}
+.profile-stat .icon {
+  color: var(--cc-cyan);
+}
+
+.profile-stat-num {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--cc-text);
+}
+.profile-stat-num small {
+  font-size: 13px;
+  color: var(--cc-text-faint);
+}
+
+.profile-stat-label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cc-text-soft);
+  font-weight: 700;
+}
+
+/* ---------- Cards ---------- */
+.profile-card {
+  background: var(--cc-glass);
+  border: 1.5px solid var(--cc-line-strong);
+  border-radius: var(--radius-lg);
+  padding: 22px 22px;
+  color: var(--cc-text);
+}
+
+.profile-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.profile-card h2 {
+  font-family: var(--display);
+  font-size: 20px;
+  margin: 0;
+  color: var(--cc-text);
+}
+
+.profile-card-hint {
+  font-size: 12.5px;
+  color: var(--cc-text-soft);
+}
+
+/* ---------- Skills list ---------- */
+.profile-skills {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 26px;
+}
+
+@media (max-width: 720px) {
+  .profile-skills {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-skill-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.profile-skill-name {
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--cc-text);
+}
+
+.profile-skill-band {
+  font-size: 11.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.profile-skill-bar {
+  height: 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--cc-line);
+  overflow: hidden;
+}
+
+.profile-skill-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.profile-skill-meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--cc-text-faint);
+}
+
+/* Band colours from the night palette. */
+.band-weak {
+  color: #ff8aa0;
+}
+.profile-skill-fill.band-weak {
+  background: var(--cc-coral);
+}
+.band-developing {
+  color: var(--cc-window);
+}
+.profile-skill-fill.band-developing {
+  background: var(--cc-window);
+}
+.band-solid {
+  color: var(--cc-cyan);
+}
+.profile-skill-fill.band-solid {
+  background: var(--cc-cyan);
+}
+.band-mastered {
+  color: var(--cc-lime);
+}
+.profile-skill-fill.band-mastered {
+  background: var(--cc-lime);
+}
+
+.profile-due-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cc-cyan);
+  box-shadow: 0 0 8px var(--cc-cyan);
+}
+
+/* ---------- Coach + due ---------- */
+.profile-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+@media (max-width: 720px) {
+  .profile-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profile-coach p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--cc-text);
+}
+
+.profile-due-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-due-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--cc-text);
+}
+
+.profile-due-mark {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cc-cyan);
+  box-shadow: 0 0 8px var(--cc-cyan);
+}
+
+.profile-due-empty {
+  margin: 0 0 12px;
+  color: var(--cc-text-soft);
+}
+
+.profile-due-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--cc-text-soft);
+  line-height: 1.45;
+}
+
+/* ---------- Empty state ---------- */
+.profile-empty {
+  text-align: center;
+  padding: 40px 26px;
+}
+.profile-empty h2 {
+  margin-bottom: 10px;
+  color: var(--cc-text);
+}
+.profile-empty p {
+  max-width: 520px;
+  margin: 0 auto 18px;
+  color: var(--cc-text-soft);
+  line-height: 1.5;
+}

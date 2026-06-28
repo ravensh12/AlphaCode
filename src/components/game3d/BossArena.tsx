@@ -50,7 +50,7 @@ type Orb = { active: boolean; pos: THREE.Vector3; vel: THREE.Vector3; life: numb
 
 /* --------------------------------------------------------------- The arena */
 
-function ArenaFloor({ accent }: { accent: string }) {
+const ArenaFloor = memo(function ArenaFloor({ accent }: { accent: string }) {
   // Every flat floor decoration is stacked at a slightly higher Y than the one
   // below it so nothing is buried inside the base slab or z-fights. The base
   // slab's TOP surface sits exactly at y = 0 (the plane the fighters stand on).
@@ -128,7 +128,7 @@ function ArenaFloor({ accent }: { accent: string }) {
       })}
     </group>
   )
-}
+})
 
 /* ----------------------------------------------------------------- Scene */
 
@@ -208,6 +208,28 @@ const ArenaScene = memo(function ArenaScene({
   const orbRefs = useRef<(THREE.Mesh | null)[]>([])
   const cooldown = useRef(0)
   const atkTimer = useRef(1.2)
+
+  // One geometry + one material shared by every bolt / orb mesh, instead of a
+  // fresh sphere geometry + material per pooled mesh (28 bolts + 16 orbs = 44 of
+  // each). That collapses ~88 GPU buffer/material allocations at fight mount down
+  // to 4 — less upload work + GC churn on the frame the arena appears.
+  const boltGeo = useMemo(() => new THREE.SphereGeometry(0.13, 8, 8), [])
+  const boltMat = useMemo(() => new THREE.MeshBasicMaterial({ color: accent, fog: false }), [accent])
+  const orbColor = ORB_COLORS[variant % ORB_COLORS.length]
+  const orbGeo = useMemo(() => new THREE.SphereGeometry(0.34, 10, 10), [])
+  const orbMat = useMemo(
+    () => new THREE.MeshBasicMaterial({ color: orbColor, toneMapped: false, fog: false }),
+    [orbColor],
+  )
+  useEffect(
+    () => () => {
+      boltGeo.dispose()
+      boltMat.dispose()
+      orbGeo.dispose()
+      orbMat.dispose()
+    },
+    [boltGeo, boltMat, orbGeo, orbMat],
+  )
 
   const tmpFwd = useRef(new THREE.Vector3())
   const tmpRight = useRef(new THREE.Vector3())
@@ -602,10 +624,9 @@ const ArenaScene = memo(function ArenaScene({
             boltRefs.current[i] = el
           }}
           visible={false}
-        >
-          <sphereGeometry args={[0.13, 8, 8]} />
-          <meshBasicMaterial color={accent} fog={false} />
-        </mesh>
+          geometry={boltGeo}
+          material={boltMat}
+        />
       ))}
 
       {orbs.map((_, i) => (
@@ -615,10 +636,9 @@ const ArenaScene = memo(function ArenaScene({
             orbRefs.current[i] = el
           }}
           visible={false}
-        >
-          <sphereGeometry args={[0.34, 10, 10]} />
-          <meshBasicMaterial color={ORB_COLORS[variant % ORB_COLORS.length]} toneMapped={false} fog={false} />
-        </mesh>
+          geometry={orbGeo}
+          material={orbMat}
+        />
       ))}
 
       {/* Bonus power blast — beam + shockwave (driven imperatively in useFrame) */}

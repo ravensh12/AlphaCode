@@ -2,6 +2,7 @@ import { mergeBadgeCounts, reconcileBadgeCounts } from '../content/badges'
 import type { LessonProgress, ProgressState, StreakState } from '../types/progress'
 import { hasQuizActivity } from './lessonSections'
 import { meetsUnlockThreshold } from './mastery'
+import { mergeLearnerModels } from './learnerModel'
 
 /**
  * Merge a new in-progress save without dropping section flags or step ids.
@@ -195,6 +196,7 @@ export function mergeProgressStates(
     ),
     interZoneComplete,
     interZoneCompletedAt,
+    learnerModel: mergeLearnerModels(cloud.learnerModel, local.learnerModel),
     lessons,
   }
 }

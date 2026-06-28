@@ -151,12 +151,13 @@ export function FinalBossPage() {
           <p className="fb-subtitle">{ARCHITECT_INTRO.subtitle}</p>
           <p className="fb-lead fb-lead--taunt">{ARCHITECT_INTRO.taunt}</p>
           <p className="fb-lead">
-            A <strong>four-phase</strong> duel against a living mastermind atop the storm-lashed rooftop —
-            no minions, no void god, just you and him. {ARCHITECT_INTRO.hint}
+            A brutal <strong>four-phase</strong> duel atop the storm-lashed rooftop — and as he weakens he{' '}
+            <strong>fractures into echo-clones</strong> that strike alongside him from every side. Read the
+            rhythm, parry the heavies, and don&rsquo;t get surrounded. {ARCHITECT_INTRO.hint}
           </p>
           <p className="fb-controls-line">
             <kbd>WASD</kbd> move · <kbd>Shift</kbd> dash · <kbd>K</kbd> roll · <kbd>Space</kbd> jump ·{' '}
-            <kbd>J</kbd>/Click melee · <kbd>F</kbd> ranged · <kbd>L</kbd> <strong>PARRY</strong>
+            <kbd>Q</kbd>/Click melee · <kbd>F</kbd> ranged · <kbd>L</kbd> <strong>PARRY</strong>
           </p>
           <div className="fb-actions">
             <button

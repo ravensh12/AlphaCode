@@ -1,7 +1,8 @@
-import { Suspense, lazy } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy, useEffect } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Loader } from './components/Loader'
+import { prefetchBossBattle } from './lib/prefetchBattle'
 import { LandingPage } from './pages/LandingPage'
 import { AuthPage } from './pages/AuthPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
@@ -15,6 +16,8 @@ import { ReviewPage } from './pages/ReviewPage'
 import { StartRedirect } from './pages/StartRedirect'
 import { FinalJourneyPage } from './pages/FinalJourneyPage'
 import { FinalExamPage } from './pages/FinalExamPage'
+import { ProfilePage } from './pages/ProfilePage'
+import { WarmupPage } from './pages/WarmupPage'
 
 // 3D game routes pull in three.js — load them lazily so the rest stays light.
 const Overworld3DPage = lazy(() =>
@@ -29,6 +32,14 @@ const FinalBossPage = lazy(() =>
 const ThresholdPage = lazy(() => import('./pages/ThresholdPage'))
 
 export default function App() {
+  // Once the player is in the overworld (three.js already loaded), warm the
+  // boss-battle chunk during idle time so pressing E doesn't stall on a cold
+  // fetch + parse of the arena modules mid-navigation.
+  const location = useLocation()
+  useEffect(() => {
+    if (location.pathname === '/quest') prefetchBossBattle()
+  }, [location.pathname])
+
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
@@ -63,6 +74,22 @@ export default function App() {
         element={
           <ProtectedRoute>
             <CourseHomePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <ProfilePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/warmup"
+        element={
+          <ProtectedRoute>
+            <WarmupPage />
           </ProtectedRoute>
         }
       />

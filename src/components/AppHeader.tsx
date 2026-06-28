@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from './Brand'
 import { useAuth } from '../context/AuthContext'
-import { IconCompass, IconSpeaker, IconSpeakerOff } from './icons'
+import { IconCompass, IconGauge, IconSpeaker, IconSpeakerOff } from './icons'
 import { isMuted as isMusicMuted, toggleMusic } from '../lib/themeMusic'
 import { isSfxMuted, toggleSfx, playToggle } from '../lib/soundFx'
 import './AppHeader.css'
@@ -12,6 +12,7 @@ export function AppHeader() {
   const navigate = useNavigate()
   const location = useLocation()
   const onCoursePage = location.pathname === '/quest'
+  const onProfilePage = location.pathname === '/profile'
   const courseTarget = '/quest'
 
   async function handleSignOut() {
@@ -56,6 +57,12 @@ export function AppHeader() {
               <IconCompass size={16} />
               <span className="app-header-course-label">Code City</span>
             </button>
+          )}
+          {!isGuest && !onProfilePage && (
+            <Link className="btn ghost app-header-course" to="/profile" aria-label="Your coder profile">
+              <IconGauge size={16} />
+              <span className="app-header-course-label">Profile</span>
+            </Link>
           )}
           <AudioSettings />
           <span className="app-header-user">

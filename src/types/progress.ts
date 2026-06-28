@@ -1,5 +1,6 @@
-import type { ConceptId, LessonStep, VariableValue } from './lesson'
+import type { LessonStep, VariableValue } from './lesson'
 import type { BadgeCounts } from '../content/badges'
+import type { LearnerModel } from '../lib/learnerModel'
 
 export type LessonStatus = 'notStarted' | 'inProgress' | 'completed'
 
@@ -47,15 +48,6 @@ export type LessonProgress = {
   pendingBadgeCounts?: BadgeCounts
 }
 
-export type ConceptMastery = {
-  conceptId: ConceptId
-  score: number
-  correctFirstTry: number
-  wrongAttempts: number
-  lastPracticedAt?: string
-  nextReviewAt?: string
-}
-
 export type StreakState = {
   current: number
   longest: number
@@ -96,4 +88,9 @@ export type ProgressState = {
   interZoneComplete?: boolean
   /** ISO timestamp of when the Threshold was first completed. */
   interZoneCompletedAt?: string
+  /**
+   * Per-concept learner model — the spine of personalization. Optional so older
+   * saved state stays valid; absent means "no signal yet, treat as neutral".
+   */
+  learnerModel?: LearnerModel
 }

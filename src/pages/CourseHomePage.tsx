@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
 import { LESSON_CATALOG, MASTERY_UNLOCK_THRESHOLD } from '../content/catalog'
 import { generateLesson } from '../content/lessons'
+import { dueReviewCount, hasReviewHistory } from '../lib/warmup'
 import {
   hasQuizActivity,
   isLearnComplete,
@@ -45,6 +46,7 @@ export function CourseHomePage() {
     badgeCounts,
     totalBadgeCount,
     badgesUnlockedCount,
+    learnerModel,
   } = useProgress()
 
   const firstLesson = lessons[LESSON_CATALOG[0].id]
@@ -98,6 +100,25 @@ export function CourseHomePage() {
             />
           </div>
         </section>
+
+        {!isGuest && hasReviewHistory(learnerModel) && (
+          <Link to="/warmup" className="course-warmup card">
+            <span className="course-review-emoji" aria-hidden="true">
+              <IconGauge size={24} />
+            </span>
+            <div className="course-review-text">
+              <strong>Daily warm-up</strong>
+              <span className="muted">
+                {dueReviewCount(learnerModel) > 0
+                  ? `${dueReviewCount(learnerModel)} concept${
+                      dueReviewCount(learnerModel) === 1 ? '' : 's'
+                    } due for review — a quick spaced recall to lock them in.`
+                  : 'Quick spaced recall of what you’ve learned — proven to make it stick.'}
+              </span>
+            </div>
+            <IconArrowRight size={20} />
+          </Link>
+        )}
 
         {allLessonsComplete && (
           <div className="course-complete-banner card">

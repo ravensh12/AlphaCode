@@ -11,6 +11,7 @@ import { getBadge, BADGE_ORDER, type BadgeCounts } from '../../content/badges'
 import { IconTrophy, IconGauge, IconFlame, IconArrowRight } from '../icons'
 import { ReviewBreakdown } from './ReviewBreakdown'
 import { NeetCodeReadinessPanel } from './NeetCodeReadinessPanel'
+import { ReviewTutor, type ReviewTutorItem } from '../ReviewTutor'
 
 export function CompletionView({
   result,
@@ -51,6 +52,20 @@ export function CompletionView({
 
   const reviews = result.stepReviews
   const readiness = getNeetCodeReadiness(lessonId)
+
+  // Bit review helper — missed questions first so the most useful one is default.
+  const tutorItems: ReviewTutorItem[] = [...reviews]
+    .sort((a, b) => Number(b.missed) - Number(a.missed))
+    .map((s, i) => ({
+      label: `Q${i + 1}${s.missed ? ' · missed' : ''}`,
+      context: {
+        prompt: s.prompt,
+        code: s.code,
+        concept: lessonTitle,
+        hint: '',
+        answered: true,
+      },
+    }))
 
   const headline = reviewCleared
     ? 'Review complete!'
@@ -139,6 +154,8 @@ export function CompletionView({
       )}
 
       {reviews.length > 0 && <ReviewBreakdown reviews={reviews} />}
+
+      {tutorItems.length > 0 && <ReviewTutor items={tutorItems} />}
 
       {readiness && <NeetCodeReadinessPanel readiness={readiness} />}
 

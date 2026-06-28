@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -12,5 +13,11 @@ export default defineConfig({
     // Some environments don't deliver native FS events reliably; poll so edits
     // are always detected and hot-reloaded.
     watch: { usePolling: true, interval: 200 },
+  },
+  test: {
+    // Pure-logic unit tests (learner model, mastery, progress merge) run in
+    // Node — no DOM needed. Co-located as `*.test.ts` next to the source.
+    environment: 'node',
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 })

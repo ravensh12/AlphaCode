@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { BossArena } from '../components/game3d/BossArena'
-import { CinematicBossArena } from '../components/game3d/CinematicBossArena'
 import { VEX_INTRO, VEX_DEFEAT } from '../content/finalGauntletLore'
 import { LessonRunner } from './LessonPage'
+import { ReviewTutor, type ReviewTutorItem } from '../components/ReviewTutor'
+import type { LessonResult } from '../hooks/useLessonEngine'
+import { masteryBand, bandLabel } from '../lib/mastery'
 import { Loader } from '../components/Loader'
 import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
@@ -25,7 +27,16 @@ const SUMMARY_BY_ID: Record<string, LessonSummary> = Object.fromEntries(
   LESSON_CATALOG.map((l) => [l.id, l]),
 )
 
-type Phase = 'intro' | 'quiz' | 'fight' | 'won' | 'lost'
+// Only the final world uses the heavy cinematic VEX fight (the full post stack,
+// reflective floor, VexBoss rig and VFX engine). Splitting it out of the main
+// battle chunk means a regular boss fight no longer downloads/parses that whole
+// module graph at the moment the player presses E — a big chunk-parse win on
+// the common entry path.
+const CinematicBossArena = lazy(() =>
+  import('../components/game3d/CinematicBossArena').then((m) => ({ default: m.CinematicBossArena })),
+)
+
+type Phase = 'intro' | 'quiz' | 'result' | 'fight' | 'won' | 'lost'
 
 export function BossBattlePage() {
   const { lessonId } = useParams()
@@ -36,7 +47,10 @@ export function BossBattlePage() {
 
   const world = lessonId ? getWorld(lessonId) : undefined
 
-  const fullLesson = lessonId ? generateLesson(lessonId) : undefined
+  // generateLesson rebuilds the entire lesson object (steps + checkpoints) on
+  // every call; memoize it so phase changes / HUD-driven re-renders don't redo
+  // that synchronous work each render.
+  const fullLesson = useMemo(() => (lessonId ? generateLesson(lessonId) : undefined), [lessonId])
   const progress = lessonId ? getLessonProgress(lessonId) : undefined
   const summary = lessonId ? SUMMARY_BY_ID[lessonId] : undefined
   const unlocked = summary ? isLessonUnlocked(summary) : false
@@ -50,6 +64,11 @@ export function BossBattlePage() {
   const [phase, setPhase] = useState<Phase>('intro')
   // Bump to remount the arena for a fresh fight attempt.
   const [fightRun, setFightRun] = useState(0)
+  // Bump to remount the quiz for a retake.
+  const [quizRound, setQuizRound] = useState(0)
+  // The most recent quiz result, shown on the post-quiz results screen.
+  const [quizResult, setQuizResult] = useState<LessonResult | null>(null)
+  const [showReview, setShowReview] = useState(false)
   // The overworld entry token is one-time use, so decide access once and cache
   // it — re-renders must not re-consume the token and bounce the player out.
   const bossAccessRef = useRef<{ key: number; ok: boolean } | null>(null)
@@ -69,6 +88,13 @@ export function BossBattlePage() {
     }
   }, [phase, canBattle, world, restartQuizProgress])
 
+  // The cinematic VEX fight is lazy-split; warm its chunk the moment we land on
+  // the final world's intro so it's parsed and ready by the time the player
+  // clicks through to the fight (no Suspense stall mid-transition).
+  useEffect(() => {
+    if (isFinalWorld) void import('../components/game3d/CinematicBossArena')
+  }, [isFinalWorld])
+
   function handleAttempt(a: AttemptRecord) {
     logAttempt(a)
   }
@@ -77,8 +103,29 @@ export function BossBattlePage() {
     saveLessonProgress(p)
   }
 
-  // Finishing the quiz (pass OR miss — no review loop) always leads to the fight.
-  function handleQuizComplete() {
+  // Finishing the quiz shows a results screen: score, then review / retake / fight.
+  function handleQuizComplete(result?: LessonResult) {
+    setQuizResult(result ?? null)
+    setShowReview(false)
+    setPhase('result')
+  }
+
+  function retakeQuiz() {
+    if (world) restartQuizProgress(world.id)
+    setQuizResult(null)
+    setQuizRound((r) => r + 1)
+    setPhase('quiz')
+  }
+
+  function continueToFight() {
+    setFightRun((r) => r + 1)
+    setPhase('fight')
+  }
+
+  // Once a level's quiz has been mastered, let the player jump straight to the
+  // fight on a rematch instead of re-answering everything.
+  function skipToFight() {
+    playClick()
     setFightRun((r) => r + 1)
     setPhase('fight')
   }
@@ -124,6 +171,57 @@ export function BossBattlePage() {
   if (!bossAccessRef.current.ok) return <Navigate to="/quest" replace />
 
   const accent = world.theme.accent
+  const lessonTitle = summary?.title ?? 'this lesson'
+
+  // === POST-QUIZ RESULTS — score, then review / retake / fight =============
+  if (phase === 'result') {
+    const r = quizResult
+    const items = (r?.stepReviews ?? []).filter((s) => s.targetVariables.length > 0)
+    const total = items.length
+    const firstTry = r?.correctFirstTry ?? 0
+    const score = r?.masteryScore ?? 0
+    const band = masteryBand(score)
+    const reviewItems: ReviewTutorItem[] = [...items]
+      .sort((a, b) => Number(b.missed) - Number(a.missed))
+      .map((s, i) => ({
+        label: `Q${i + 1}${s.missed ? ' · missed' : ''}`,
+        context: { prompt: s.prompt, code: s.code, concept: lessonTitle, hint: '', answered: true },
+      }))
+    return (
+      <div className="battle-page">
+        <div className="battle-stage battle-stage--full">
+          <div className="battle-backdrop" style={{ ['--accent' as string]: accent }} />
+          <div className="battle-overlay" key="quiz-result">
+            <div className="battle-result-card" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+              <span className="battle-result-tag">Quiz complete</span>
+              <h2>{score}% mastery</h2>
+              <p>
+                {total > 0
+                  ? `You got ${firstTry} of ${total} right on the first try — ${bandLabel(band)}.`
+                  : 'Nice work — now face the boss.'}
+              </p>
+              <div className="battle-result-actions">
+                <button className="battle-btn battle-btn-primary" onClick={continueToFight}>
+                  Continue to boss fight →
+                </button>
+                {reviewItems.length > 0 && (
+                  <button className="battle-btn battle-btn-ghost" onClick={() => setShowReview((s) => !s)}>
+                    {showReview ? 'Hide review' : 'Review answers'}
+                  </button>
+                )}
+                <button className="battle-btn battle-btn-ghost" onClick={retakeQuiz}>
+                  Retake quiz
+                </button>
+              </div>
+              {showReview && reviewItems.length > 0 && (
+                <ReviewTutor items={reviewItems} heading="Review with Bit" />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // === FLAGSHIP FINAL WORLD: VEX, the Null Herald ===========================
   // Pure-skill cinematic boss — no quiz. Winning leads into the Threshold zone.
@@ -131,15 +229,17 @@ export function BossBattlePage() {
     if (phase === 'fight') {
       return (
         <div className="battle-page">
-          <CinematicBossArena
-            key={`vex-${fightRun}`}
-            bossName="VEX"
-            accent={accent}
-            loadout={null}
-            onWin={handleWin}
-            onLose={() => setPhase('lost')}
-            onFlee={() => navigate('/quest')}
-          />
+          <Suspense fallback={<Loader label="Entering the arena" />}>
+            <CinematicBossArena
+              key={`vex-${fightRun}`}
+              bossName="VEX"
+              accent={accent}
+              loadout={null}
+              onWin={handleWin}
+              onLose={() => setPhase('lost')}
+              onFlee={() => navigate('/quest')}
+            />
+          </Suspense>
         </div>
       )
     }
@@ -206,7 +306,13 @@ export function BossBattlePage() {
       return (
         <div className="battle-page">
           <div className="battle-quiz battle-quiz-full">
+            {mastered && (
+              <button className="battle-skip-quiz" onClick={skipToFight}>
+                Skip to fight →
+              </button>
+            )}
             <LessonRunner
+              key={`vex-quiz-${quizRound}`}
               lessonId={world.id}
               section="quiz"
               initial={undefined}
@@ -247,7 +353,7 @@ export function BossBattlePage() {
                 <span className="battle-vex-control"><b>Dash</b> Shift</span>
                 <span className="battle-vex-control"><b>Roll</b> K</span>
                 <span className="battle-vex-control"><b>Jump</b> Space</span>
-                <span className="battle-vex-control"><b>Melee</b> J / Click</span>
+                <span className="battle-vex-control"><b>Melee</b> Q / Click</span>
                 <span className="battle-vex-control"><b>Shoot</b> F</span>
                 <span className="battle-vex-control battle-vex-control--key"><b>PARRY</b> L</span>
               </div>
@@ -375,7 +481,13 @@ export function BossBattlePage() {
 
       {phase === 'quiz' && (
         <div className="battle-quiz battle-quiz-full">
+          {mastered && (
+            <button className="battle-skip-quiz" onClick={skipToFight}>
+              Skip to fight →
+            </button>
+          )}
           <LessonRunner
+            key={`quiz-${quizRound}`}
             lessonId={world.id}
             section="quiz"
             initial={undefined}

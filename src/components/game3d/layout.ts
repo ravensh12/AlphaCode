@@ -78,7 +78,7 @@ export const PATH_3D: Vec2[] = [START_3D, ...CHECKPOINTS_3D.map((c) => c.flag)]
  * apart across the city. Passing each one ramps the zombie horde.
  */
 export const GATES_PER_WORLD = 3
-const GATE_FRACS = [0.26, 0.54, 0.82] // wide spacing along the route
+const GATE_FRACS = [0.3, 0.6, 0.9] // farther apart — longer legs between checkpoints
 
 /**
  * Place a level's checkpoints as DISTINCT road intersections marching from the

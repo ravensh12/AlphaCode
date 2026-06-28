@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
 import { generateLesson, hasLesson } from '../content/lessons'
+import { adaptLessonForLearner } from '../content/lessons/adaptive'
 import { getWorld } from '../content/adventure'
 import { LESSON_CATALOG, MASTERY_UNLOCK_THRESHOLD } from '../content/catalog'
 import { emptyBadgeCounts, getBadge } from '../content/badges'
@@ -41,6 +42,7 @@ import {
 } from '../lib/lessonSections'
 import { VisualDiagram } from '../components/lesson/VisualDiagram'
 import { CompletionView } from '../components/lesson/CompletionView'
+import { PreviousTestReview } from '../components/lesson/PreviousTestReview'
 import { stepToReview } from '../components/lesson/ReviewBreakdown'
 import { Loader } from '../components/Loader'
 import { IconArrowLeft } from '../components/icons'
@@ -344,11 +346,14 @@ export function LessonRunner({
   onExit: () => void
   onPartComplete?: (part: number, final: boolean) => void
   /** Boss mode: fires once the quiz is fully finished (incl. review) → go fight. */
-  onQuizComplete?: () => void
+  onQuizComplete?: (result?: LessonResult) => void
   embedded?: boolean
 }) {
   const { isGuest } = useAuth()
-  const { getLessonProgress, restartQuizProgress } = useProgress()
+  const { getLessonProgress, restartQuizProgress, learnerModel } = useProgress()
+  // Snapshot the learner model once per mount so quiz adaptation stays stable
+  // through a run + its review (it must not reshuffle on every answer).
+  const learnerSnapshot = useRef(learnerModel).current
   const liveProgress = getLessonProgress(lessonId) ?? initial
   const [round, setRound] = useState(0)
   const [reviewRound, setReviewRound] = useState(0)
@@ -368,8 +373,13 @@ export function LessonRunner({
 
   const baseLesson = useMemo(() => {
     void round
-    return generateLesson(lessonId)!
-  }, [lessonId, round])
+    const raw = generateLesson(lessonId)!
+    // Personalize only the quiz, and only for signed-in learners with a model.
+    if (section === 'quiz' && !isGuest) {
+      return adaptLessonForLearner(raw, learnerSnapshot)
+    }
+    return raw
+  }, [lessonId, round, section, isGuest, learnerSnapshot])
 
   const sectionSteps = useMemo(
     () => stepsForSection(baseLesson.steps, section),
@@ -636,7 +646,7 @@ export function LessonRound({
   onTakeQuiz: () => void
   onExit: () => void
   onPartComplete?: (part: number, final: boolean) => void
-  onQuizComplete?: () => void
+  onQuizComplete?: (result?: LessonResult) => void
   onReplay: () => void
   onRedoMissed: (ids: string[]) => void
   onReviewMasteryReached: () => void
@@ -645,7 +655,7 @@ export function LessonRound({
   const isPart = learnPart != null && section === 'learn' && !isReview
   const { isGuest } = useAuth()
   const { addXp } = usePlayerLevel()
-  const { getLessonProgress } = useProgress()
+  const { getLessonProgress, recordConceptResult } = useProgress()
   const fullLesson = useMemo(() => generateLesson(lesson.id)!, [lesson.id])
   const savedProgress = getLessonProgress(lesson.id) ?? initial
   // Parts always start at the top of their slice — global resume indices don't
@@ -869,6 +879,7 @@ export function LessonRound({
     onSave: handleSave,
     onAttempt,
     onCorrect: ({ firstTry, responseMs }) => addXp(answerXp(true, firstTry, responseMs)),
+    onConceptResult: recordConceptResult,
   })
 
   engineRef.current = engine
@@ -881,7 +892,7 @@ export function LessonRound({
     if (!onQuizComplete || section !== 'quiz') return
     if (engine.isComplete && engine.result && !quizDoneFired.current) {
       quizDoneFired.current = true
-      onQuizComplete()
+      onQuizComplete(engine.result)
     }
   }, [engine.isComplete, engine.result, onQuizComplete, section])
 
@@ -1274,6 +1285,9 @@ export function LessonRound({
           >
             <IconArrowLeft size={18} />
           </button>
+          {section === 'learn' && !isReview && (
+            <PreviousTestReview lessonId={lesson.id} lessonTitle={lesson.title} />
+          )}
           {isReview && (
             <ReviewMasteryBar
               mastery={displayMastery}
