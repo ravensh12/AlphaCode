@@ -1,8 +1,16 @@
-import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { useTexture, PerformanceMonitor } from '@react-three/drei'
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
+import { PerformanceMonitor } from '@react-three/drei'
+import {
+  EffectComposer,
+  Bloom,
+  Vignette,
+  ChromaticAberration,
+  Scanline,
+  Noise,
+  SMAA,
+} from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { AppHeader } from '../components/AppHeader'
 import { PowerUnlock } from '../components/game/PowerUnlock'
@@ -54,8 +62,17 @@ import {
   LandmarkMesh,
   FloorPath,
 } from '../components/game3d/Primitives3D'
-import { ThirdPersonController, type Target, type DashState } from '../components/game3d/ThirdPersonController'
+import {
+  ThirdPersonController,
+  type Target,
+  type DashState,
+  type TouchMoveState,
+} from '../components/game3d/ThirdPersonController'
 import { CombatSystem, type CombatApi, GUNS } from '../components/game3d/CombatSystem'
+import { SimulationDriver } from '../components/game3d/SimulationDriver'
+import { SimulationSky, SkyEnvironment } from '../components/game3d/SimulationSky'
+import { SIM, SUN_DIR } from '../components/game3d/simulation'
+import type { QualityTier } from '../components/game3d/cinematic/quality'
 import { playHeartbeat, playHeartPickup, playPlayerHurt } from '../lib/soundFx'
 import {
   CHECKPOINTS_3D,
@@ -222,19 +239,82 @@ function aheadOfTourLabel(tourWorld: number, worldIndex: number): string {
 const SKY_RADIUS = 470
 const CAMERA_FAR = 520
 
-function SkyDome() {
-  const tex = useTexture('/sky/game-sky.png')
-  const ref = useRef<THREE.Mesh>(null)
-  useFrame((state) => {
-    if (ref.current) ref.current.position.copy(state.camera.position)
+/**
+ * M5/M7 — tiered post stack for the overworld, memoized exactly like
+ * CinematicStage: the pass list identity only changes when the tier does, so
+ * the frequent HUD re-renders never rebuild the effect chain (a per-hit GPU
+ * stall). Bloom is tuned to the Living Simulation emissive palette. HIGH is
+ * the full look: bloom, a whisper of radial chromatic aberration (pulsed by
+ * the shared shake channel), CRT scanlines, subtle filmic grain, and SMAA to
+ * hold the micro-detail together under the dpr clamp. (Heavy full-screen SSAO
+ * is intentionally NOT run here — see the note in the pass list below.)
+ * MED keeps bloom + vignette; LOW runs bloom only.
+ */
+const OverworldEffects = memo(function OverworldEffects({
+  tier,
+  shakeRef,
+}: {
+  tier: QualityTier
+  shakeRef: React.MutableRefObject<number>
+}) {
+  // Stable vector mutated in place — the effect uniform sees it by reference.
+  const caOffset = useMemo(() => new THREE.Vector2(0.0005, 0.0005), [])
+  const high = tier === 'high'
+  useFrame(() => {
+    if (!high) return
+    const kickAmt = Math.min(0.6, shakeRef.current)
+    const o = 0.0005 + kickAmt * 0.0045
+    caOffset.set(o, o)
   })
+
+  const passes = useMemo(() => {
+    const out: JSX.Element[] = []
+    // NOTE: N8AO (a full-screen SSAO over the entire open world) was the
+    // heaviest single pass and could trip a WebGL context loss on integrated /
+    // retina GPUs — the open city reads fine grounded by the sun shadow + fog
+    // without it. Ambient occlusion stays in the tighter cinematic arenas where
+    // the scene is small and the camera is authored, so it's affordable there.
+    out.push(
+      <Bloom
+        key="bloom"
+        mipmapBlur
+        intensity={tier === 'low' ? 0.5 : 0.9}
+        luminanceThreshold={0.68}
+        luminanceSmoothing={0.24}
+      />,
+    )
+    if (tier !== 'low') {
+      out.push(<Vignette key="vig" eskil={false} offset={0.22} darkness={0.58} />)
+    }
+    if (high) {
+      out.push(
+        <ChromaticAberration
+          key="ca"
+          offset={caOffset}
+          radialModulation
+          modulationOffset={0.42}
+        />,
+      )
+      out.push(<Scanline key="scan" density={1.15} opacity={0.05} />)
+      out.push(<Noise key="grain" opacity={0.045} />)
+      out.push(<SMAA key="smaa" />)
+    }
+    return out
+  }, [tier, high, caOffset])
+
   return (
-    <mesh ref={ref}>
-      <sphereGeometry args={[SKY_RADIUS, 32, 24]} />
-      <meshBasicMaterial map={tex} side={THREE.BackSide} fog={false} toneMapped={false} />
-    </mesh>
+    <EffectComposer multisampling={0} enableNormalPass={false}>
+      {passes}
+    </EffectComposer>
   )
-}
+})
+
+// Sun color across the corruption blend: warm daylight → cold moonlight.
+const SUN_DAY = new THREE.Color('#ffe6b8')
+const SUN_NIGHT = new THREE.Color('#8fa5e8')
+// The light rides the SAME sun direction as the sky's disc + the baked env
+// map, so shadows, sky and reflections always agree on where the sun is.
+const SUN_DIST = 62
 
 function FollowLight({ playerPosRef }: { playerPosRef: React.MutableRefObject<THREE.Vector3> }) {
   const light = useRef<THREE.DirectionalLight>(null)
@@ -242,29 +322,103 @@ function FollowLight({ playerPosRef }: { playerPosRef: React.MutableRefObject<TH
     const p = playerPosRef.current
     const l = light.current
     if (l) {
-      l.position.set(p.x + 28, 46, p.z + 22)
+      l.position.set(
+        p.x + SUN_DIR.x * SUN_DIST,
+        SUN_DIR.y * SUN_DIST,
+        p.z + SUN_DIR.z * SUN_DIST,
+      )
       l.target.position.set(p.x, 0, p.z)
       l.target.updateMatrixWorld()
+      // Nightfall (M6): the key light cools and dims into moonlight with the
+      // shared blend — the sky env swap handles the ambient side of dusk.
+      const n = SIM.night.value
+      l.color.lerpColors(SUN_DAY, SUN_NIGHT, n)
+      l.intensity = 2.3 - n * 1.65
     }
   })
   return (
     <directionalLight
       ref={light}
-      intensity={1.7}
-      color="#fff0d2"
+      intensity={2.3}
+      color="#ffe6b8"
       castShadow
       shadow-mapSize-width={1024}
       shadow-mapSize-height={1024}
       shadow-radius={4}
-      shadow-camera-left={-46}
-      shadow-camera-right={46}
-      shadow-camera-top={46}
-      shadow-camera-bottom={-46}
-      shadow-camera-near={1}
-      shadow-camera-far={150}
+      // Tight follow frustum: fewer wasted texels → visibly crisper contact
+      // shadows around the hero for the same 1024 map. Still the ONE caster.
+      shadow-camera-left={-34}
+      shadow-camera-right={34}
+      shadow-camera-top={34}
+      shadow-camera-bottom={-34}
+      shadow-camera-near={16}
+      shadow-camera-far={130}
       shadow-bias={-0.0004}
       shadow-normalBias={0.02}
     />
+  )
+}
+
+/** Only offer the on-screen stick where the primary pointer is a finger. */
+function isTouchDevice(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+}
+
+/**
+ * Virtual joystick (touch devices): drag anywhere on the pad to move; push to
+ * the rim to sprint. Writes an analog vector into `moveRef` every pointer move
+ * — the movement controller reads it each frame alongside the keys, so there
+ * is no React state on the hot path.
+ */
+function TouchJoystick({ moveRef }: { moveRef: React.MutableRefObject<TouchMoveState> }) {
+  const nubRef = useRef<HTMLDivElement>(null)
+  const baseRef = useRef<HTMLDivElement>(null)
+  const activeId = useRef<number | null>(null)
+
+  function apply(e: React.PointerEvent) {
+    const base = baseRef.current
+    const nub = nubRef.current
+    if (!base || !nub) return
+    const rect = base.getBoundingClientRect()
+    const r = rect.width / 2
+    let dx = (e.clientX - (rect.left + r)) / r
+    let dy = (e.clientY - (rect.top + r)) / r
+    const mag = Math.hypot(dx, dy)
+    if (mag > 1) {
+      dx /= mag
+      dy /= mag
+    }
+    moveRef.current.str = dx
+    moveRef.current.fwd = -dy // screen-up = forward
+    moveRef.current.mag = Math.min(1, mag)
+    nub.style.transform = `translate(${dx * r * 0.55}px, ${dy * r * 0.55}px)`
+  }
+
+  function release() {
+    activeId.current = null
+    moveRef.current.fwd = 0
+    moveRef.current.str = 0
+    moveRef.current.mag = 0
+    if (nubRef.current) nubRef.current.style.transform = 'translate(0px, 0px)'
+  }
+
+  return (
+    <div
+      ref={baseRef}
+      className="over3d-joystick"
+      onPointerDown={(e) => {
+        activeId.current = e.pointerId
+        e.currentTarget.setPointerCapture(e.pointerId)
+        apply(e)
+      }}
+      onPointerMove={(e) => {
+        if (activeId.current === e.pointerId) apply(e)
+      }}
+      onPointerUp={release}
+      onPointerCancel={release}
+    >
+      <div ref={nubRef} className="over3d-joystick-nub" />
+    </div>
   )
 }
 
@@ -472,6 +626,11 @@ export function Overworld3DPage() {
   const [dpr, setDpr] = useState(() =>
     Math.min(1.35, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1),
   )
+  // Living Simulation quality tier, derived from the same adaptive-resolution
+  // signal the PerformanceMonitor already drives — no second monitor. Weak GPUs
+  // (dpr stepped to the floor) drop the hologram/sky flourishes and the heavier
+  // post passes; capable ones get the full look.
+  const simTier: QualityTier = dpr >= 1.15 ? 'high' : dpr >= 0.95 ? 'med' : 'low'
 
   const states = useMemo(() => {
     return WORLDS.map((world) => {
@@ -676,6 +835,9 @@ export function Overworld3DPage() {
   // Shared stealth state: the controller writes it (crouch), CombatSystem reads
   // it to pause spawns + drop aggro on far zombies.
   const stealthRef = useRef<{ active: boolean }>({ active: false })
+  // Virtual joystick channel (touch devices) — the stick writes, controller reads.
+  const touchMoveRef = useRef<TouchMoveState>({ fwd: 0, str: 0, mag: 0 })
+  const touchUi = useMemo(isTouchDevice, [])
   // Shared gun-heat readout: CombatSystem writes it, the HUD polls it.
   const gunHeatRef = useRef<{ heat: number; overheated: boolean }>({
     heat: 0,
@@ -1197,6 +1359,19 @@ export function Overworld3DPage() {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'q' }))
   }
 
+  // On-screen fire button (touch) — drives the same held-F rapid-fire path the
+  // keyboard uses, so heat/cooldown behave identically.
+  const [firing, setFiring] = useState(false)
+  function startFire() {
+    if (overlayPausedRef.current) return
+    setFiring(true)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f' }))
+  }
+  function endFire() {
+    setFiring(false)
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'f' }))
+  }
+
   // Remember where to respawn (and which way to face) after an objective.
   function setSpawn(here: Vec2, next: Vec2 | null) {
     const h = next ? Math.atan2(next.x - here.x, next.z - here.z) : 0
@@ -1372,23 +1547,39 @@ export function Overworld3DPage() {
             toneMappingExposure: 1.08,
           }}
           camera={{ fov: 60, near: 0.3, far: CAMERA_FAR, position: [START_3D.x, 2.6, START_3D.z - 10] }}
+          onCreated={({ gl }) => {
+            // WebGL context-loss recovery. By spec the browser only re-issues a
+            // context if `preventDefault()` is called on the loss event — without
+            // this, a transient GPU hiccup leaves the canvas permanently black
+            // (HUD survives) until a full reload. This makes it self-heal.
+            const canvas = gl.domElement
+            canvas.addEventListener(
+              'webglcontextlost',
+              (e) => e.preventDefault(),
+              false,
+            )
+          }}
         >
           <PerformanceMonitor
             onDecline={() => setDpr((d) => Math.max(0.8, Math.round((d - 0.2) * 100) / 100))}
             onIncline={() => setDpr((d) => Math.min(1.35, Math.round((d + 0.2) * 100) / 100))}
           />
-          <fog attach="fog" args={['#c6d4e0', 42, 220]} />
-          <hemisphereLight args={['#fff1d6', '#7a8a6a', 0.85]} />
-          <ambientLight intensity={0.3} />
+          <fog attach="fog" args={['#c6d4e0', 48, 238]} />
+          {/* The baked sky env (SkyEnvironment) now carries the ambient light;
+              these two are just gentle shape-fill so nothing reads dead flat. */}
+          <hemisphereLight args={['#fff1d6', '#7a8a6a', 0.28]} />
+          <ambientLight intensity={0.06} />
           {/* cool fill from the opposite side for form + depth */}
-          <directionalLight position={[-40, 30, -28]} intensity={0.35} color="#9fc2ff" />
+          <directionalLight position={[-40, 30, -28]} intensity={0.22} color="#9fc2ff" />
 
           <Suspense fallback={null}>
-            <SkyDome />
+            <SimulationDriver nightRef={nightRef} tier={simTier} driveFog />
+            <SimulationSky radius={SKY_RADIUS} />
+            <SkyEnvironment />
             <FollowLight playerPosRef={playerPosRef} />
             <Ground />
             <Roads />
-            <InstancedWorld />
+            <InstancedWorld tier={simTier} />
 
             <LandmarkField />
 
@@ -1466,6 +1657,7 @@ export function Overworld3DPage() {
               onStealthChange={handleStealthChange}
               shakeRef={shakeRef}
               hitstopRef={hitstopRef}
+              touchMoveRef={touchMoveRef}
             />
             <FloorPath from={legStart} target={guidePos} color={guideColor} />
             <CombatSystem
@@ -1482,6 +1674,7 @@ export function Overworld3DPage() {
               intensity={legProgress}
               wantGlitch={!tourDone && !!targetConceptId}
               night={night}
+              zombieShadows={simTier !== 'low'}
               shelters={SHELTERS}
               onKill={handleKill}
               onPlayerHit={handlePlayerHit}
@@ -1492,10 +1685,7 @@ export function Overworld3DPage() {
               hitstopRef={hitstopRef}
             />
 
-            <EffectComposer multisampling={0} enableNormalPass={false}>
-              <Bloom mipmapBlur intensity={0.65} luminanceThreshold={0.78} luminanceSmoothing={0.2} />
-              <Vignette eskil={false} offset={0.22} darkness={0.55} />
-            </EffectComposer>
+            <OverworldEffects tier={simTier} shakeRef={shakeRef} />
           </Suspense>
         </Canvas>
 
@@ -1867,6 +2057,29 @@ export function Overworld3DPage() {
               </span>
             )}
           </div>
+        )}
+
+        {/* Touch controls: analog joystick (move / rim = sprint) + fire button */}
+        {touchUi && (
+          <>
+            <TouchJoystick moveRef={touchMoveRef} />
+            <button
+              type="button"
+              className={`over3d-fire-btn ${firing ? 'is-on' : ''}`}
+              onPointerDown={(e) => {
+                e.preventDefault()
+                startFire()
+              }}
+              onPointerUp={endFire}
+              onPointerLeave={endFire}
+              onPointerCancel={endFire}
+              aria-pressed={firing}
+              title="Hold to fire (or hold F)"
+            >
+              <IconBolt size={22} />
+              <span>Fire</span>
+            </button>
+          </>
         )}
 
         {/* Action buttons — sprint (hold) + blade dash (tap, with cooldown) */}

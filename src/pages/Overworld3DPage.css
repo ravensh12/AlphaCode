@@ -286,6 +286,71 @@
   transform: scale(0.96);
 }
 
+/* Virtual joystick (touch devices) — bottom-left analog stick, floated above
+   the guide panel so Bit's tips stay readable under the thumb. */
+.over3d-joystick {
+  position: absolute;
+  left: 18px;
+  bottom: 128px;
+  z-index: 8;
+  width: 124px;
+  height: 124px;
+  border-radius: 50%;
+  border: 2px solid rgba(140, 200, 255, 0.35);
+  background: radial-gradient(circle, rgba(20, 28, 48, 0.35) 0%, rgba(20, 28, 48, 0.6) 100%);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+.over3d-joystick-nub {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(150, 210, 255, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 18px rgba(120, 190, 255, 0.45);
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* Fire button (touch devices) — big thumb target above Dash/Sprint */
+.over3d-fire-btn {
+  position: absolute;
+  right: 18px;
+  bottom: 148px;
+  z-index: 8;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 2px solid rgba(255, 170, 120, 0.55);
+  background: rgba(48, 26, 23, 0.78);
+  color: #ffd9c4;
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  transition: transform 0.08s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+.over3d-fire-btn.is-on {
+  background: #b8451f;
+  border-color: rgba(255, 220, 180, 0.8);
+  box-shadow: 0 0 28px rgba(255, 140, 60, 0.65), 0 8px 22px rgba(0, 0, 0, 0.5);
+  transform: scale(0.94);
+}
+
 /* HUD */
 .over3d-hud {
   position: absolute;
