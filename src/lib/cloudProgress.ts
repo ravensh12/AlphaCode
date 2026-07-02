@@ -332,7 +332,13 @@ export async function saveBadgesCloud(
   if (error) {
     // Fallback for databases without badge_counts column yet.
     const legacyIds = (Object.entries(normalized) as [keyof BadgeCounts, number][])
-      .flatMap(([id, n]) => Array.from({ length: n }, () => id))
+      .flatMap(([id, n]) => {
+        // Guard the array length: a negative / NaN / non-integer count would
+        // make Array.from throw `RangeError: Invalid array length` and blow up
+        // the whole cloud write. Clamp to a safe non-negative integer.
+        const count = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+        return Array.from({ length: count }, () => id)
+      })
     await client()
       .from('profiles')
       .update({ badges: legacyIds, last_active_at: new Date().toISOString() })

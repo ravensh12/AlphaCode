@@ -284,7 +284,7 @@ export function useLessonEngine(
   )
   // How many times each step was answered wrong, for the review breakdown.
   const wrongByStepRef = useRef<Record<string, number>>({})
-  const [agg, setAgg] = useState<Aggregates>({
+  const [agg, setAggState] = useState<Aggregates>({
     correctCount: resume?.correctCount ?? 0,
     wrongCount: resume?.wrongCount ?? 0,
     totalAttempts: resume?.totalAttempts ?? 0,
@@ -293,6 +293,19 @@ export function useLessonEngine(
     lightningCount: 0,
     quickCount: 0,
   })
+  // Ref-backed aggregate updates. Handlers need the freshest aggregates to
+  // persist progress, but calling persist() (→ ProgressProvider setState) from
+  // inside a setState UPDATER is illegal — React may run updaters during the
+  // render phase, which throws "Cannot update a component (ProgressProvider)
+  // while rendering a different component (LessonRound)". The ref applies the
+  // update synchronously so handlers can read it and persist OUTSIDE updaters.
+  const aggRef = useRef(agg)
+  const setAgg = useCallback((updater: (prev: Aggregates) => Aggregates) => {
+    const next = updater(aggRef.current)
+    aggRef.current = next
+    setAggState(next)
+    return next
+  }, [])
 
   const step = lesson.steps[stepIndex]
   const frameCount = step?.traceFrames?.length ?? 1
@@ -718,7 +731,7 @@ export function useLessonEngine(
   const restart = useCallback(() => {
     wrongByStepRef.current = {}
     setUnitOutcomes([])
-    setAgg({
+    setAgg(() => ({
       correctCount: 0,
       wrongCount: 0,
       totalAttempts: 0,
@@ -726,11 +739,11 @@ export function useLessonEngine(
       completedStepIds: [],
       lightningCount: 0,
       quickCount: 0,
-    })
+    }))
     setIsComplete(false)
     setResult(null)
     goToStep(0)
-  }, [goToStep])
+  }, [goToStep, setAgg])
 
   const progressTotal = interactiveTotal
   const progressNowIndex = useMemo(() => {

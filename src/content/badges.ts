@@ -74,12 +74,21 @@ export function badgeCountsFromEarnedList(ids: string[]): BadgeCounts {
   return counts
 }
 
+/** Hard ceiling per badge count — protects every consumer (UI totals, the
+ *  legacy cloud fallback that expands counts into an array) from corrupted
+ *  values like Infinity/NaN/absurd numbers picked up from storage or a bad
+ *  merge. `Array.from({ length: Infinity })` throws RangeError and used to
+ *  take the whole cloud write down with it. */
+const MAX_BADGE_COUNT = 100000
+
 export function normalizeBadgeCounts(raw: Partial<BadgeCounts> | null | undefined): BadgeCounts {
   const counts = emptyBadgeCounts()
   if (!raw) return counts
   for (const id of BADGE_ORDER) {
     const n = raw[id]
-    if (typeof n === 'number' && n > 0) counts[id] = Math.floor(n)
+    if (typeof n === 'number' && Number.isFinite(n) && n > 0) {
+      counts[id] = Math.min(MAX_BADGE_COUNT, Math.floor(n))
+    }
   }
   return counts
 }
