@@ -1,10 +1,11 @@
-import { memo, useEffect, useRef, type MutableRefObject } from 'react'
+import { memo, useEffect, useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Avatar, type AvatarAnim } from './Avatar'
 import { useKeys } from './useKeys'
 import { playShot } from '../../lib/soundFx'
 import { GROUND_HALF, START_3D, collidersNear } from './layout'
+import { radialGlowTexture } from './proceduralTextures'
 import type { World } from '../../content/adventure'
 
 export type Target = {
@@ -37,6 +38,11 @@ export type DashState = {
   ready: boolean
 }
 
+/** Virtual-joystick channel: the on-screen stick writes it, the controller
+ *  reads it every frame. fwd/str are -1..1 (forward / strafe-right), mag is
+ *  the stick deflection 0..1 — pushed to the edge = sprint. */
+export type TouchMoveState = { fwd: number; str: number; mag: number }
+
 const RUN_SPEED = 8
 const SPRINT_SPEED = 15
 const HEADING_LERP = 0.3 // how fast the hero turns to face the aim direction
@@ -58,6 +64,146 @@ const DASH_SPEED = 30 // m/s burst while dashing
 const DASH_TIME = 0.32 // seconds the lunge + i-frames last
 const DASH_CD = 2.4 // meaningful cooldown — the dash is a committed decision
 const DASH_RADIUS = 2.8 // tighter sweep — cuts what you dash through, not the whole field
+
+// --- M5 game feel (camera-only; movement/controls tuning untouched) --------
+const SPRINT_FOV_ADD = 5 // sprint widens the lens a touch — speed reads on screen
+const DASH_FOV_KICK = 7 // extra punch-in bloom of speed on a blade dash
+const BOB_AMP = 0.034 // running head-bob, position-only and tiny
+const LAND_SHAKE = 0.12 // micro-shake magnitude on touchdown
+
+/* ---------------------------------------------------------------- Foot dust */
+
+// Pooled, instanced dust puffs: footfalls while running kick up a soft ring of
+// dust; landings burst a bigger one. One instanced draw, a fixed ring buffer,
+// zero allocations — spawning just rewrites a slot.
+const DUST_POOL = 26
+const DUST_LIFE = 0.55
+const DUST_STRIDE = 2.3 // meters of ground covered between footfall puffs
+
+type DustSlot = { x: number; z: number; born: number; big: number; rot: number }
+
+function FootDust({
+  playerPosRef,
+  animRef,
+}: {
+  playerPosRef: MutableRefObject<THREE.Vector3>
+  animRef: MutableRefObject<AvatarAnim>
+}) {
+  const mesh = useRef<THREE.InstancedMesh>(null)
+  const slots = useMemo<DustSlot[]>(
+    () => Array.from({ length: DUST_POOL }, () => ({ x: 0, z: 0, born: -10, big: 0, rot: 0 })),
+    [],
+  )
+  const cursor = useRef(0)
+  const distAcc = useRef(0)
+  const side = useRef(1)
+  const prev = useMemo(() => new THREE.Vector3(), [])
+  const prevY = useRef(0)
+  const started = useRef(false)
+
+  const geo = useMemo(() => {
+    const g = new THREE.CircleGeometry(0.5, 14)
+    g.rotateX(-Math.PI / 2)
+    return g
+  }, [])
+  const mat = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: '#a89e8c',
+        transparent: true,
+        opacity: 0.55,
+        alphaMap: radialGlowTexture(),
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+        toneMapped: false,
+      }),
+    [],
+  )
+  useEffect(() => () => {
+    geo.dispose()
+    mat.dispose()
+  }, [geo, mat])
+
+  const scratch = useMemo(() => ({ o: new THREE.Object3D(), col: new THREE.Color() }), [])
+
+  useFrame((state) => {
+    const m = mesh.current
+    if (!m) return
+    const now = state.clock.elapsedTime
+    const p = playerPosRef.current
+    if (!started.current) {
+      started.current = true
+      prev.copy(p)
+      prevY.current = p.y
+    }
+
+    const spawn = (x: number, z: number, big: number) => {
+      const s = slots[cursor.current]
+      cursor.current = (cursor.current + 1) % DUST_POOL
+      s.x = x
+      s.z = z
+      s.born = now
+      s.big = big
+      s.rot = (x * 13.7 + z * 7.9) % Math.PI
+    }
+
+    // Footfall cadence: a puff every stride-length of actual ground covered.
+    const grounded = p.y < 0.02
+    const a = animRef.current
+    if (grounded && (a === 'run' || a === 'walk' || a === 'dash')) {
+      distAcc.current += Math.hypot(p.x - prev.x, p.z - prev.z)
+      const stride = a === 'dash' ? 1.6 : DUST_STRIDE
+      if (distAcc.current >= stride) {
+        distAcc.current = 0
+        side.current = -side.current
+        // Slight lateral alternation so puffs track left/right footfalls.
+        const lat = side.current * 0.16
+        const dxn = p.x - prev.x
+        const dzn = p.z - prev.z
+        const len = Math.hypot(dxn, dzn) || 1
+        spawn(p.x + (-dzn / len) * lat, p.z + (dxn / len) * lat, a === 'dash' ? 0.5 : 0)
+      }
+    } else {
+      distAcc.current = 0
+    }
+    // Landing burst: falling → grounded this frame.
+    if (prevY.current > 0.12 && p.y <= 0.02) {
+      spawn(p.x + 0.3, p.z, 1)
+      spawn(p.x - 0.25, p.z + 0.22, 1)
+      spawn(p.x, p.z - 0.3, 0.6)
+    }
+    prev.copy(p)
+    prevY.current = p.y
+
+    const { o, col } = scratch
+    for (let i = 0; i < DUST_POOL; i++) {
+      const s = slots[i]
+      const t = (now - s.born) / (DUST_LIFE * (1 + s.big * 0.5))
+      if (t >= 1 || t < 0) {
+        o.position.set(0, -10, 0)
+        o.scale.setScalar(0.0001)
+        o.rotation.set(0, 0, 0)
+        o.updateMatrix()
+        m.setMatrixAt(i, o.matrix)
+        continue
+      }
+      const size = (0.4 + t * 1.15) * (1 + s.big * 0.9)
+      o.position.set(s.x, 0.06, s.z)
+      o.rotation.set(0, s.rot, 0)
+      o.scale.setScalar(size)
+      o.updateMatrix()
+      m.setMatrixAt(i, o.matrix)
+      // Additive fade: color → black reads as dust settling.
+      col.setScalar((1 - t) * (0.5 + s.big * 0.3))
+      m.setColorAt(i, col)
+    }
+    m.instanceMatrix.needsUpdate = true
+    if (m.instanceColor) m.instanceColor.needsUpdate = true
+  })
+
+  return <instancedMesh ref={mesh} args={[geo, mat, DUST_POOL]} frustumCulled={false} />
+}
 
 /** Slide the hero out of any building/car footprint (circle vs. AABB). */
 function resolveCollisions(p: THREE.Vector3) {
@@ -111,6 +257,7 @@ function ThirdPersonControllerImpl({
   onStealthChange,
   shakeRef,
   hitstopRef,
+  touchMoveRef,
 }: {
   playerPosRef: MutableRefObject<THREE.Vector3>
   headingRef?: MutableRefObject<number>
@@ -135,6 +282,8 @@ function ThirdPersonControllerImpl({
   shakeRef?: MutableRefObject<number>
   /** Hit-stop channel: a future clock time during which the scene runs in slow-mo. */
   hitstopRef?: MutableRefObject<number>
+  /** Virtual joystick (touch devices) — read every frame alongside the keys. */
+  touchMoveRef?: MutableRefObject<TouchMoveState>
 }) {
   const { camera, gl } = useThree()
   const enabledRef = useRef(true)
@@ -191,6 +340,14 @@ function ThirdPersonControllerImpl({
   const camTarget = useRef(new THREE.Vector3())
   const lookTarget = useRef(new THREE.Vector3())
 
+  // M5 camera feel: FOV breathes with speed (sprint widen + dash kick) and a
+  // tiny position-only head-bob ticks with the stride. Purely additive — the
+  // follow/damping constants and all movement tuning are untouched.
+  const baseFov = useRef(0)
+  const fovNow = useRef(0)
+  const bobPhase = useRef(0)
+  const bobAmp = useRef(0)
+
   function want(a: AvatarAnim) {
     animRef.current = a
   }
@@ -202,8 +359,10 @@ function ThirdPersonControllerImpl({
     function down(e: PointerEvent) {
       if (e.button !== 0) return
       dragging = true
-      // Hold to rapid-fire; you can still drag to aim while firing.
-      holdFire.current = true
+      // Hold to rapid-fire; you can still drag to aim while firing. Touch
+      // drags only steer — firing on touch is the on-screen Fire button, so
+      // aiming with a finger doesn't waste ammo/heat.
+      if (e.pointerType !== 'touch') holdFire.current = true
     }
     function move(e: PointerEvent) {
       if (!dragging) return
@@ -287,6 +446,16 @@ function ThirdPersonControllerImpl({
     lookTarget.current.set(startX + fwd.x * AIM_AHEAD, AIM_HEIGHT, startZ + fwd.z * AIM_AHEAD)
     camera.lookAt(lookTarget.current)
     shootDir.current.copy(fwd)
+    const pc = camera as THREE.PerspectiveCamera
+    // Latch the base FOV, but ONLY a sane value. There is an init-order race:
+    // this controller lives inside the overworld's <Suspense>, so while the hero
+    // GLB streams in, the very first useFrame can fire BEFORE this mount effect.
+    // If we (or that frame) ever store a 0 here, the perspective projection
+    // matrix goes NaN and the entire canvas renders black. Never latch 0.
+    if (pc.fov > 1) {
+      baseFov.current = pc.fov
+      fovNow.current = pc.fov
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera])
 
@@ -331,9 +500,14 @@ function ThirdPersonControllerImpl({
     const crouching = crouchHeld.current && !dashing && !paused
 
     // Move along the aim direction: W/↑ forward, S/↓ backward (no spinning),
-    // A/D strafe. A dash overrides this with a fast forward lunge.
-    const fwd = (k['w'] || k['arrowup'] ? 1 : 0) - (k['s'] || k['arrowdown'] ? 1 : 0)
-    const str = (k['d'] ? 1 : 0) - (k['a'] ? 1 : 0)
+    // A/D strafe. The virtual joystick adds its analog vector on top, and
+    // pushing it to the rim sprints. A dash overrides everything with a lunge.
+    const touch = paused ? null : touchMoveRef?.current
+    const touchActive = !!touch && touch.mag > 0.12
+    const fwd =
+      (k['w'] || k['arrowup'] ? 1 : 0) - (k['s'] || k['arrowdown'] ? 1 : 0) + (touchActive ? touch.fwd : 0)
+    const str = (k['d'] ? 1 : 0) - (k['a'] ? 1 : 0) + (touchActive ? touch.str : 0)
+    const sprintHeld = !!k['shift'] || (touchActive && touch.mag > 0.85)
 
     let moving: boolean
     if (dashing) {
@@ -350,7 +524,7 @@ function ThirdPersonControllerImpl({
         tmpMove.current.normalize()
         const baseSpeed = crouching
           ? RUN_SPEED * 0.6
-          : k['shift']
+          : sprintHeld
             ? SPRINT_SPEED
             : RUN_SPEED
         const speed = baseSpeed * dt
@@ -395,6 +569,8 @@ function ThirdPersonControllerImpl({
         grounded.current = true
         velY.current = 0
         squash.current = 1 // trigger landing squash
+        // Touchdown micro-shake (shared channel — the decay below handles it).
+        if (shakeRef) shakeRef.current = Math.max(shakeRef.current, LAND_SHAKE)
       }
     }
     if (squash.current > 0) squash.current = Math.max(0, squash.current - dt * 4)
@@ -474,12 +650,51 @@ function ThirdPersonControllerImpl({
       pos.current.z - tmpForward.current.z * CAM_DIST,
     )
     camera.position.lerp(camTarget.current, 0.12)
+
+    // Running head-bob: a tiny vertical tick synced to the stride, position
+    // only, applied before lookAt so the aim stays rock-solid on target.
+    const groundSpeed = dashing
+      ? 0
+      : moving
+        ? crouching
+          ? RUN_SPEED * 0.6
+          : sprintHeld
+            ? SPRINT_SPEED
+            : RUN_SPEED
+        : 0
+    const bobTarget = moving && grounded.current && !dashing ? 1 : 0
+    bobAmp.current += (bobTarget - bobAmp.current) * Math.min(1, dt * 8)
+    bobPhase.current += dt * Math.min(16, groundSpeed * 1.3)
+    camera.position.y += Math.sin(bobPhase.current) * BOB_AMP * bobAmp.current
+
     lookTarget.current.set(
       pos.current.x + tmpForward.current.x * AIM_AHEAD,
       pos.current.y + AIM_HEIGHT,
       pos.current.z + tmpForward.current.z * AIM_AHEAD,
     )
     camera.lookAt(lookTarget.current)
+
+    // FOV breathing: sprint widens the lens a touch; a dash slams it open and
+    // it eases back — speed you can FEEL without touching movement values.
+    const sprintingNow = moving && grounded.current && !crouching && !dashing && sprintHeld
+    const dashKick = dashing
+      ? DASH_FOV_KICK * THREE.MathUtils.clamp((dashUntil.current - now) / DASH_TIME, 0, 1)
+      : 0
+    const pc = camera as THREE.PerspectiveCamera
+    // Self-healing base-FOV latch: if the mount effect hasn't run yet (or a race
+    // ever left the refs at 0), seed them from the live camera fov — clamped to a
+    // real lens. A 0 FOV makes the projection matrix NaN and blacks out the view.
+    if (baseFov.current < 1) {
+      baseFov.current = pc.fov > 1 ? pc.fov : 60
+      fovNow.current = baseFov.current
+    }
+    const targetFov = baseFov.current + (sprintingNow ? SPRINT_FOV_ADD : 0) + dashKick
+    fovNow.current += (targetFov - fovNow.current) * Math.min(1, dtRaw * 6.5)
+    // Guard the write too: never push an invalid FOV to the camera.
+    if (fovNow.current > 1 && Math.abs(fovNow.current - pc.fov) > 0.02) {
+      pc.fov = fovNow.current
+      pc.updateProjectionMatrix()
+    }
 
     // Camera shake — a quick positional jitter after impacts, then a smooth,
     // frame-rate-independent decay so it never lingers or stutters.
@@ -514,9 +729,13 @@ function ThirdPersonControllerImpl({
   })
 
   return (
-    <group ref={group}>
-      <Avatar animRef={animRef} accent={accent} fireRef={fireRef} slashRef={slashRef} />
-    </group>
+    <>
+      <group ref={group}>
+        <Avatar animRef={animRef} accent={accent} fireRef={fireRef} slashRef={slashRef} />
+      </group>
+      {/* world-space dust: footfalls + landings kick up pooled instanced puffs */}
+      <FootDust playerPosRef={playerPosRef} animRef={animRef} />
+    </>
   )
 }
 

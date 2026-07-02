@@ -16,17 +16,62 @@ import {
   type Vec2,
   type Landmark,
 } from './layout'
+import {
+  SIM,
+  applyDashPulse,
+  applyHologramResolve,
+  applyNightEmissive,
+  applyNightFade,
+  applyRoadPulse,
+  applyTrafficCycle,
+  applyTreeSway,
+} from './simulation'
+import {
+  asphaltMaps,
+  concreteMaps,
+  coneGlowTexture,
+  facadeMaps,
+  radialGlowTexture,
+} from './proceduralTextures'
+import type { QualityTier } from './cinematic/quality'
 import type { World } from '../../content/adventure'
 
 /* ------------------------------------------------------------------ Ground */
 
 export const Ground = memo(function Ground() {
+  // Concrete micro-detail tiles every ~6m via the texture transform (the
+  // circle's planar UVs span the full 1944m diameter).
+  const pavementMat = useMemo(() => {
+    const maps = concreteMaps()
+    const repeat = (GROUND_HALF * 2.7) / 6
+    const normal = maps.normal.clone()
+    const rough = maps.roughness.clone()
+    normal.repeat.set(repeat, repeat)
+    rough.repeat.set(repeat, repeat)
+    return new THREE.MeshStandardMaterial({
+      color: '#aeb2ba',
+      roughness: 0.96,
+      metalness: 0.02,
+      normalMap: normal,
+      normalScale: new THREE.Vector2(0.55, 0.55),
+      roughnessMap: rough,
+    })
+  }, [])
+  // Free the material + its cloned detail textures on unmount (the source
+  // concreteMaps() textures are shared singletons and are left untouched).
+  useEffect(
+    () => () => {
+      pavementMat.normalMap?.dispose()
+      pavementMat.roughnessMap?.dispose()
+      pavementMat.dispose()
+    },
+    [pavementMat],
+  )
   return (
     <group>
       {/* sidewalk / pavement base */}
-      <mesh rotation-x={-Math.PI / 2} receiveShadow position={[0, 0, 0]}>
+      <mesh rotation-x={-Math.PI / 2} receiveShadow position={[0, 0, 0]} material={pavementMat}>
         <circleGeometry args={[GROUND_HALF * 1.35, 96]} />
-        <meshStandardMaterial color="#aeb2ba" roughness={0.96} metalness={0.02} />
       </mesh>
       {/* soft district colour wash on the pavement */}
       {BIOME_TINTS.map((b, i) => (
@@ -48,8 +93,9 @@ export const Roads = memo(function Roads() {
     g.rotateX(-Math.PI / 2)
     return g
   }, [])
+  // Data-traffic: dashes dim to tick marks and ignite as packets sweep past.
   const dashMat = useMemo(
-    () => new THREE.MeshBasicMaterial({ color: '#f2d24a', toneMapped: false }),
+    () => applyDashPulse(new THREE.MeshBasicMaterial({ color: '#f2d24a', toneMapped: false })),
     [],
   )
   const dashRef = useRef<THREE.InstancedMesh>(null)
@@ -85,10 +131,24 @@ export const Roads = memo(function Roads() {
     m.computeBoundingSphere()
   }, [dashes])
 
-  const asphaltMat = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: '#2f323a', roughness: 0.86, metalness: 0.04 }),
-    [],
-  )
+  // Data-pulse road network: emissive packets race along every avenue (M3).
+  // The asphalt wears real PBR detail — polished wheel-path blotches, fine
+  // aggregate grain and glassy chip sparkle — tiled in world space (~6m) so
+  // one 256px map covers every strip seamlessly.
+  const asphaltMat = useMemo(() => {
+    const maps = asphaltMaps()
+    return applyRoadPulse(
+      new THREE.MeshStandardMaterial({
+        color: '#33363e',
+        roughness: 1.0,
+        metalness: 0.04,
+        normalMap: maps.normal,
+        normalScale: new THREE.Vector2(0.8, 0.8),
+        roughnessMap: maps.roughness,
+      }),
+      1 / 6,
+    )
+  }, [])
   const curbMat = useMemo(
     () => new THREE.MeshStandardMaterial({ color: '#c9ccd2', roughness: 0.9 }),
     [],
@@ -138,6 +198,19 @@ export const Roads = memo(function Roads() {
     m.instanceMatrix.needsUpdate = true
     m.computeBoundingSphere()
   }, [curbs])
+
+  // Free the road geometries + materials on unmount. Disposing the materials
+  // does NOT touch the shared asphaltMaps() detail textures (singletons).
+  useEffect(
+    () => () => {
+      dash.dispose()
+      dashMat.dispose()
+      asphaltMat.dispose()
+      curbMat.dispose()
+      curbGeo.dispose()
+    },
+    [dash, dashMat, asphaltMat, curbMat, curbGeo],
+  )
 
   return (
     <group>
@@ -217,76 +290,14 @@ const BUILD_COLORS = ['#d8d2c4', '#cdd3da', '#c6b9a6', '#b9c2cc', '#d9c9b0', '#c
 const ROOF_COLORS = ['#3c414b', '#473f3a', '#42474f']
 const CAR_COLORS = ['#e8534e', '#3a86ff', '#ffd23f', '#14d39a', '#ededed', '#9b6bff']
 
-/**
- * A stylised facade tile: concrete with a grid of windows. Returns both the
- * albedo map and a matching emissive map so lit windows actually glow (and feed
- * the bloom pass) while walls stay dark.
- */
-function makeFacade(): { map: THREE.Texture; emissive: THREE.Texture } {
-  const W = 96
-  const H = 192
-  const cols = 5
-  const rows = 11
-  const mx = 8
-  const my = 8
-  const gw = (W - mx * 2) / cols
-  const gh = (H - my * 2) / rows
-
-  const albedo = document.createElement('canvas')
-  albedo.width = W
-  albedo.height = H
-  const emap = document.createElement('canvas')
-  emap.width = W
-  emap.height = H
-  const ac = albedo.getContext('2d')!
-  const ec = emap.getContext('2d')!
-
-  // concrete base with faint vertical banding
-  ac.fillStyle = '#cfd3da'
-  ac.fillRect(0, 0, W, H)
-  for (let x = 0; x < W; x += 6) {
-    ac.fillStyle = x % 12 === 0 ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.03)'
-    ac.fillRect(x, 0, 3, H)
-  }
-  ec.fillStyle = '#000'
-  ec.fillRect(0, 0, W, H)
-
-  const litColors = ['#ffe7a0', '#fff2c8', '#bfe3ff', '#ffd9a0']
-  for (let r = 0; r < rows; r++) {
-    for (let col = 0; col < cols; col++) {
-      const x = mx + col * gw + 1.5
-      const y = my + r * gh + 1.5
-      const w = gw - 3
-      const h = gh - 4
-      const lit = Math.random() < 0.38
-      const glass = lit ? litColors[(Math.random() * litColors.length) | 0] : '#4f5a6e'
-      ac.fillStyle = glass
-      ac.fillRect(x, y, w, h)
-      // window frame
-      ac.fillStyle = 'rgba(20,26,38,0.5)'
-      ac.fillRect(x, y, w, 1.5)
-      ac.fillRect(x, y + h - 1.5, w, 1.5)
-      if (lit) {
-        ec.fillStyle = glass
-        ec.fillRect(x, y, w, h)
-      }
-    }
-  }
-
-  const map = new THREE.CanvasTexture(albedo)
-  map.colorSpace = THREE.SRGBColorSpace
-  map.anisotropy = 4
-  const emissive = new THREE.CanvasTexture(emap)
-  emissive.colorSpace = THREE.SRGBColorSpace
-  emissive.anisotropy = 4
-  return { map, emissive }
-}
-
 /** Every building drawn as two instanced meshes (body + roof cap). */
 function CityBuildings({ items }: { items: Building[] }) {
   const bodyRef = useRef<THREE.InstancedMesh>(null)
   const roofRef = useRef<THREE.InstancedMesh>(null)
-  const facade = useMemo(makeFacade, [])
+  // Full PBR facade family (albedo + lit-office emissive + recessed-window
+  // normal map + concrete/glass roughness) — generated once, shared by every
+  // building so both instanced meshes stay a single draw call each.
+  const facade = useMemo(facadeMaps, [])
 
   const bodyGeo = useMemo(() => {
     const g = new THREE.BoxGeometry(1, 1, 1)
@@ -298,19 +309,31 @@ function CityBuildings({ items }: { items: Building[] }) {
     g.translate(0, 0.5, 0)
     return g
   }, [])
+  // Living Simulation: the shared hologram-resolve patch turns far buildings
+  // into compiling holograms (see simulation.ts); `officeWindows` makes the
+  // emissive grid live — offices flick on at dusk, some floors stay dark.
   const bodyMat = useMemo(
     () =>
-      new THREE.MeshStandardMaterial({
-        map: facade.map,
-        emissiveMap: facade.emissive,
-        emissive: new THREE.Color('#fff0cf'),
-        emissiveIntensity: 0.85,
-        roughness: 0.8,
-        metalness: 0.05,
-      }),
+      applyHologramResolve(
+        new THREE.MeshStandardMaterial({
+          map: facade.map,
+          emissiveMap: facade.emissive,
+          emissive: new THREE.Color('#fff0cf'),
+          emissiveIntensity: 1.0,
+          roughness: 1.0,
+          metalness: 0.06,
+          normalMap: facade.normal,
+          roughnessMap: facade.roughness,
+          envMapIntensity: 0.9,
+        }),
+        true,
+      ),
     [facade],
   )
-  const roofMat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.9 }), [])
+  const roofMat = useMemo(
+    () => applyHologramResolve(new THREE.MeshStandardMaterial({ roughness: 0.9 })),
+    [],
+  )
 
   useEffect(() => {
     const b = bodyRef.current
@@ -343,6 +366,18 @@ function CityBuildings({ items }: { items: Building[] }) {
     rf.computeBoundingSphere()
   }, [items])
 
+  // Free the building geometries + materials on unmount. Disposing bodyMat does
+  // NOT touch the shared facadeMaps() textures (module singletons).
+  useEffect(
+    () => () => {
+      bodyGeo.dispose()
+      roofGeo.dispose()
+      bodyMat.dispose()
+      roofMat.dispose()
+    },
+    [bodyGeo, roofGeo, bodyMat, roofMat],
+  )
+
   return (
     <group>
       {/* No shadows: the building set spans the whole city, so casting/receiving
@@ -354,8 +389,33 @@ function CityBuildings({ items }: { items: Building[] }) {
   )
 }
 
+/**
+ * Hides its children until the shared night blend actually rises, so the
+ * additive streetlight volumes cost literally nothing during the day (their
+ * shader fades them with uSimNight² anyway — this skips the draws entirely).
+ */
+function NightOnly({ children }: { children: React.ReactNode }) {
+  const ref = useRef<THREE.Group>(null)
+  useFrame(() => {
+    const g = ref.current
+    if (!g) return
+    const on = SIM.night.value > 0.02
+    if (g.visible !== on) g.visible = on
+  })
+  return (
+    <group ref={ref} visible={false}>
+      {children}
+    </group>
+  )
+}
+
 /** The whole city rendered as a handful of instanced draw calls. */
-export const InstancedWorld = memo(function InstancedWorld() {
+export const InstancedWorld = memo(function InstancedWorld({
+  tier = 'high',
+}: {
+  /** Gates the night street-lighting layer: HIGH every lamp, MED half, LOW off. */
+  tier?: QualityTier
+}) {
   const geo = useMemo(() => {
     const trunk = new THREE.CylinderGeometry(0.18, 0.26, 1.8, 6)
     trunk.translate(0, 0.9, 0)
@@ -405,32 +465,103 @@ export const InstancedWorld = memo(function InstancedWorld() {
     const stripe = new THREE.BoxGeometry(0.55, 0.04, 4)
     stripe.translate(0, 0.05, 0)
 
+    // M3: fake streetlight beam — an open cone from the lamp head to the
+    // ground — plus a soft light pool decal where it lands. NO real lights:
+    // both are additive fluff that only exists after dark (applyNightFade).
+    const lightCone = new THREE.CylinderGeometry(0.24, 2.3, 4.1, 12, 1, true)
+    lightCone.translate(0, 2.06, 0)
+    const lightPool = new THREE.CircleGeometry(2.5, 24)
+    lightPool.rotateX(-Math.PI / 2)
+    lightPool.translate(0, 0.03, 0)
+
     return {
       trunk, canopy, bush, lampPost, lampHead, benchSeat, benchBack, carBody, carCabin, hydrant,
-      roofTank, acBox, tlPost, tlHead, trash, trashLid, stripe,
+      roofTank, acBox, tlPost, tlHead, trash, trashLid, stripe, lightCone, lightPool,
     }
   }, [])
 
   const mat = useMemo(
     () => ({
       bark: new THREE.MeshStandardMaterial({ color: '#7c5532', roughness: 1 }),
-      leaf: new THREE.MeshStandardMaterial({ color: '#3f9e54', flatShading: true, roughness: 0.9 }),
-      bush: new THREE.MeshStandardMaterial({ color: '#4fae5a', flatShading: true, roughness: 1 }),
+      // Foliage sways in a lazy wind (vertex shader, per-instance phase).
+      leaf: applyTreeSway(
+        new THREE.MeshStandardMaterial({ color: '#3f9e54', flatShading: true, roughness: 0.9 }),
+      ),
+      bush: applyTreeSway(
+        new THREE.MeshStandardMaterial({ color: '#4fae5a', flatShading: true, roughness: 1 }),
+        0.04,
+      ),
       lampPost: new THREE.MeshStandardMaterial({ color: '#2c2f38', roughness: 0.6, metalness: 0.3 }),
-      lampHead: new THREE.MeshStandardMaterial({ color: '#ffe6a8', emissive: '#ffcf6a', emissiveIntensity: 1.4 }),
+      // Heads idle at a pilot glow by day and flare sodium-warm after dark.
+      lampHead: applyNightEmissive(
+        new THREE.MeshStandardMaterial({ color: '#ffe6a8', emissive: '#ffcf6a', emissiveIntensity: 1.4 }),
+        0.18,
+        1.9,
+      ),
       bench: new THREE.MeshStandardMaterial({ color: '#8a6a44', roughness: 0.9 }),
-      carBody: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.5, metalness: 0.3 }),
-      carCabin: new THREE.MeshStandardMaterial({ color: '#9fd0ff', roughness: 0.3, metalness: 0.2, emissive: '#22344a', emissiveIntensity: 0.2 }),
+      // Glossy metallic paint + smooth glass: both drink from the baked sky
+      // env, so parked cars catch a real sun glare and mirror the dusk sky.
+      carBody: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.28, metalness: 0.65, envMapIntensity: 1.25 }),
+      carCabin: new THREE.MeshStandardMaterial({ color: '#3a4a5c', roughness: 0.08, metalness: 0.9, envMapIntensity: 1.5, emissive: '#22344a', emissiveIntensity: 0.12 }),
       hydrant: new THREE.MeshStandardMaterial({ color: '#d23b46', roughness: 0.7 }),
       roofMetal: new THREE.MeshStandardMaterial({ color: '#9aa1ab', roughness: 0.6, metalness: 0.5 }),
       acMetal: new THREE.MeshStandardMaterial({ color: '#b9bec6', roughness: 0.7, metalness: 0.3 }),
       tlPost: new THREE.MeshStandardMaterial({ color: '#23262d', roughness: 0.6, metalness: 0.4 }),
-      tlHead: new THREE.MeshStandardMaterial({ color: '#15181d', emissive: '#ffae3c', emissiveIntensity: 0.5, roughness: 0.5 }),
+      // Signal heads run a real green→amber→red cycle, per intersection.
+      tlHead: applyTrafficCycle(
+        new THREE.MeshStandardMaterial({ color: '#15181d', emissive: '#ffae3c', emissiveIntensity: 0.5, roughness: 0.5 }),
+      ),
       trash: new THREE.MeshStandardMaterial({ color: '#2f6b46', roughness: 0.8 }),
       trashLid: new THREE.MeshStandardMaterial({ color: '#24563a', roughness: 0.7 }),
       stripe: new THREE.MeshBasicMaterial({ color: '#eef0f2', toneMapped: false }),
+      // Additive night-only streetlight volumetrics: a fake beam cone + a
+      // warm pool on the pavement. Fog off (additive + fog = haze bloom);
+      // alpha rides uSimNight² so they simply don't exist by day.
+      lightCone: applyNightFade(
+        new THREE.MeshBasicMaterial({
+          color: '#ffd9a0',
+          transparent: true,
+          opacity: 0.16,
+          alphaMap: coneGlowTexture(),
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          fog: false,
+          toneMapped: false,
+        }),
+      ),
+      lightPool: applyNightFade(
+        new THREE.MeshBasicMaterial({
+          color: '#ffce8a',
+          transparent: true,
+          opacity: 0.42,
+          alphaMap: radialGlowTexture(),
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          fog: false,
+          toneMapped: false,
+        }),
+      ),
     }),
     [],
+  )
+
+  // Tier-gated street lighting: every lamp on HIGH, every other on MED,
+  // none on LOW (the emissive heads still glow there, just no volumetrics).
+  const lightStep = tier === 'high' ? 1 : tier === 'med' ? 2 : 0
+  const litLamps = useMemo(
+    () => (lightStep === 0 ? [] : SCENERY.lamp.filter((_, i) => i % lightStep === 0)),
+    [lightStep],
+  )
+
+  // Free every generated geometry + material on unmount. Material.dispose does
+  // NOT free the shared cone/radial-glow singleton textures they reference.
+  useEffect(
+    () => () => {
+      for (const g of Object.values(geo)) g.dispose()
+      for (const m of Object.values(mat)) m.dispose()
+    },
+    [geo, mat],
   )
 
   return (
@@ -451,6 +582,13 @@ export const InstancedWorld = memo(function InstancedWorld() {
 
       <Instanced geometry={geo.lampPost} material={mat.lampPost} items={SCENERY.lamp} />
       <Instanced geometry={geo.lampHead} material={mat.lampHead} items={SCENERY.lamp} shadow={false} />
+      {/* night-only fake light volumes (no real lights, no shadow casters) */}
+      {litLamps.length > 0 && (
+        <NightOnly>
+          <Instanced geometry={geo.lightCone} material={mat.lightCone} items={litLamps} shadow={false} />
+          <Instanced geometry={geo.lightPool} material={mat.lightPool} items={litLamps} shadow={false} />
+        </NightOnly>
+      )}
 
       {/* rooftop clutter — read at building height via per-item y */}
       <Instanced geometry={geo.roofTank} material={mat.roofMetal} items={SCENERY.rooftop} />
@@ -1013,6 +1151,8 @@ export function FloorPath({
     return g
   }, [])
 
+  useEffect(() => () => geo.dispose(), [geo])
+
   const layout = useMemo(() => {
     if (!from || !target) return null
     if (Math.hypot(target.x - from.x, target.z - from.z) < 2) return null
@@ -1080,10 +1220,13 @@ export function FloorPath({
 
   return (
     <instancedMesh ref={meshRef} args={[geo, undefined, COUNT]} frustumCulled={false} visible={false}>
+      {/* toneMapped=false keeps the objective trail hotter than the ambient
+          road pulses — the brightest thread in the data-traffic system. */}
       <meshBasicMaterial
         color={color}
         transparent
-        opacity={0.72}
+        opacity={0.9}
+        toneMapped={false}
         depthWrite={false}
         fog={false}
         side={THREE.DoubleSide}
@@ -1122,7 +1265,7 @@ export function GuideBeam({ pos, color }: { pos: Vec2; color: string }) {
 /* --------------------------------------------------------------- Landmarks */
 
 function Cliff() {
-  const tex = useTexture('/textures/cliff_tile.png')
+  const tex = useTexture('/textures/cliff_tile.webp')
   useMemo(() => {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping
     tex.repeat.set(3, 3)

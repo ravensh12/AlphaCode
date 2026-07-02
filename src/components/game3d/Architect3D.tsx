@@ -9,6 +9,7 @@ import {
   useQuality,
   type Spring3,
 } from './cinematic'
+import { applyRimLight, rimHandleOf } from './simulation'
 
 /* ============================================================================
    THE ARCHITECT — the human mastermind behind Code City (the master VEX served).
@@ -57,6 +58,8 @@ const COAT = '#10121d'
 const COAT_HI = '#1c2030'
 const SKIN = '#c8a48c'
 const HAIR = '#0c0c12'
+/** Rim color the phase blend rages toward. */
+const C_RIM_RAGE = new THREE.Color('#ff3b4e')
 
 const C_WHITE = new THREE.Color('#ffffff')
 const UP = new THREE.Vector3(0, 1, 0)
@@ -175,15 +178,19 @@ export const Architect3D = memo(function Architect3D({
   }, [])
 
   /* --- shared material instances (mutated directly; no per-mesh allocation) --- */
-  const matCoat = useMemo(() => new THREE.MeshStandardMaterial({ color: COAT, roughness: 0.8, metalness: 0.16 }), [])
-  const matCoatHi = useMemo(() => new THREE.MeshStandardMaterial({ color: COAT_HI, roughness: 0.74, metalness: 0.2, side: THREE.DoubleSide }), [])
-  const matSkin = useMemo(() => new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.62, metalness: 0 }), [])
+  // Coat / skin / mask carry the phase-colored rim (M7) — retuned per frame
+  // from the flare/rage blends via the userData handle, zero recompiles.
+  const matCoat = useMemo(() => applyRimLight(new THREE.MeshStandardMaterial({ color: COAT, roughness: 0.8, metalness: 0.16 }), accent, 0.5), [accent])
+  const matCoatHi = useMemo(() => applyRimLight(new THREE.MeshStandardMaterial({ color: COAT_HI, roughness: 0.74, metalness: 0.2, side: THREE.DoubleSide }), accent, 0.5), [accent])
+  const matSkin = useMemo(() => applyRimLight(new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.62, metalness: 0 }), accent, 0.3), [accent])
   const matHair = useMemo(() => new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.5, metalness: 0.1 }), [])
-  const matMask = useMemo(() => new THREE.MeshPhysicalMaterial(chromeMaterial('#cdd6e6')), [])
+  const matMask = useMemo(() => applyRimLight(new THREE.MeshPhysicalMaterial(chromeMaterial('#cdd6e6')), accent, 0.45), [accent])
   const matTrim = useMemo(() => new THREE.MeshPhysicalMaterial(chromeMaterial('#3a4255')), [])
   const matVisor = useMemo(() => new THREE.MeshPhysicalMaterial(glassMaterial(accent)), [accent])
   const matEye = useMemo(() => new THREE.MeshStandardMaterial(moltenCore(accent, 2)), [accent])
   const matCape = useMemo(() => new THREE.MeshStandardMaterial({ color: COAT, roughness: 0.78, metalness: 0.18, side: THREE.DoubleSide }), [])
+  const rimMats = useMemo(() => [matCoat, matCoatHi, matSkin, matMask], [matCoat, matCoatHi, matSkin, matMask])
+  const accentCol = useMemo(() => new THREE.Color(accent), [accent])
 
   // Glyph swarm.
   const glyphsMesh = useRef<THREE.InstancedMesh>(null)
@@ -320,6 +327,15 @@ export const Architect3D = memo(function Architect3D({
     const flareTarget = phase === 1 ? 0 : phase === 2 ? 0.5 : phase === 3 ? 0.8 : 1
     flareAmt.current += (flareTarget - flareAmt.current) * Math.min(1, dt * 2)
     const flare = flareAmt.current
+
+    // Phase-colored rim (M7): cool accent while composed, searing red as the
+    // rage blend climbs. Uniform writes only — never a recompile.
+    for (let ri = 0; ri < rimMats.length; ri++) {
+      const rim = rimHandleOf(rimMats[ri])
+      if (!rim) continue
+      rim.color.copy(accentCol).lerp(C_RIM_RAGE, rg)
+      rim.strength.value = 0.4 + flare * 0.35 + rg * 0.7 + breakK * 0.5
+    }
 
     const moving = anim === 'stride'
     const heavyAge = t - animStart.current

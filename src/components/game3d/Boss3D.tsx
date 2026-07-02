@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { applyRimLight } from './simulation'
 
 export type BossAnim = 'idle' | 'run' | 'jump'
 
@@ -71,11 +72,19 @@ export const Boss3D = memo(function Boss3D({
   // Materials that flash red/bright when struck. The collector is a STABLE
   // callback (useCallback) so the material refs attach exactly once on mount —
   // a fresh closure each render would churn the refs and risk leaving meshes
-  // momentarily detached as the boss re-renders.
+  // momentarily detached as the boss re-renders. It doubles as the rim-light
+  // installer (M7): the collected mats are exactly the boss's big read
+  // surfaces, so they get the strong accent-colored fresnel rim.
   const flashMats = useRef<THREE.MeshStandardMaterial[]>([])
-  const collect = useCallback((m: THREE.MeshStandardMaterial | null) => {
-    if (m && !flashMats.current.includes(m)) flashMats.current.push(m)
-  }, [])
+  const collect = useCallback(
+    (m: THREE.MeshStandardMaterial | null) => {
+      if (m && !flashMats.current.includes(m)) {
+        applyRimLight(m, accent, 0.8)
+        flashMats.current.push(m)
+      }
+    },
+    [accent],
+  )
 
   // Hit/attack reactions are detected by polling the refs inside useFrame, so a
   // landed bolt NEVER re-renders this component. Critically, the one-shot start

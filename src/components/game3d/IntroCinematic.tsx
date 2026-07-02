@@ -1,8 +1,11 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { EffectComposer, Bloom, Vignette, SMAA } from '@react-three/postprocessing'
+import { Environment, Lightformer } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette, SMAA, Noise } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { Avatar, type AvatarAnim } from './Avatar'
+import { SimulationDriver } from './SimulationDriver'
+import { applyHologramResolve } from './simulation'
 import { playShot } from '../../lib/soundFx'
 
 /**
@@ -302,6 +305,17 @@ const BoltMesh = memo(function BoltMesh({ slot }: { slot: BoltSlot }) {
 /* --------------------------------------------------------------- Environment */
 
 function CodeCity() {
+  // ONE shared hologram-resolve material for the whole skyline (M8): distant
+  // towers render as compiling holograms, exactly like the overworld — the
+  // city is literally still being written when the story opens.
+  const towerMat = useMemo(
+    () =>
+      applyHologramResolve(
+        new THREE.MeshStandardMaterial({ color: '#171a26', roughness: 0.85, metalness: 0.1 }),
+      ),
+    [],
+  )
+
   // Stylized low-poly skyscraper silhouettes flanking a central street that runs
   // along -Z. Deterministic layout so the ruined skyline reads the same each run.
   const towers = useMemo(() => {
@@ -346,9 +360,8 @@ function CodeCity() {
 
       {towers.map((t, i) => (
         <group key={i} position={[t.x, 0, t.z]}>
-          <mesh position={[0, t.h / 2, 0]} castShadow>
+          <mesh position={[0, t.h / 2, 0]} castShadow material={towerMat}>
             <boxGeometry args={[t.w, t.h, t.d]} />
-            <meshStandardMaterial color="#171a26" roughness={0.85} metalness={0.1} />
           </mesh>
           {/* a few lit windows on the street-facing side */}
           {t.lit &&
@@ -683,9 +696,19 @@ export function IntroCinematic() {
       <color attach="background" args={['#070912']} />
       <fog attach="fog" args={['#0a0d18', 16, 70]} />
 
+      {/* Ticks the shared simulation clock for the hologram skyline. */}
+      <SimulationDriver />
+
+      {/* M8 — baked IBL: a cold moon sheet + neon street bounce so the hero's
+          armor and the wet-looking street pick up real reflections. */}
+      <Environment frames={1} resolution={128}>
+        <Lightformer form="rect" intensity={0.4} color="#131a30" scale={[40, 40, 1]} position={[0, 0, -18]} />
+        <Lightformer form="rect" intensity={2.6} color="#a8c4ff" scale={[10, 12, 1]} position={[-8, 14, 6]} target={[0, 1, 0]} />
+        <Lightformer form="rect" intensity={1.8} color={HERO_ACCENT} scale={[8, 4, 1]} position={[4, 4, -20]} target={[0, 1, 0]} />
+      </Environment>
       {/* Dark night base. */}
-      <hemisphereLight args={['#2a3350', '#05060a', 0.45]} />
-      <ambientLight intensity={0.18} />
+      <hemisphereLight args={['#2a3350', '#05060a', 0.32]} />
+      <ambientLight intensity={0.12} />
       {/* Cool moonlight key with shadows. */}
       <directionalLight
         position={[-10, 22, 6]}
@@ -711,6 +734,7 @@ export function IntroCinematic() {
       <EffectComposer multisampling={0} enableNormalPass={false}>
         <Bloom mipmapBlur intensity={0.7} luminanceThreshold={0.7} luminanceSmoothing={0.2} />
         <Vignette eskil={false} offset={0.22} darkness={0.72} />
+        <Noise opacity={0.05} />
         <SMAA />
       </EffectComposer>
     </Canvas>

@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, type MutableRefObject } from 'react'
+import { memo, Suspense, useEffect, useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { GROUND_HALF } from './layout'
@@ -11,6 +11,22 @@ import {
   playSpitCharge,
 } from '../../lib/soundFx'
 import type { DashState } from './ThirdPersonController'
+import { ZombieHorde } from './ZombieHorde'
+import { CombatFx, type CombatFxApi } from './CombatFx'
+import {
+  VARIANTS,
+  VAR_NORMAL,
+  VAR_RUNNER,
+  VAR_BRUTE,
+  VAR_MUTANT,
+  VAR_SPITTER,
+  VAR_GLITCH,
+  DIE_DURATION,
+  STAGGER_TIME,
+  SPIT_WINDUP,
+  SLAM_WINDUP,
+  type ZombieSlot,
+} from './zombieTypes'
 
 export type ZombieSnap = { x: number; z: number; hp: number; facing: number; variant?: number }
 
@@ -70,27 +86,6 @@ export function gunForLevel(level: number): Gun {
   return GUNS[Math.max(0, Math.min(GUNS.length - 1, level))]
 }
 
-type ZombieSlot = {
-  active: boolean
-  state: 'walk' | 'die'
-  pos: THREE.Vector3
-  facing: number
-  hp: number
-  dieAt: number
-  /** Time of the last non-fatal arrow hit, for a stagger + pop. */
-  hitAt: number
-  /** Time the zombie spawned, for a rise-from-the-ground entrance. */
-  bornAt: number
-  seed: number
-  /** Which breed this is — drives speed, toughness, size, colour + contact damage. */
-  variant: number
-  /** Spitters/brutes: clock time the next ranged shot / slam may begin. */
-  cd: number
-  /** >0 while winding up a telegraphed attack (acid charge or brute slam); the
-   *  attack resolves at `castAt + windup`. 0 = not casting. */
-  castAt: number
-}
-
 type SpitSlot = {
   active: boolean
   pos: THREE.Vector3
@@ -136,9 +131,6 @@ const SPIT_RANGE = 19 // spitters open fire inside this range
 const SPIT_STANDOFF = 11 // ...and try to hold this distance, retreating if crowded
 const SPIT_INTERVAL = 1.7 // base seconds between shots (kept readable / dodgeable)
 const DESPAWN_DIST = 150
-const DIE_DURATION = 1.1
-const STAGGER_TIME = 0.22 // brief freeze after an arrow connects
-const SPAWN_RISE = 0.5 // seconds to rise out of the ground
 /** Max travel distance for the best gun; weaker guns reach less far (same lifetime). */
 const ARROW_MAX_RANGE = 48
 const ARROW_LIFE = ARROW_MAX_RANGE / GUNS[GUNS.length - 1].boltSpeed
@@ -165,13 +157,9 @@ const CRIT_DMG_MULT = 2
 const CRIT_CHANCE_AIMED = 0.5
 const CRIT_CHANCE_ASSISTED = 0.12
 
-// --- Spitter acid telegraph ----------------------------------------------
-const SPIT_WINDUP = 0.42 // glow/charge time before an acid bolt actually launches
-
 // --- Brute slam ----------------------------------------------------------
 const SLAM_RANGE = 6.5 // brute begins a slam wind-up inside this range
 const SLAM_RANGE_SQ = SLAM_RANGE * SLAM_RANGE
-const SLAM_WINDUP = 0.7 // telegraph time before the shockwave lands
 const SLAM_HIT_R = 4.2 // shockwave radius when it lands
 const SLAM_HIT_R_SQ = SLAM_HIT_R * SLAM_HIT_R
 const SLAM_DMG = 2
@@ -204,43 +192,8 @@ const BRUTE_BULLET_MUL = 0.34 // brutes take ~1/3 bolt damage
 const HIT_SFX_GAP = 0.05
 const KILL_SFX_GAP = 0.06
 
-/* ----------------------------------------------------------- Zombie breeds
- * The horde is no longer one kind of shambler — it's a mix of distinct,
- * dangerous breeds, each with its own speed, toughness, size, gait, colour and
- * contact damage. This is the "twist": you have to read the crowd and prioritise
- * targets (drop the runners before they reach you, kite the brutes, etc.).
- */
-const VAR_NORMAL = 0 // green shambler — the baseline
-const VAR_RUNNER = 1 // lean, sickly-yellow sprinter: very fast, very fragile
-const VAR_BRUTE = 2 // bloated dark-crimson tank: slow, huge, soaks damage, hits hard
-const VAR_MUTANT = 3 // glowing toxic mutant: quick, lunges, tougher than it looks
-const VAR_SPITTER = 4 // purple caster: hangs back and lobs acid bolts you must dodge
-const VAR_GLITCH = 5 // cyan "knowledge glitch": a special carrier — killing it triggers a concept question
-
-type VariantDef = {
-  speedMul: number
-  hpMul: number
-  hpAdd: number
-  scale: number
-  /** Hearts removed when this breed reaches the player. */
-  dmg: number
-  /** Walk-cycle speed multiplier (brutes lumber, runners scramble). */
-  gait: number
-  /** Does it put on a closing burst of speed when it gets near? */
-  lunge: boolean
-  /** Ranged caster — holds its distance and fires acid bolts instead of rushing. */
-  ranged: boolean
-}
-
-const VARIANTS: VariantDef[] = [
-  { speedMul: 1.0, hpMul: 1.0, hpAdd: 0, scale: 1.0, dmg: 1, gait: 1.0, lunge: false, ranged: false },
-  { speedMul: 1.9, hpMul: 0.5, hpAdd: -1, scale: 0.82, dmg: 1, gait: 1.9, lunge: true, ranged: false },
-  { speedMul: 0.58, hpMul: 2.4, hpAdd: 5, scale: 1.55, dmg: 2, gait: 0.64, lunge: false, ranged: false },
-  { speedMul: 1.4, hpMul: 1.3, hpAdd: 1, scale: 1.06, dmg: 1, gait: 1.35, lunge: true, ranged: false },
-  { speedMul: 0.95, hpMul: 1.1, hpAdd: 1, scale: 0.98, dmg: 1, gait: 1.0, lunge: false, ranged: true },
-  // Glitch carrier — slow, conspicuous, tanky so the player must commit to it.
-  { speedMul: 0.7, hpMul: 2.0, hpAdd: 4, scale: 1.25, dmg: 1, gait: 1.1, lunge: false, ranged: false },
-]
+/* Zombie breeds (VAR_* + VARIANTS) live in zombieTypes.ts, shared with the
+ * ZombieHorde renderer so the sim and the visuals can never drift apart. */
 
 // --- Knowledge glitch (Phase 5) ------------------------------------------
 const GLITCH_SPAWN_EVERY = 26 // seconds between glitch spawns (when one is wanted)
@@ -298,6 +251,7 @@ function CombatSystemImpl({
   intensity = 0,
   wantGlitch = false,
   night = false,
+  zombieShadows = true,
   shelters,
   onKill,
   onPlayerHit,
@@ -325,6 +279,8 @@ function CombatSystemImpl({
   wantGlitch?: boolean
   /** Night phase — zombies turn fast + deadly and the player must hide. */
   night?: boolean
+  /** Real sun shadows for the horde (disabled on the LOW quality tier). */
+  zombieShadows?: boolean
   /** Safe-house positions; standing inside one during night = total safety. */
   shelters?: { x: number; z: number }[]
   onKill: () => void
@@ -380,6 +336,7 @@ function CombatSystemImpl({
       facing: 0,
       hp: ZOMBIE_HP,
       dieAt: 0,
+      dieHow: 'shot' as const,
       hitAt: -10,
       bornAt: 0,
       seed: Math.random() * 10,
@@ -403,6 +360,7 @@ function CombatSystemImpl({
         z.bornAt = -100
         z.hitAt = -100
         z.dieAt = 0
+        z.dieHow = 'shot'
         z.seed = Math.random() * 10
         z.variant = s.variant ?? VAR_NORMAL
         z.cd = 0
@@ -503,6 +461,8 @@ function CombatSystemImpl({
 
   const spawnTimer = useRef(0)
   const fireDir = useRef(new THREE.Vector3())
+  // Impact juice (splatter + damage numbers) — pooled instanced systems.
+  const fxRef = useRef<CombatFxApi | null>(null)
   // Instanced meshes default to identity matrices (all instances stacked at the
   // origin). Hide them on the first frame so a paused-at-mount scene never shows
   // a pile of zombies at the city centre behind an overlay.
@@ -555,13 +515,8 @@ function CombatSystemImpl({
   }
 
   // --- Instanced render targets -------------------------------------------
-  const torsoRef = useRef<THREE.InstancedMesh>(null)
-  const headRef = useRef<THREE.InstancedMesh>(null)
-  const eyesRef = useRef<THREE.InstancedMesh>(null)
-  const armLRef = useRef<THREE.InstancedMesh>(null)
-  const armRRef = useRef<THREE.InstancedMesh>(null)
-  const legLRef = useRef<THREE.InstancedMesh>(null)
-  const legRRef = useRef<THREE.InstancedMesh>(null)
+  // (The zombies themselves render in <ZombieHorde> — real crowd-skinned
+  // bodies on one instanced draw — driven by the same `zombies` slots.)
   const boltCoreRef = useRef<THREE.InstancedMesh>(null)
   const boltHeadRef = useRef<THREE.InstancedMesh>(null)
   const boltTailRef = useRef<THREE.InstancedMesh>(null)
@@ -571,14 +526,6 @@ function CombatSystemImpl({
   const crateBeamRef = useRef<THREE.InstancedMesh>(null)
 
   const geo = useMemo(() => {
-    const torso = new THREE.BoxGeometry(0.52, 0.7, 0.36)
-    const head = new THREE.BoxGeometry(0.34, 0.38, 0.34)
-    const eyes = new THREE.BoxGeometry(0.26, 0.07, 0.04)
-    // Arms / legs pivot at the shoulder / hip, so bake the hang into the geo.
-    const arm = new THREE.CapsuleGeometry(0.085, 0.5, 4, 8)
-    arm.translate(0, -0.35, 0)
-    const leg = new THREE.CapsuleGeometry(0.12, 0.56, 4, 8)
-    leg.translate(0, -0.42, 0)
     // Bolt parts, baked so each shares one oriented instance matrix.
     const boltCore = new THREE.CylinderGeometry(0.05, 0.05, 0.55, 8)
     boltCore.rotateX(Math.PI / 2)
@@ -597,18 +544,11 @@ function CombatSystemImpl({
     // …with a tall light beam so you can spot it from across the city.
     const crateBeam = new THREE.CylinderGeometry(0.7, 0.7, 40, 12, 1, true)
     crateBeam.translate(0, 20, 0)
-    return { torso, head, eyes, arm, leg, boltCore, boltHead, boltTail, spit, heart, crate, crateBeam }
+    return { boltCore, boltHead, boltTail, spit, heart, crate, crateBeam }
   }, [])
 
   const mats = useMemo(() => {
-    // Skin meshes stay white so per-instance instanceColor drives the real tint
-    // (and the red hit-flash). Legs / eyes / bolts are uniform, no per-instance.
     return {
-      torso: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.95 }),
-      head: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9 }),
-      arm: new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.95 }),
-      leg: new THREE.MeshStandardMaterial({ color: '#3d4f25', roughness: 0.95 }),
-      eyes: new THREE.MeshStandardMaterial({ color: '#fff1a8', emissive: '#ffcf3a', emissiveIntensity: 1.6 }),
       boltCore: new THREE.MeshBasicMaterial({ color: '#d6fbff', toneMapped: false, fog: false }),
       boltHead: new THREE.MeshBasicMaterial({ color: '#eafdff', toneMapped: false, fog: false }),
       boltTail: new THREE.MeshBasicMaterial({ color: '#46d6ff', transparent: true, opacity: 0.4, toneMapped: false, fog: false }),
@@ -619,14 +559,22 @@ function CombatSystemImpl({
     }
   }, [])
 
+  // three.js frees nothing on React unmount. CombatSystem remounts on every
+  // run (its `key` is bumped on respawn) and on every trip to the overworld, so
+  // its pooled geometries and materials must be disposed explicitly or they
+  // accumulate on the GPU.
+  useEffect(
+    () => () => {
+      for (const g of Object.values(geo)) g.dispose()
+      for (const m of Object.values(mats)) m.dispose()
+    },
+    [geo, mats],
+  )
+
   // Scratch objects reused every frame — zero per-frame allocations.
   const scratch = useMemo(
     () => ({
       o: new THREE.Object3D(),
-      mBody: new THREE.Matrix4(),
-      mTorso: new THREE.Matrix4(),
-      mHead: new THREE.Matrix4(),
-      mNode: new THREE.Matrix4(),
       hidden: (() => {
         const m = new THREE.Matrix4()
         m.makeScale(0, 0, 0)
@@ -635,38 +583,6 @@ function CombatSystemImpl({
       q: new THREE.Quaternion(),
       up: new THREE.Vector3(0, 0, 1),
       dir: new THREE.Vector3(),
-      col: new THREE.Color(),
-      // Per-breed body colours, indexed by variant. Normal green shambler,
-      // sickly-yellow runner, dark-blood brute, toxic-green glowing mutant.
-      varTorso: [
-        new THREE.Color('#5f7a3a'),
-        new THREE.Color('#9a9b3c'),
-        new THREE.Color('#5a2526'),
-        new THREE.Color('#27a83a'),
-        new THREE.Color('#553a86'),
-        new THREE.Color('#16c7d6'),
-      ],
-      varHead: [
-        new THREE.Color('#82a554'),
-        new THREE.Color('#c6c651'),
-        new THREE.Color('#7a3433'),
-        new THREE.Color('#5cf06a'),
-        new THREE.Color('#9a73e0'),
-        new THREE.Color('#5ef2ff'),
-      ],
-      varArm: [
-        new THREE.Color('#6f8f49'),
-        new THREE.Color('#a8a83c'),
-        new THREE.Color('#642a2a'),
-        new THREE.Color('#3fae49'),
-        new THREE.Color('#6f4fae'),
-        new THREE.Color('#2bd6e6'),
-      ],
-      glitchGlow: new THREE.Color('#7af7ff'),
-      flash: new THREE.Color('#ff5630'),
-      // Telegraph glows: spitters charge acid-green, brutes rear up molten-orange.
-      spitGlow: new THREE.Color('#e6ff7a'),
-      slamGlow: new THREE.Color('#ff8a2a'),
     }),
     [],
   )
@@ -749,13 +665,6 @@ function CombatSystemImpl({
   useFrame((state, dtRaw) => {
     if (!inited.current) {
       inited.current = true
-      const zMeshes = [torsoRef, headRef, eyesRef, armLRef, armRRef, legLRef, legRRef]
-      for (const r of zMeshes) {
-        const m = r.current
-        if (!m) continue
-        for (let i = 0; i < MAX_ZOMBIES; i++) m.setMatrixAt(i, scratch.hidden)
-        m.instanceMatrix.needsUpdate = true
-      }
       const bMeshes = [boltCoreRef, boltHeadRef, boltTailRef]
       for (const r of bMeshes) {
         const m = r.current
@@ -940,6 +849,8 @@ function CombatSystemImpl({
         if (sdx * sdx + sdz * sdz <= dashR2) {
           z.state = 'die'
           z.dieAt = now
+          z.dieHow = 'dash'
+          fxRef.current?.impact(z.pos.x, 1.2, z.pos.z, 0, false, true)
           spawnBurst(z.pos.x, z.pos.z, now)
           if (now - lastKillSfx.current > KILL_SFX_GAP) {
             lastKillSfx.current = now
@@ -989,6 +900,7 @@ function CombatSystemImpl({
         kick(now, 0.6, 0.07)
         z.state = 'die'
         z.dieAt = now
+        z.dieHow = 'contact'
         if (z.variant === VAR_GLITCH) glitchActive.current = false
         spawnBurst(z.pos.x, z.pos.z, now)
         continue
@@ -1079,7 +991,7 @@ function CombatSystemImpl({
         const hx = z.pos.x - a.pos.x
         const hy = z.pos.y + 1.1 - a.pos.y
         const hz = z.pos.z - a.pos.z
-        if (hx * hx + hy * hy + hz * hz < HIT_RADIUS_SQ) {
+          if (hx * hx + hy * hy + hz * hz < HIT_RADIUS_SQ) {
           a.active = false
           // Precision/weak-point crit: clean (self-aimed) shots crit far more.
           const crit = Math.random() < (a.aimed ? CRIT_CHANCE_AIMED : CRIT_CHANCE_ASSISTED)
@@ -1088,6 +1000,8 @@ function CombatSystemImpl({
           if (z.variant === VAR_BRUTE) dmg = Math.max(1, Math.round(dmg * BRUTE_BULLET_MUL))
           z.hp -= dmg
           z.hitAt = now
+          // Impact feedback: data-splatter shards + a floating damage number.
+          fxRef.current?.impact(a.pos.x, a.pos.y, a.pos.z, dmg, crit, z.hp <= 0)
           if (crit) {
             playCrit()
             kick(now, 0.18)
@@ -1104,6 +1018,7 @@ function CombatSystemImpl({
           } else {
             z.state = 'die'
             z.dieAt = now
+            z.dieHow = 'shot'
             spawnBurst(z.pos.x, z.pos.z, now, crit)
             if (now - lastKillSfx.current > KILL_SFX_GAP) {
               lastKillSfx.current = now
@@ -1193,195 +1108,8 @@ function CombatSystemImpl({
       }
     }
 
-    // --- One instanced visual pass for the whole horde -------------------
-    const torso = torsoRef.current
-    const head = headRef.current
-    const eyes = eyesRef.current
-    const armL = armLRef.current
-    const armR = armRRef.current
-    const legL = legLRef.current
-    const legR = legRRef.current
-    const {
-      o, mBody, mTorso, mHead, mNode, hidden, col, varTorso, varHead, varArm, flash,
-      spitGlow, slamGlow, glitchGlow,
-    } = scratch
-
-    if (torso && head && eyes && armL && armR && legL && legR) {
-      for (let i = 0; i < zombies.length; i++) {
-        const z = zombies[i]
-        if (!z.active) {
-          torso.setMatrixAt(i, hidden)
-          head.setMatrixAt(i, hidden)
-          eyes.setMatrixAt(i, hidden)
-          armL.setMatrixAt(i, hidden)
-          armR.setMatrixAt(i, hidden)
-          legL.setMatrixAt(i, hidden)
-          legR.setMatrixAt(i, hidden)
-          continue
-        }
-
-        // Telegraph progress (0..1) while this breed winds up an attack.
-        const casting = z.state === 'walk' && z.castAt > 0
-        const castWindup = z.variant === VAR_BRUTE ? SLAM_WINDUP : SPIT_WINDUP
-        const castP = casting ? THREE.MathUtils.clamp((now - z.castAt) / castWindup, 0, 1) : 0
-
-        let bodyY: number
-        let rotX = 0
-        let rotZ = 0
-        let yawExtra = 0
-        let sx = 1
-        let sy = 1
-        let sz = 1
-        let torsoZ = 0
-        let torsoBob = 0
-        let headX = 0.18
-        let headZ = 0
-        let armLx = -1.3
-        let armLz = 0.12
-        let armRx = -1.5
-        let armRz = -0.2
-        let legLx = 0
-        let legRx = -0.18
-        let flashAmt = 0
-
-        if (z.state === 'die') {
-          const p = THREE.MathUtils.clamp((now - z.dieAt) / DIE_DURATION, 0, 1)
-          bodyY = -p * 1.4
-          rotX = -p * 1.6
-          yawExtra = p * 0.6
-          rotZ = p * 0.3
-          const s = 1 - p * 0.25
-          sx = s
-          sy = s
-          sz = s
-        } else {
-          const rise = THREE.MathUtils.clamp((now - z.bornAt) / SPAWN_RISE, 0, 1)
-          bodyY = (rise - 1) * 1.6
-          const sinceHit = now - z.hitAt
-          const pop = sinceHit >= 0 && sinceHit < 0.2 ? Math.sin((sinceHit / 0.2) * Math.PI) : 0
-          sx = 1 + pop * 0.2
-          sy = 1 - pop * 0.16
-          sz = 1 + pop * 0.2
-          flashAmt = sinceHit >= 0 && sinceHit < 0.18 ? 1 - sinceHit / 0.18 : 0
-
-          const t = now * 5.4 * VARIANTS[z.variant].gait + z.seed
-          const sway = Math.sin(t)
-          legLx = sway * 0.62
-          legRx = -sway * 0.32 - 0.18
-          armLx = -1.3 + Math.sin(t + 1.1) * 0.18
-          armLz = 0.12 + Math.sin(t * 0.6) * 0.06
-          armRx = -1.5 + Math.sin(t * 0.9) * 0.14
-          armRz = -0.2
-          torsoZ = sway * 0.1
-          torsoBob = Math.abs(Math.sin(t)) * 0.05
-          headZ = Math.sin(t * 0.7) * 0.22
-          headX = 0.18 + Math.sin(t * 1.3) * 0.08
-        }
-
-        // Body root — each breed has its own overall size (brutes loom, runners
-        // are small and wiry). A telegraphing attacker swells as it charges.
-        const windScale = casting
-          ? z.variant === VAR_BRUTE
-            ? 1 + 0.22 * castP
-            : 1 + 0.12 * Math.sin(castP * Math.PI)
-          : 1
-        const vscale = VARIANTS[z.variant].scale * windScale
-        o.position.set(z.pos.x, bodyY, z.pos.z)
-        o.rotation.set(rotX, z.facing + yawExtra, rotZ)
-        o.scale.set(sx * vscale, sy * vscale, sz * vscale)
-        o.updateMatrix()
-        mBody.copy(o.matrix)
-
-        // Torso group (sway + bob), shared parent for head + arms.
-        o.position.set(0, torsoBob, 0)
-        o.rotation.set(0, 0, torsoZ)
-        o.scale.set(1, 1, 1)
-        o.updateMatrix()
-        mTorso.multiplyMatrices(mBody, o.matrix)
-
-        // Torso mesh (hunched).
-        o.position.set(0, 1.04, 0.05)
-        o.rotation.set(0.34, 0, 0)
-        o.updateMatrix()
-        mNode.multiplyMatrices(mTorso, o.matrix)
-        torso.setMatrixAt(i, mNode)
-
-        // Head group.
-        o.position.set(0.04, 1.56, 0.14)
-        o.rotation.set(headX, 0, headZ)
-        o.updateMatrix()
-        mHead.multiplyMatrices(mTorso, o.matrix)
-        head.setMatrixAt(i, mHead)
-
-        // Glowing eyes ride the head front.
-        o.position.set(0, 0.0, 0.18)
-        o.rotation.set(0, 0, 0)
-        o.updateMatrix()
-        mNode.multiplyMatrices(mHead, o.matrix)
-        eyes.setMatrixAt(i, mNode)
-
-        // Arms (reach forward), parented to the torso.
-        o.position.set(-0.34, 1.34, 0.05)
-        o.rotation.set(armLx, 0, armLz)
-        o.updateMatrix()
-        mNode.multiplyMatrices(mTorso, o.matrix)
-        armL.setMatrixAt(i, mNode)
-
-        o.position.set(0.34, 1.34, 0.05)
-        o.rotation.set(armRx, 0, armRz)
-        o.updateMatrix()
-        mNode.multiplyMatrices(mTorso, o.matrix)
-        armR.setMatrixAt(i, mNode)
-
-        // Legs, parented to the body root (don't sway with the torso).
-        o.position.set(-0.15, 0.82, 0)
-        o.rotation.set(legLx, 0, 0)
-        o.updateMatrix()
-        mNode.multiplyMatrices(mBody, o.matrix)
-        legL.setMatrixAt(i, mNode)
-
-        o.position.set(0.15, 0.82, 0)
-        o.rotation.set(legRx, 0, 0)
-        o.updateMatrix()
-        mNode.multiplyMatrices(mBody, o.matrix)
-        legR.setMatrixAt(i, mNode)
-
-        // Per-breed tint + red hit-flash + a pulsing telegraph glow while casting.
-        // Glitch carriers pulse cyan constantly so they read as "special".
-        const vi = z.variant
-        const teleAmt = casting ? (0.35 + 0.5 * Math.abs(Math.sin(now * 16))) * castP : 0
-        const teleCol = z.variant === VAR_BRUTE ? slamGlow : spitGlow
-        const glitchAmt =
-          z.variant === VAR_GLITCH && z.state === 'walk'
-            ? 0.3 + 0.45 * Math.abs(Math.sin(now * 6 + z.seed))
-            : 0
-        col.copy(varTorso[vi]).lerp(flash, flashAmt)
-        if (teleAmt > 0) col.lerp(teleCol, teleAmt)
-        if (glitchAmt > 0) col.lerp(glitchGlow, glitchAmt)
-        torso.setColorAt(i, col)
-        col.copy(varHead[vi]).lerp(flash, flashAmt)
-        if (teleAmt > 0) col.lerp(teleCol, teleAmt)
-        if (glitchAmt > 0) col.lerp(glitchGlow, glitchAmt)
-        head.setColorAt(i, col)
-        col.copy(varArm[vi]).lerp(flash, flashAmt)
-        if (teleAmt > 0) col.lerp(teleCol, teleAmt)
-        if (glitchAmt > 0) col.lerp(glitchGlow, glitchAmt)
-        armL.setColorAt(i, col)
-        armR.setColorAt(i, col)
-      }
-
-      torso.instanceMatrix.needsUpdate = true
-      head.instanceMatrix.needsUpdate = true
-      eyes.instanceMatrix.needsUpdate = true
-      armL.instanceMatrix.needsUpdate = true
-      armR.instanceMatrix.needsUpdate = true
-      legL.instanceMatrix.needsUpdate = true
-      legR.instanceMatrix.needsUpdate = true
-      if (torso.instanceColor) torso.instanceColor.needsUpdate = true
-      if (head.instanceColor) head.instanceColor.needsUpdate = true
-      if (armL.instanceColor) armL.instanceColor.needsUpdate = true
-      if (armR.instanceColor) armR.instanceColor.needsUpdate = true
-    }
+    // (Zombie bodies render in <ZombieHorde/> below — it reads these slots.)
+    const { o, hidden } = scratch
 
     // --- Bolts (instanced) -----------------------------------------------
     const boltCore = boltCoreRef.current
@@ -1511,16 +1239,13 @@ function CombatSystemImpl({
 
   return (
     <group>
-      {/* Whole horde = a fixed handful of instanced draw calls. Never frustum
-          cull: instances roam the map but the base bounding sphere sits at the
-          origin, so culling would blink the crowd out as the camera turns. */}
-      <instancedMesh ref={torsoRef} args={[geo.torso, mats.torso, MAX_ZOMBIES]} frustumCulled={false} />
-      <instancedMesh ref={headRef} args={[geo.head, mats.head, MAX_ZOMBIES]} frustumCulled={false} />
-      <instancedMesh ref={eyesRef} args={[geo.eyes, mats.eyes, MAX_ZOMBIES]} frustumCulled={false} />
-      <instancedMesh ref={armLRef} args={[geo.arm, mats.arm, MAX_ZOMBIES]} frustumCulled={false} />
-      <instancedMesh ref={armRRef} args={[geo.arm, mats.arm, MAX_ZOMBIES]} frustumCulled={false} />
-      <instancedMesh ref={legLRef} args={[geo.leg, mats.leg, MAX_ZOMBIES]} frustumCulled={false} />
-      <instancedMesh ref={legRRef} args={[geo.leg, mats.leg, MAX_ZOMBIES]} frustumCulled={false} />
+      {/* The horde: real crowd-skinned zombies, one instanced draw call for
+          all 90 bodies (+1 for blob shadows). Suspense holds it back while the
+          GLB + baked animation texture stream in — combat sim runs regardless. */}
+      <Suspense fallback={null}>
+        <ZombieHorde zombies={zombies} paused={paused} shadows={zombieShadows} />
+      </Suspense>
+      <CombatFx ref={fxRef} />
 
       <instancedMesh ref={boltCoreRef} args={[geo.boltCore, mats.boltCore, MAX_ARROWS]} frustumCulled={false} />
       <instancedMesh ref={boltHeadRef} args={[geo.boltHead, mats.boltHead, MAX_ARROWS]} frustumCulled={false} />

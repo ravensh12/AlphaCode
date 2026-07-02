@@ -12,6 +12,7 @@ import {
   type Spring3,
   type WeaponTrailHandle,
 } from './cinematic'
+import { applyRimLight, rimHandleOf } from './simulation'
 
 /* ============================================================================
    VEX, THE NULL HERALD — a procedural, PBR armored supervillain.
@@ -449,12 +450,18 @@ export const VexBoss3D = memo(function VexBoss3D({
       coreLight.current.intensity = 2.4 + open * 2 + pulse * 0.6 + atkK * 1.5 + rage * 1.5
     }
 
-    // Armor hit-flash.
+    // Armor hit-flash + phase-colored rim (M7): the fresnel edge tracks the
+    // core's phase color and burns hotter as plates open / rage builds.
     const flash = Math.max(hitK, parryK * 0.8)
     for (const m of flashMats.current) {
       if (!m) continue
       m.emissive.copy(tmpColor.current.copy(C_WHITE).multiplyScalar(flash * 0.9))
       m.emissiveIntensity = flash
+      const rim = rimHandleOf(m)
+      if (rim) {
+        rim.color.copy(C_CYAN).lerp(C_MAGENTA, Math.min(1, (phase - 1) / 2))
+        rim.strength.value = 0.45 + open * 0.35 + rage * 0.6
+      }
     }
 
     // Plates slide open to reveal the cracked core.
@@ -532,6 +539,7 @@ export const VexBoss3D = memo(function VexBoss3D({
             <meshPhysicalMaterial
               ref={(el) => {
                 flashMats.current[0] = el
+                if (el && !rimHandleOf(el)) applyRimLight(el, CYAN, 0.5)
               }}
               {...armorBody}
             />
@@ -574,6 +582,7 @@ export const VexBoss3D = memo(function VexBoss3D({
                   <meshPhysicalMaterial
                     ref={(el) => {
                       flashMats.current[1 + i] = el
+                      if (el && !rimHandleOf(el)) applyRimLight(el, CYAN, 0.5)
                     }}
                     {...armorBody}
                   />

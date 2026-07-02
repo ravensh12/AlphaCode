@@ -1,10 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type JSX, type MutableRefObject } from 'react'
 import { Canvas, useThree, useFrame } from '@react-three/fiber'
+import { Environment, Lightformer } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette, SMAA } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { Avatar, type AvatarAnim } from './Avatar'
 import { Boss3D, type BossAnim } from './Boss3D'
 import { useKeys } from './useKeys'
+import { SimulationDriver } from './SimulationDriver'
+import { applyArenaPulse } from './simulation'
+import { concreteMaps } from './proceduralTextures'
 import { playShot } from '../../lib/soundFx'
 import type { BonusQuestion } from '../../content/bonusQuestions'
 import './BossArena.css'
@@ -51,6 +55,29 @@ type Orb = { active: boolean; pos: THREE.Vector3; vel: THREE.Vector3; life: numb
 /* --------------------------------------------------------------- The arena */
 
 const ArenaFloor = memo(function ArenaFloor({ accent }: { accent: string }) {
+  // Living Simulation (M8): the combat disk streams accent-colored data rings
+  // out from the arena center — clock-uniform driven, one shared material.
+  // The disk also wears the shared concrete PBR detail so boss-fight lighting
+  // has real micro-surface to bite into.
+  const diskMat = useMemo(() => {
+    const maps = concreteMaps()
+    const normal = maps.normal.clone()
+    const rough = maps.roughness.clone()
+    normal.repeat.set(9, 9)
+    rough.repeat.set(9, 9)
+    return applyArenaPulse(
+      new THREE.MeshStandardMaterial({
+        color: '#4d456a',
+        roughness: 0.9,
+        normalMap: normal,
+        normalScale: new THREE.Vector2(0.5, 0.5),
+        roughnessMap: rough,
+      }),
+      accent,
+    )
+  }, [accent])
+  useEffect(() => () => diskMat.dispose(), [diskMat])
+
   // Every flat floor decoration is stacked at a slightly higher Y than the one
   // below it so nothing is buried inside the base slab or z-fights. The base
   // slab's TOP surface sits exactly at y = 0 (the plane the fighters stand on).
@@ -66,9 +93,8 @@ const ArenaFloor = memo(function ArenaFloor({ accent }: { accent: string }) {
       </mesh>
 
       {/* Inner combat disk — thin plate laid just on top of the base floor. */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.012, 0]} receiveShadow>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.012, 0]} receiveShadow material={diskMat}>
         <circleGeometry args={[16.5, 96]} />
-        <meshStandardMaterial color="#4d456a" roughness={0.9} />
       </mesh>
 
       {/* Subtle concentric panel rings for scale (sit above the inner disk). */}
@@ -824,9 +850,20 @@ export function BossArena({
       >
         <color attach="background" args={['#463e65']} />
         <fog attach="fog" args={['#463e65', 29, 92]} />
-        {/* Brighter, airier hemisphere + ambient so the entire floor and boss read clearly from any angle. */}
-        <hemisphereLight args={['#d2d8f2', '#3f375c', 0.98]} />
-        <ambientLight intensity={0.78} />
+        {/* Ticks the shared simulation clock for the pulse floor + rim shaders.
+            No nightRef: arenas always read as "inside the program", day state. */}
+        <SimulationDriver />
+        {/* M8 — baked IBL (one-time, frames=1): warm key / cool rim formers so
+            armor, floors and the boss pick up REAL reflections instead of
+            living off flat ambient. Ambient terms drop to shape-fill duty. */}
+        <Environment frames={1} resolution={128}>
+          <Lightformer form="rect" intensity={0.6} color="#4a4468" scale={[40, 40, 1]} position={[0, 0, -16]} />
+          <Lightformer form="rect" intensity={4.4} color="#ffe2b0" scale={[12, 9, 1]} position={[8, 12, -7]} target={[0, 1, 0]} />
+          <Lightformer form="rect" intensity={2.8} color="#8fb4ff" scale={[12, 6, 1]} position={[-9, 6, 9]} target={[0, 1, 0]} />
+          <Lightformer form="ring" intensity={1.5} color="#f4ecff" scale={7} position={[0, 15, 0]} target={[0, 0, 0]} />
+        </Environment>
+        <hemisphereLight args={['#d2d8f2', '#3f375c', 0.55]} />
+        <ambientLight intensity={0.35} />
         {/* Main angled key light (warm). The shadow camera is explicitly sized to
             the play area so shadows are crisp and there is no dark "patch" or
             popping in the middle of the arena from an undersized shadow frustum. */}

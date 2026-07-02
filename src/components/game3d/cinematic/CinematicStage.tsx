@@ -12,7 +12,7 @@ import {
   Bloom,
   Vignette,
   SMAA,
-  SSAO,
+  N8AO,
   DepthOfField,
   Noise,
   ChromaticAberration,
@@ -169,7 +169,7 @@ function CinematicEffects({
   const low = tier === 'low'
 
   // Per-tier post budget:
-  //   HIGH: Bloom + SSAO(½-res) + DoF(small) + Vignette + SMAA (+CA if requested)
+  //   HIGH: N8AO(½-res) + Bloom + DoF(small) + Vignette + SMAA (+CA if requested)
   //   MED : Bloom + Vignette + SMAA
   //   LOW : Bloom(low) + Vignette only (SMAA dropped)
   const wantSSAO = ssao && high
@@ -179,7 +179,6 @@ function CinematicEffects({
   const wantSMAA = !low
   const bloomIntensity = low ? Math.min(bloom, 0.4) : bloom
 
-  const ssaoColor = useMemo(() => new THREE.Color('black'), [])
   const caOffset = useMemo(() => new THREE.Vector2(0.0009, 0.0009), [])
 
   // CRITICAL: memoize the pass list so its identity is stable across unrelated
@@ -189,24 +188,25 @@ function CinematicEffects({
   // when the tier or an effect toggle actually changes.
   const passes = useMemo(() => {
     const out: JSX.Element[] = []
-    out.push(
-      <Bloom key="bloom" mipmapBlur intensity={bloomIntensity} luminanceThreshold={0.72} luminanceSmoothing={0.18} />,
-    )
     if (wantSSAO) {
+      // M8: N8AO replaces the old SSAO — visibly deeper contact occlusion at
+      // half res, and it reconstructs normals from depth so the composer's
+      // normal pass stays off (a real fill-rate saving on top).
       out.push(
-        <SSAO
-          key="ssao"
-          resolutionScale={0.5}
-          samples={16}
-          rings={4}
-          radius={0.2}
-          intensity={14}
-          luminanceInfluence={0.6}
-          bias={0.03}
-          color={ssaoColor}
+        <N8AO
+          key="ao"
+          halfRes
+          depthAwareUpsampling
+          quality="performance"
+          aoRadius={1.6}
+          intensity={2.8}
+          distanceFalloff={1}
         />,
       )
     }
+    out.push(
+      <Bloom key="bloom" mipmapBlur intensity={bloomIntensity} luminanceThreshold={0.72} luminanceSmoothing={0.18} />,
+    )
     if (wantDof) {
       out.push(<DepthOfField key="dof" focusDistance={0.02} focalLength={0.05} bokehScale={2} />)
     }
@@ -221,10 +221,10 @@ function CinematicEffects({
     }
     if (wantSMAA) out.push(<SMAA key="smaa" />)
     return out
-  }, [bloomIntensity, wantSSAO, wantDof, wantCA, wantGrain, wantSMAA, vignette, ssaoColor, caOffset])
+  }, [bloomIntensity, wantSSAO, wantDof, wantCA, wantGrain, wantSMAA, vignette, caOffset])
 
   return (
-    <EffectComposer multisampling={0} enableNormalPass={wantSSAO}>
+    <EffectComposer multisampling={0} enableNormalPass={false}>
       {passes}
     </EffectComposer>
   )

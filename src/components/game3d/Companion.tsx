@@ -1,6 +1,7 @@
-import { useRef, type MutableRefObject } from 'react'
+import { useEffect, useMemo, useRef, type MutableRefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { applyRimLight } from './simulation'
 import type { Vec2 } from './layout'
 
 /**
@@ -20,6 +21,23 @@ export function Companion({
   const group = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const desired = useRef(new THREE.Vector3())
+
+  // Rim-lit core (M7) — Bit reads as a bright data-sprite against the city.
+  const coreMat = useMemo(
+    () =>
+      applyRimLight(
+        new THREE.MeshStandardMaterial({
+          color: accent,
+          emissive: new THREE.Color(accent),
+          emissiveIntensity: 0.5,
+          flatShading: true,
+        }),
+        '#ffffff',
+        0.55,
+      ),
+    [accent],
+  )
+  useEffect(() => () => coreMat.dispose(), [coreMat])
 
   useFrame((state) => {
     const g = group.current
@@ -42,9 +60,8 @@ export function Companion({
     <group ref={group} scale={0.6}>
       <group ref={body}>
         {/* core */}
-        <mesh castShadow>
+        <mesh castShadow material={coreMat}>
           <icosahedronGeometry args={[0.5, 1]} />
-          <meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.5} flatShading />
         </mesh>
         {/* glass visor */}
         <mesh position={[0, 0.08, 0.42]}>

@@ -13,6 +13,8 @@ import { Stars } from '@react-three/drei'
 import * as THREE from 'three'
 import { WORLDS } from '../../content/adventure'
 import { CinematicStage, CameraDirector, EmberField, useQuality } from './cinematic'
+import { SimulationDriver } from './SimulationDriver'
+import { SIM } from './simulation'
 
 /* ======================================================================
    THE THRESHOLD — a surreal liminal void crossed after VEX falls.
@@ -179,6 +181,62 @@ function PathOfLight({ accent, count }: { accent: string; count: number }): JSX.
       {/* Pulsing path nodes. */}
       <instancedMesh ref={nodesMesh} args={[geo, mat, count]} frustumCulled={false} />
     </group>
+  )
+}
+
+/* --------------------------------------- The edge of the simulation (M8) */
+
+const GRID_VERT = /* glsl */ `
+varying vec3 vW;
+void main() {
+  vec4 wp = modelMatrix * vec4( position, 1.0 );
+  vW = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`
+
+const GRID_FRAG = /* glsl */ `
+uniform float uSimTime;
+uniform vec3 uCol;
+varying vec3 vW;
+void main() {
+  // Slow flow toward the gate — the world streaming past the traveller.
+  vec2 g = vW.xz;
+  g.y -= uSimTime * 1.2;
+  vec2 f = abs( fract( g * 0.22 ) - 0.5 ) * 2.0;
+  float line = max( smoothstep( 0.90, 1.0, f.x ), smoothstep( 0.90, 1.0, f.y ) );
+  float d = distance( vW, cameraPosition );
+  float fade = 1.0 - smoothstep( 18.0, 85.0, d );
+  gl_FragColor = vec4( uCol * line * fade * 0.55, line * fade * 0.4 );
+  #include <colorspace_fragment>
+}
+`
+
+/**
+ * The Threshold IS the edge of the simulation, so the void gets the same
+ * horizon-grid language as the overworld sky: a faint luminous plane flowing
+ * beneath the flight path, dissolving with distance. One additive draw.
+ */
+function SimGridFloor({ accent }: { accent: string }): JSX.Element {
+  const mat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: GRID_VERT,
+        fragmentShader: GRID_FRAG,
+        uniforms: { uSimTime: SIM.time, uCol: { value: new THREE.Color(accent) } },
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+        toneMapped: false,
+      }),
+    [accent],
+  )
+  useEffect(() => () => mat.dispose(), [mat])
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={[0, -1.2, (START_Z + GATE_Z) / 2]} material={mat}>
+      <planeGeometry args={[360, 360]} />
+    </mesh>
   )
 }
 
@@ -398,9 +456,11 @@ const ThresholdWorld = memo(function ThresholdWorld({ accent, gateReq, onArrive,
 
   return (
     <group>
+      <SimulationDriver tier={tier} />
       <Stars radius={120} depth={70} count={tier === 'low' ? 700 : tier === 'med' ? 1200 : 1800} factor={4} saturation={0} fade speed={1.0} />
       <EmberField count={tier === 'low' ? 60 : tier === 'med' ? 110 : 200} area={40} height={26} color={COLD} />
 
+      <SimGridFloor accent={accent} />
       <PathOfLight accent={accent} count={tier === 'low' ? 16 : 24} />
       <WorldFragments specs={fragSpecs} />
       <Gate accent={accent} refs={gateRefs} />
