@@ -13,7 +13,19 @@ import {
   weakestConcepts,
   type ConceptBand,
 } from '../lib/learnerModel'
-import { IconFlame, IconTrophy, IconGauge, IconCompass } from '../components/icons'
+import {
+  IconArrowLeft,
+  IconCompass,
+  IconFlame,
+  IconGauge,
+  IconTrophy,
+} from '../components/icons'
+import { academyMissionPath } from '../lib/academyQuest'
+import {
+  NEETCODE_150_MANIFEST,
+  NEETCODE_150_PROBLEM_BY_ID,
+} from '../content/curricula/neetcode150'
+import type { ProblemId } from '../types/curriculum'
 import './ProfilePage.css'
 
 const CONCEPTS: { id: ConceptId; label: string }[] = [
@@ -40,8 +52,43 @@ const BAND_LABEL: Record<ConceptBand, string> = {
 
 export function ProfilePage() {
   const { displayName, isGuest } = useAuth()
-  const { learnerModel, streak, totalBadgeCount, badgesUnlockedCount } = useProgress()
+  const {
+    learnerModel,
+    streak,
+    totalBadgeCount,
+    badgesUnlockedCount,
+    problemMastery,
+    skillMastery,
+    dueProblemIds,
+  } = useProgress()
   const { info: playerLevel, title } = usePlayerLevel()
+  const academyProblemRecords = NEETCODE_150_MANIFEST.problems
+    .map(({ id }) => problemMastery[id])
+    .filter(
+      (record): record is NonNullable<typeof record> =>
+        !!record && record.reviewCount > 0,
+    )
+  const academySkillRecords = NEETCODE_150_MANIFEST.skills
+    .map(({ id }) => skillMastery[id])
+    .filter(
+      (record): record is NonNullable<typeof record> =>
+        !!record && record.reviewCount > 0,
+    )
+  const dueAcademyProblems = dueProblemIds
+    .filter((id): id is ProblemId => id.startsWith('problem:'))
+    .map((id) => NEETCODE_150_PROBLEM_BY_ID.get(id))
+    .filter((problem): problem is NonNullable<typeof problem> => !!problem)
+  const averageAcademyAbility =
+    academySkillRecords.length > 0
+      ? Math.round(
+          (academySkillRecords.reduce(
+            (sum, record) => sum + record.ability,
+            0,
+          ) /
+            academySkillRecords.length) *
+            100,
+        )
+      : 0
 
   const hasSignal = Object.values(learnerModel.concepts).some(
     (c) => c && c.seen > 0,
@@ -65,10 +112,15 @@ export function ProfilePage() {
   }, [weakest, learnerModel])
 
   return (
-    <div className="page">
+    <div className="page profile-page">
       <AppHeader />
 
-      <main className="container lp profile-main" id="main-content">
+      <main className="container profile-main" id="main-content">
+        <Link className="profile-back" to="/quest/list">
+          <IconArrowLeft size={18} />
+          Back to levels
+        </Link>
+
         <section className="profile-hero">
           <div>
             <span className="eyebrow">Coder profile</span>
@@ -99,13 +151,47 @@ export function ProfilePage() {
           </div>
         </section>
 
+        <section className="profile-card">
+          <div className="profile-card-head">
+            <h2>Academy mastery · FSRS v1</h2>
+            <span className="profile-card-hint">
+              Current problem and manifest-skill projection
+            </span>
+          </div>
+          <p>
+            <strong>{academyProblemRecords.length}</strong> problems scheduled ·{' '}
+            <strong>{academySkillRecords.length}</strong> skills measured ·{' '}
+            <strong>{averageAcademyAbility}%</strong> average skill ability
+          </p>
+          <h3>Due academy problems</h3>
+          {dueAcademyProblems.length === 0 ? (
+            <p className="profile-due-empty">No FSRS problem reviews are due now.</p>
+          ) : (
+            <ul className="profile-due-list">
+              {dueAcademyProblems.slice(0, 8).map((problem) => (
+                <li key={problem.id} className="profile-due-item">
+                  <span className="profile-due-mark" />
+                  <Link
+                    to={academyMissionPath(
+                      problem.realmId,
+                      problem.trackId,
+                      problem.leetcodeSlug,
+                    )}
+                  >
+                    {problem.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         {isGuest ? (
           <section className="profile-card profile-empty">
             <h2>Sign in to build your profile</h2>
             <p>
-              Guests play in preview mode. Create an account and AlphaCode will track
-              your strengths and weaknesses across every concept, then personalize the
-              lessons and the game to you.
+              Guests can preview the first mission lesson. Create an account to
+              save progress across all 150 missions, 18 topics, and 6 realms.
             </p>
             <Link className="btn" to="/auth">
               Create an account
@@ -126,9 +212,9 @@ export function ProfilePage() {
           <>
             <section className="profile-card">
               <div className="profile-card-head">
-                <h2>Strengths &amp; weaknesses</h2>
+              <h2>Core primer</h2>
                 <span className="profile-card-hint">
-                  Updated from every question you answer
+                  Legacy Leitner concepts · does not gate academy certification
                 </span>
               </div>
               <ul className="profile-skills">

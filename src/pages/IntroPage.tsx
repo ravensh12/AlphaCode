@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Brand } from '../components/Brand'
 import { IntroCinematic, CINEMATIC_DURATION } from '../components/game3d/IntroCinematic'
 import { IconArrowRight, IconTrophy } from '../components/icons'
@@ -9,20 +9,72 @@ import './IntroPage.css'
 /** Scripted overlay captions, keyed to the cinematic clock (seconds since mount). */
 type Caption = { t: number; kind: 'title' | 'line'; text: string }
 
-const CAPTIONS: Caption[] = [
-  { t: 0.4, kind: 'title', text: 'Code City has fallen' },
-  { t: 3.2, kind: 'line', text: 'The patterns that ran it — scattered.' },
-  { t: 7.2, kind: 'line', text: 'You and CodeBot are all that’s left.' },
-  { t: 12.2, kind: 'line', text: 'Master the 6 patterns. Take back the city.' },
+const INTRO_CAPTIONS: Caption[] = [
+  { t: 0.4, kind: 'title', text: 'Welcome to Code City' },
+  { t: 4.2, kind: 'line', text: 'Every district is a coding pattern to master.' },
+  { t: 8.4, kind: 'line', text: 'Solve the checkpoints. Outsmart the bosses. Keep every pattern sharp.' },
+  { t: 12, kind: 'line', text: '150 missions. 18 topics. One Code Master.' },
 ]
 
+const INTRO_DESTINATION = '/quest'
+
+const INTRO_MARKETING_COPY = {
+  eyebrow: 'Enter the Living Code City',
+  promise: 'Beat the full course to prove proficiency across NeetCode 150 patterns.',
+  completion:
+    'To beat AlphaCode: finish all 150 original missions, pass delayed retention checks, clear the assessment and boss in each of six realms, and pass the 18-topic Final Certification Trial.',
+  cta: 'Begin the quest',
+  independence: 'AlphaCode is independent and not affiliated with NeetCode or LeetCode.',
+} as const
+
+const INTRO_COURSE_FACTS = [
+  { value: 150, label: 'Missions' },
+  { value: 18, label: 'Topics' },
+  { value: 6, label: 'Realms' },
+] as const
+
 /** When the hero title card + CTA appear, and when the whole thing auto-advances. */
-const CTA_AT = 16.2
-const END_AT = CINEMATIC_DURATION + 1.6
+const CTA_AT = 13.2
+const END_AT = CINEMATIC_DURATION + 6
+
+export function IntroFinalCard() {
+  return (
+    <section className="intro-cine-card card" aria-labelledby="intro-course-promise">
+      <span className="intro-cine-badge" aria-hidden="true">
+        <IconTrophy size={28} />
+      </span>
+      <span className="intro-cine-eyebrow">{INTRO_MARKETING_COPY.eyebrow}</span>
+      <h1 className="intro-cine-promise" id="intro-course-promise">
+        {INTRO_MARKETING_COPY.promise}
+      </h1>
+
+      <ul
+        className="intro-cine-proof"
+        aria-label="Course scope: 150 missions, 18 topics, 6 realms"
+      >
+        {INTRO_COURSE_FACTS.map((fact) => (
+          <li key={fact.label}>
+            <strong>{fact.value}</strong>
+            <span>{fact.label}</span>
+          </li>
+        ))}
+      </ul>
+
+      <p className="intro-cine-completion">{INTRO_MARKETING_COPY.completion}</p>
+
+      <Link className="btn lg intro-cine-cta" to={INTRO_DESTINATION}>
+        {INTRO_MARKETING_COPY.cta}
+        <IconArrowRight size={18} />
+      </Link>
+
+      <small className="intro-cine-independence">{INTRO_MARKETING_COPY.independence}</small>
+    </section>
+  )
+}
 
 export function IntroPage() {
   const navigate = useNavigate()
-  const finish = useCallback(() => navigate('/onboarding'), [navigate])
+  const finish = useCallback(() => navigate(INTRO_DESTINATION), [navigate])
 
   // Caption index + CTA visibility are the only things that re-render the page;
   // they advance off a single timeline clock captured at mount, so the whole
@@ -44,8 +96,8 @@ export function IntroPage() {
       const t = (now - startMs) / 1000
 
       let idx = 0
-      for (let i = 0; i < CAPTIONS.length; i++) {
-        if (t >= CAPTIONS[i].t) idx = i
+      for (let i = 0; i < INTRO_CAPTIONS.length; i++) {
+        if (t >= INTRO_CAPTIONS[i].t) idx = i
       }
       setCaptionIdx(idx)
       setShowCard(t >= CTA_AT)
@@ -63,7 +115,7 @@ export function IntroPage() {
     return () => cancelAnimationFrame(raf)
   }, [finish])
 
-  const caption = CAPTIONS[captionIdx]
+  const caption = INTRO_CAPTIONS[captionIdx]
 
   return (
     <div className="intro-cine">
@@ -78,7 +130,7 @@ export function IntroPage() {
       {/* Top bar: brand + persistent skip. */}
       <div className="intro-cine-top">
         <Brand to="/" />
-        <button className="intro-cine-skip" onClick={finish}>
+        <button type="button" className="intro-cine-skip" onClick={finish}>
           Skip
         </button>
       </div>
@@ -95,23 +147,10 @@ export function IntroPage() {
         </div>
       )}
 
-      {/* Final title card — styled to match the quiz UI (paper card, ink border). */}
+      {/* Final title card and direct entry into Code City. */}
       {showCard && (
         <div className="intro-cine-cardwrap" key="card">
-          <section className="intro-cine-card card">
-            <span className="intro-cine-badge" aria-hidden="true">
-              <IconTrophy size={30} />
-            </span>
-            <span className="intro-cine-eyebrow">Your mission begins</span>
-            <h1 className="intro-cine-logo">
-              Alpha<span>Code</span>
-            </h1>
-            <p className="intro-cine-tag">Six patterns. Six bosses. Take back the city.</p>
-            <button className="btn lg intro-cine-cta" onClick={finish}>
-              Begin training
-              <IconArrowRight size={18} />
-            </button>
-          </section>
+          <IntroFinalCard />
         </div>
       )}
     </div>

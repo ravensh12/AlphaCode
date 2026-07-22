@@ -1,0 +1,516 @@
+.pyide {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+}
+
+/* ---------- Editor shell ---------- */
+
+.pyide-editor-shell {
+  overflow: hidden;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.pyide-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pyide-editor-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.pyide-editor-dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.pyide-editor-dots i:first-child {
+  background: #ff5a5f;
+}
+
+.pyide-editor-dots i:nth-child(2) {
+  background: #ffd23f;
+}
+
+.pyide-editor-dots i:nth-child(3) {
+  background: #14d39a;
+}
+
+.pyide-editor-filename {
+  font: 700 12px/1 var(--mono);
+  letter-spacing: 0.04em;
+  color: rgba(239, 233, 220, 0.82);
+}
+
+.pyide-editor-entrypoint {
+  margin-left: auto;
+  font: 600 11px/1 var(--mono);
+  color: rgba(94, 240, 224, 0.75);
+}
+
+.pyide-editor .cm-editor {
+  min-height: 240px;
+  max-height: 460px;
+}
+
+.pyide-editor .cm-editor .cm-scroller {
+  overflow: auto;
+}
+
+.pyide-editor[data-disabled] {
+  opacity: 0.72;
+}
+
+.pyide-editor-fallback {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+  padding: 13px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--on-dark);
+  font: 600 14.5px/1.65 var(--mono);
+  tab-size: 4;
+  resize: vertical;
+}
+
+.pyide-editor-fallback:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: -3px;
+}
+
+/* ---------- Run action ---------- */
+
+.pyide-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pyide-run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--cyan);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease;
+}
+
+.pyide-run-btn:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow);
+}
+
+.pyide-run-btn:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.pyide-run-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
+
+.pyide-run-note {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+.pyide-running {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--cyan-soft);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.pyide-running-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cyan);
+  animation: pyide-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes pyide-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.6);
+    opacity: 0.45;
+  }
+}
+
+/* ---------- Results panel ---------- */
+
+.pyide-results {
+  display: grid;
+  gap: 10px;
+  padding: 13px 14px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.pyide-results-pass {
+  border-color: var(--lime);
+  background: var(--lime-soft);
+}
+
+.pyide-results-fail,
+.pyide-results-error {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+}
+
+.pyide-results-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.pyide-results-tag {
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.pyide-results-summary {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.pyide-results-duration {
+  margin-left: auto;
+  font: 600 11.5px/1 var(--mono);
+  color: var(--ink-faint);
+}
+
+.pyide-case-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pyide-case {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  border: 1.5px solid rgba(26, 23, 48, 0.22);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.pyide-case-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pyide-case-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 900;
+  color: #fff;
+}
+
+.pyide-case-pass .pyide-case-badge,
+.pyide-badge-pass {
+  background: #0da875;
+}
+
+.pyide-case-fail .pyide-case-badge,
+.pyide-badge-fail {
+  background: var(--coral);
+}
+
+.pyide-case-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.pyide-case-call {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: 600 12px/1.5 var(--mono);
+  color: var(--ink-soft);
+}
+
+.pyide-case-io {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.pyide-case-io > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.pyide-case-io dt {
+  flex: 0 0 88px;
+  font-family: var(--display);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.pyide-case-io dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.pyide-case-io code {
+  overflow-wrap: anywhere;
+  font: 600 12.5px/1.55 var(--mono);
+  color: var(--ink);
+}
+
+.pyide-case-error,
+.pyide-error-message,
+.pyide-error-stderr,
+.pyide-output pre {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: #ffb3b6;
+  font: 500 12px/1.6 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.pyide-output pre {
+  color: var(--on-dark);
+}
+
+.pyide-output-stderr {
+  color: #ffb3b6;
+}
+
+.pyide-error {
+  display: grid;
+  gap: 7px;
+}
+
+.pyide-error-category {
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.pyide-hidden {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1.5px dashed rgba(26, 23, 48, 0.34);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.pyide-hidden-body {
+  display: grid;
+  gap: 3px;
+}
+
+.pyide-hidden-count {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.pyide-hidden-detail {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.pyide-output summary {
+  cursor: pointer;
+  font-family: var(--display);
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.pyide-output {
+  display: grid;
+  gap: 7px;
+}
+
+.pyide-notes {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+}
+
+ul.pyide-notes {
+  display: grid;
+  gap: 3px;
+}
+
+.lp .pyide-notes {
+  color: var(--cc-text-faint);
+}
+
+/* ---------- Code City (dark .lp) theme ---------- */
+
+.lp .pyide-editor-shell {
+  border-color: var(--cc-line-strong);
+  background: var(--cc-glass-3);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.48);
+}
+
+.lp .pyide-run-btn {
+  border-color: var(--cc-line-strong);
+  background: var(--cc-cyan);
+  color: #06211d;
+  box-shadow: 0 0 18px rgba(94, 240, 224, 0.28);
+}
+
+.lp .pyide-run-note {
+  color: var(--cc-text-soft);
+}
+
+.lp .pyide-running {
+  border-color: var(--cc-line-strong);
+  background: var(--cc-cyan-soft);
+  color: var(--cc-text);
+}
+
+.lp .pyide-results {
+  border-color: var(--cc-line-strong);
+  background: var(--cc-glass);
+  color: var(--cc-text);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.38);
+}
+
+.lp .pyide-results-pass {
+  border-color: rgba(182, 255, 92, 0.55);
+  background: var(--cc-lime-soft);
+}
+
+.lp .pyide-results-fail,
+.lp .pyide-results-error {
+  border-color: rgba(255, 107, 107, 0.55);
+  background: var(--cc-coral-soft);
+}
+
+.lp .pyide-results-tag,
+.lp .pyide-case-call,
+.lp .pyide-hidden-detail,
+.lp .pyide-output summary {
+  color: var(--cc-text-soft);
+}
+
+.lp .pyide-results-summary,
+.lp .pyide-case-title,
+.lp .pyide-hidden-count,
+.lp .pyide-error-category,
+.lp .pyide-case-io code {
+  color: var(--cc-text);
+}
+
+.lp .pyide-results-duration,
+.lp .pyide-case-io dt {
+  color: var(--cc-text-faint);
+}
+
+.lp .pyide-case {
+  border-color: var(--cc-line);
+  background: var(--cc-glass-2);
+}
+
+.lp .pyide-hidden {
+  border-color: var(--cc-line-strong);
+  background: var(--cc-glass-2);
+}
+
+.lp .pyide-case-error,
+.lp .pyide-error-message,
+.lp .pyide-error-stderr,
+.lp .pyide-output pre {
+  background: rgba(4, 8, 8, 0.8);
+}
+
+@media (max-width: 560px) {
+  .pyide-editor .cm-editor {
+    min-height: 200px;
+    max-height: 340px;
+  }
+
+  .pyide-case-io > div {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .pyide-case-io dt {
+    flex-basis: auto;
+  }
+}

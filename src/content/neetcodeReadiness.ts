@@ -53,9 +53,6 @@ export const NEETCODE_READINESS: Record<string, NeetCodeReadiness> = {
   },
 }
 
-export const COURSE_TAGLINE = 'LeetCode prep course'
-export const COURSE_POSITIONING = 'LeetCode prep course'
-
 export function getNeetCodeReadiness(lessonId: string): NeetCodeReadiness | undefined {
   return NEETCODE_READINESS[lessonId]
 }

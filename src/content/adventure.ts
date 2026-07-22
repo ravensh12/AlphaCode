@@ -60,12 +60,6 @@ export type World = {
   overBoss: { x: number; y: number }
 }
 
-/** Size of the explorable overworld canvas, in pixels (list / metadata only). */
-export const OVERWORLD_SIZE = { width: 4200, height: 3400 }
-
-/** Spawn — kept in sync with START_3D in layout.ts */
-export const OVER_START = { x: 875, y: 2597 }
-
 const T = {
   lime: { accent: '#14d39a', accentSoft: '#c7f7e8', accentInk: '#0a5f47' },
   cyan: { accent: '#2dd4ee', accentSoft: '#cdf3fa', accentInk: '#0a6273' },
@@ -224,14 +218,6 @@ const WORLD_BY_ID: Record<string, World> = Object.fromEntries(
 export function getWorld(lessonId: string): World | undefined {
   return WORLD_BY_ID[lessonId]
 }
-
-export function worldOrThrow(lessonId: string): World {
-  const w = WORLD_BY_ID[lessonId]
-  if (!w) throw new Error(`No world for lesson ${lessonId}`)
-  return w
-}
-
-export const FINAL_WORLD = WORLDS[WORLDS.length - 1]
 
 /** Total worlds — should match LESSON_CATALOG length. */
 export const WORLD_COUNT = WORLDS.length

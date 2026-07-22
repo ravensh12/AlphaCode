@@ -1,8 +1,39 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [".pw-browsers/**"],
   "plugins": ["react", "oxc"],
   "rules": {
     "react/rules-of-hooks": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/components/game3d/dojo/exhibits/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/context/ProgressContext", "**/ProgressContext"],
+                "message": "Dojo exhibits award XP only (usePlayerLevel.addXp) — never import ProgressContext or evidence APIs."
+              },
+              {
+                "group": [
+                  "**/hooks/useAcademyMissionFlow",
+                  "**/lib/academyProgress",
+                  "**/lib/localLearning",
+                  "**/lib/cloudLearning",
+                  "**/lib/localProgress",
+                  "**/lib/cloudProgress",
+                  "**/lib/questSession"
+                ],
+                "message": "Dojo exhibits are optional practice toys: mission/evidence/progress APIs are off limits (usePlayerLevel is the only allowed reward path)."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

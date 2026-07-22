@@ -169,7 +169,13 @@ export function asphaltMaps(): SurfaceMaps {
 
 let concrete: SurfaceMaps | null = null
 
-/** Pavement / sidewalk concrete: pores, subtle trowel blotches. Tiles ~6m. */
+/**
+ * Pavement / sidewalk concrete: pores, subtle trowel blotches, plus poured
+ * PANEL breakup — recessed expansion joints on a 2×2 grid per tile (the tile
+ * spans ~6m in world space, so joints land every ~3m like real sidewalk
+ * slabs) with a slight per-panel tone/roughness step so adjacent pours never
+ * read as one continuous sheet.
+ */
 export function concreteMaps(): SurfaceMaps {
   if (concrete) return concrete
   const S = 256
@@ -179,11 +185,34 @@ export function concreteMaps(): SurfaceMaps {
 
   const rough = new Float32Array(S * S)
   const height = new Float32Array(S * S)
-  for (let i = 0; i < rough.length; i++) {
-    rough[i] = 0.9 + (blotch[i] - 0.5) * 0.1 + (pores[i] - 0.5) * 0.05
-    // Pores dig in; blotches give a gentle large-scale undulation.
-    const pore = pores[i] > 0.86 ? (pores[i] - 0.86) * 3.2 : 0
-    height[i] = blotch[i] * 0.5 + mid[i] * 0.4 - pore
+  const PANELS = 2 // per tile edge → joints every ~3m in world space
+  const panel = S / PANELS
+  const JOINT = 2 // joint half-width in texels
+  const panelRnd = mulberry32(808)
+  const panelTone: number[] = []
+  for (let k = 0; k < PANELS * PANELS; k++) panelTone.push((panelRnd() - 0.5) * 0.07)
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = y * S + x
+      rough[i] = 0.9 + (blotch[i] - 0.5) * 0.1 + (pores[i] - 0.5) * 0.05
+      // Pores dig in; blotches give a gentle large-scale undulation.
+      const pore = pores[i] > 0.86 ? (pores[i] - 0.86) * 3.2 : 0
+      height[i] = blotch[i] * 0.5 + mid[i] * 0.4 - pore
+      // Per-panel tone step (each pour cures a touch different).
+      const px = Math.floor(x / panel)
+      const py = Math.floor(y / panel)
+      rough[i] += panelTone[py * PANELS + px]
+      // Expansion joints: a recessed groove along panel edges (wrapping, so
+      // the tile joins seamlessly with its neighbours).
+      const dx = Math.min(x % panel, panel - (x % panel))
+      const dy = Math.min(y % panel, panel - (y % panel))
+      const d = Math.min(dx, dy)
+      if (d < JOINT) {
+        const t = 1 - d / JOINT
+        height[i] -= t * 0.55
+        rough[i] += t * 0.06 // dirt collects in the groove — flatter, darker
+      }
+    }
   }
   concrete = {
     normal: heightToNormalTexture(height, S, S, 1.0),
@@ -248,6 +277,146 @@ export function coneGlowTexture(): THREE.DataTexture {
   return coneGlow
 }
 
+/* ------------------------------------------------------------- decal atlas */
+
+let decalAtlas: THREE.CanvasTexture | null = null
+
+/**
+ * Phase 3 — street decal atlas (4×2 tiles of 128px): manhole, storm drain,
+ * lane arrow, crack web, oil stain, puddle mask, painted code glyph, and a
+ * worn crosswalk band. Alpha carries the shape mask; drawn once, shared by
+ * the single instanced decal draw. Deterministic (seeded scratch noise).
+ */
+export function decalAtlasTexture(): THREE.CanvasTexture {
+  if (decalAtlas) return decalAtlas
+  const T = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = T * 4
+  canvas.height = T * 2
+  const ctx = canvas.getContext('2d')!
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  const rnd = mulberry32(909)
+  const tileOrigin = (i: number) => ({ ox: (i % 4) * T, oy: Math.floor(i / 4) * T })
+
+  // 0 — manhole cover
+  {
+    const { ox, oy } = tileOrigin(0)
+    const cx = ox + T / 2
+    const cy = oy + T / 2
+    ctx.fillStyle = 'rgba(24, 26, 30, 0.92)'
+    ctx.beginPath()
+    ctx.arc(cx, cy, T * 0.44, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(120, 126, 134, 0.9)'
+    ctx.lineWidth = 4
+    ctx.beginPath()
+    ctx.arc(cx, cy, T * 0.4, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.lineWidth = 2
+    for (let k = -3; k <= 3; k++) {
+      ctx.beginPath()
+      ctx.moveTo(cx - T * 0.3, cy + k * 9)
+      ctx.lineTo(cx + T * 0.3, cy + k * 9)
+      ctx.stroke()
+    }
+  }
+  // 1 — storm drain
+  {
+    const { ox, oy } = tileOrigin(1)
+    ctx.fillStyle = 'rgba(18, 20, 24, 0.94)'
+    ctx.fillRect(ox + 8, oy + T * 0.3, T - 16, T * 0.4)
+    ctx.fillStyle = 'rgba(96, 102, 110, 0.9)'
+    for (let k = 0; k < 6; k++) ctx.fillRect(ox + 14 + k * 18, oy + T * 0.33, 8, T * 0.34)
+  }
+  // 2 — lane arrow (points +v / up in tile space)
+  {
+    const { ox, oy } = tileOrigin(2)
+    ctx.fillStyle = 'rgba(238, 240, 242, 0.88)'
+    ctx.beginPath()
+    ctx.moveTo(ox + T / 2, oy + 10)
+    ctx.lineTo(ox + T * 0.78, oy + T * 0.44)
+    ctx.lineTo(ox + T * 0.6, oy + T * 0.44)
+    ctx.lineTo(ox + T * 0.6, oy + T - 12)
+    ctx.lineTo(ox + T * 0.4, oy + T - 12)
+    ctx.lineTo(ox + T * 0.4, oy + T * 0.44)
+    ctx.lineTo(ox + T * 0.22, oy + T * 0.44)
+    ctx.closePath()
+    ctx.fill()
+  }
+  // 3 — crack web
+  {
+    const { ox, oy } = tileOrigin(3)
+    ctx.strokeStyle = 'rgba(16, 17, 20, 0.75)'
+    for (let c = 0; c < 5; c++) {
+      ctx.lineWidth = 1.4 + rnd() * 1.6
+      ctx.beginPath()
+      let x = ox + T * (0.2 + rnd() * 0.6)
+      let y = oy + T * (0.15 + rnd() * 0.2)
+      ctx.moveTo(x, y)
+      for (let s = 0; s < 6; s++) {
+        x += (rnd() - 0.5) * 34
+        y += 12 + rnd() * 14
+        ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+    }
+  }
+  // 4 — oil stain
+  {
+    const { ox, oy } = tileOrigin(4)
+    const g = ctx.createRadialGradient(ox + T / 2, oy + T / 2, 4, ox + T / 2, oy + T / 2, T * 0.44)
+    g.addColorStop(0, 'rgba(14, 14, 20, 0.8)')
+    g.addColorStop(0.7, 'rgba(16, 18, 26, 0.45)')
+    g.addColorStop(1, 'rgba(16, 18, 26, 0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.ellipse(ox + T / 2, oy + T / 2, T * 0.42, T * 0.32, 0.5, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  // 5 — puddle mask (rain-only; the shader glosses it to a mirror)
+  {
+    const { ox, oy } = tileOrigin(5)
+    const g = ctx.createRadialGradient(ox + T / 2, oy + T / 2, 6, ox + T / 2, oy + T / 2, T * 0.46)
+    g.addColorStop(0, 'rgba(30, 38, 52, 0.85)')
+    g.addColorStop(0.75, 'rgba(30, 38, 52, 0.55)')
+    g.addColorStop(1, 'rgba(30, 38, 52, 0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.ellipse(ox + T / 2, oy + T / 2, T * 0.45, T * 0.3, -0.4, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  // 6 — painted </> street glyph
+  {
+    const { ox, oy } = tileOrigin(6)
+    ctx.fillStyle = 'rgba(240, 244, 248, 0.7)'
+    ctx.font = `bold ${Math.round(T * 0.52)}px "Courier New", monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('</>', ox + T / 2, oy + T / 2 + 3)
+  }
+  // 7 — crosswalk band (stripes run along u → across the road when laid)
+  {
+    const { ox, oy } = tileOrigin(7)
+    ctx.fillStyle = 'rgba(236, 238, 241, 0.86)'
+    for (let k = 0; k < 5; k++) {
+      const w = T * 0.13
+      ctx.fillRect(ox + 8 + k * (T - 16) * 0.22, oy + 10, w, T - 20)
+    }
+    // wear: knock chips out of the paint
+    ctx.globalCompositeOperation = 'destination-out'
+    for (let k = 0; k < 60; k++) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'
+      ctx.fillRect(ox + rnd() * T, oy + rnd() * T, 2 + rnd() * 5, 2 + rnd() * 4)
+    }
+    ctx.globalCompositeOperation = 'source-over'
+  }
+
+  decalAtlas = new THREE.CanvasTexture(canvas)
+  decalAtlas.colorSpace = THREE.SRGBColorSpace
+  decalAtlas.anisotropy = 4
+  return decalAtlas
+}
+
 export type FacadeMaps = {
   map: THREE.CanvasTexture
   emissive: THREE.CanvasTexture
@@ -262,9 +431,6 @@ const FACADE_COLS = 5
 const FACADE_ROWS = 11
 const FACADE_MX = 8
 const FACADE_MY = 8
-
-/** Window-grid metadata for the shader-side office-light animation. */
-export const FACADE_GRID = { cols: FACADE_COLS, rows: FACADE_ROWS }
 
 let facade: FacadeMaps | null = null
 

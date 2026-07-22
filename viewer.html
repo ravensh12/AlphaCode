@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- Dev-only model viewer for visual QA screenshots (never built/shipped:
+     vite build only bundles index.html). Driven by scripts/view-model.mjs. -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Model viewer (dev QA)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #3a4148; }
+      canvas { display: block; }
+      #info { position: fixed; top: 8px; left: 10px; color: #dfe6ee; font: 12px monospace; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="info"></div>
+    <script type="module" src="/src/devViewer.ts"></script>
+  </body>
+</html>

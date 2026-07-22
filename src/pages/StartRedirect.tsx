@@ -3,9 +3,9 @@ import { useProgress } from '../context/ProgressContext'
 import { Loader } from '../components/Loader'
 
 /**
- * Every launch into the game runs through the cinematic intro + placement quiz.
- * The quiz then drops the player at the world it recommends, so the intro always
- * plays (on every rerun / refresh of the start flow) regardless of past progress.
+ * Every explicit launch into the game runs through the cinematic intro.
+ * Durable progress is hydrated first so the quest can resume from its normal
+ * progression path without fabricating a starting checkpoint.
  */
 export function StartRedirect() {
   const { ready } = useProgress()

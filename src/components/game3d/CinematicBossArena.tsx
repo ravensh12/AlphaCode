@@ -1,5 +1,8 @@
 import {
+  Component,
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -7,13 +10,48 @@ import {
   useState,
   type JSX,
   type MutableRefObject,
+  type ReactNode,
 } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { MeshReflectorMaterial } from '@react-three/drei'
 import * as THREE from 'three'
 import { Avatar, type AvatarAnim } from './Avatar'
-import { VexBoss3D, VEX_DEATH_DUR, VEX_HEAVY_DUR, type VexAnim } from './VexBoss3D'
+import { VexBoss3D, VEX_DEATH_DUR, VEX_HEAVY_DUR, type VexAnim, type VexBoss3DProps } from './VexBoss3D'
+import { NightRain, NightSkyline } from './NightCityStage'
+
+// Phase-3 remake: the real character-boss-vex rig + the nine-piece arena kit
+// stream lazily; the procedural VexBoss3D stays as the loading fallback AND
+// the permanent one if the GLBs ever fail — a boss always renders.
+const MeshyVexBoss = lazy(() => import('./meshy/MeshyVexBoss'))
+const MeshyArenaDressing = lazy(() => import('./meshy/MeshyArenaDressing'))
+
+class BossBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
+}
+
+/** The Meshy Vex behind a boundary + suspense, procedural Vex as fallback. */
+function VexBossSwitch(props: VexBoss3DProps) {
+  const fallback = <VexBoss3D {...props} />
+  return (
+    <BossBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>
+        <MeshyVexBoss {...props} />
+      </Suspense>
+    </BossBoundary>
+  )
+}
 import { useKeys } from './useKeys'
+import {
+  bossProjectileDamageScale,
+  resolveEquippedWeapon,
+  weaponPelletYaw,
+} from './weaponProfile'
 import { playShot } from '../../lib/soundFx'
 import {
   VEX_PARRY_LINES,
@@ -37,6 +75,12 @@ import {
   type GroundDecalHandle,
   type WeaponTrailHandle,
 } from './cinematic'
+import {
+  EnemyProjectiles,
+  ImpactFlashes,
+  type EnemyProjectilesHandle,
+  type ImpactFlashesHandle,
+} from './projectileFx'
 
 /* ======================================================================
    THE NULL HERALD — a pure-skill cinematic boss fight against VEX.
@@ -45,17 +89,17 @@ import {
    (IBL, shadows, post stack, quality scaling); this file owns the combat sim,
    which is entirely REF-DRIVEN (no setState in useFrame — HUD numbers update
    only on discrete events). Player kit: lock-on orbit, dash + roll i-frames,
-   3-hit melee combo, homing bolts, and a timed PARRY that staggers VEX for a
+   3-hit melee combo, fan-fired bolts, and a timed PARRY that staggers VEX for a
    slow-mo punish. Pooled projectiles/particles; VFX + camera juice come from
    the cinematic building blocks.
    ====================================================================== */
 
 /* ------------------------------------------------------------- Tuning */
 
+const WEAPON = resolveEquippedWeapon({ run: 'boss' })
+
 const PLAYER_HP = 12
 const VEX_HP_MAX = 140
-const PHASE2_AT = Math.round(VEX_HP_MAX * 0.66) // 92
-const PHASE3_AT = Math.round(VEX_HP_MAX * 0.33) // 46
 
 const BOUND = 22
 const CAM_BACK = 8.0
@@ -96,11 +140,12 @@ const PARRY_CD = 0.45
 const STAGGER_TIME = 1.7
 
 // Ranged
-const BOLT_SPEED = 70
+const LEGACY_BOLT_CD = 0.16
+const BOSS_BOLT_DAMAGE_SCALE = bossProjectileDamageScale(LEGACY_BOLT_CD)
+const BOLT_SPEED = WEAPON.boltSpeed
 const BOLT_LIFE = 1.4
-const BOLT_CD = 0.16
-const BOLT_POOL = 32
-const BOLT_DMG = 1
+const BOLT_CD = WEAPON.cooldown
+const BOLT_POOL = 48
 
 // Boss projectiles
 const ORB_POOL = 90
@@ -116,7 +161,16 @@ const CYAN = '#37e6ff'
 const MAGENTA = '#ff48e0'
 const HOT = '#ff5a4a'
 
-type Bolt = { active: boolean; pos: THREE.Vector3; vel: THREE.Vector3; life: number }
+/** Boss entrance beat length (s) — hero shot + roar before the fight opens. */
+const INTRO_DUR = 2.8
+
+type Bolt = {
+  active: boolean
+  pos: THREE.Vector3
+  vel: THREE.Vector3
+  life: number
+  damage: number
+}
 type Orb = {
   active: boolean
   pos: THREE.Vector3
@@ -238,7 +292,9 @@ function ArenaFloor({ accent, tier }: { accent: string; tier: QualityTier }): JS
         {tier === 'high' ? (
           <MeshReflectorMaterial {...wetFloorProps} />
         ) : (
-          <meshStandardMaterial {...glossyFloorProps} />
+          // Darker + less mirror-metal than the stock glossy preset: under
+          // the warm arena IBL the default read as a tan disc (QA).
+          <meshStandardMaterial {...glossyFloorProps} color="#080a12" metalness={0.55} roughness={0.42} />
         )}
       </mesh>
 
@@ -252,17 +308,11 @@ function ArenaFloor({ accent, tier }: { accent: string; tier: QualityTier }): JS
         <meshBasicMaterial color={accent} transparent opacity={0.18} toneMapped={false} side={THREE.DoubleSide} depthWrite={false} fog={false} />
       </mesh>
 
-      {/* Distant cathedral pillars framing the arena (background — no shadow cast). */}
-      {Array.from({ length: 12 }).map((_, i) => {
-        const a = (i / 12) * Math.PI * 2
-        const r = BOUND + 8
-        return (
-          <mesh key={i} position={[Math.cos(a) * r, 7, Math.sin(a) * r]}>
-            <boxGeometry args={[2.2, 16, 2.2]} />
-            <meshStandardMaterial color="#0c0b14" roughness={0.7} metalness={0.3} />
-          </mesh>
-        )
-      })}
+      {/* The night city — lit towers past the arena edge, receding into the
+          fog. VEX's mountaintop program renders the same world the player
+          just walked through, not an abstract void. */}
+      <NightSkyline count={tier === 'low' ? 36 : tier === 'med' ? 56 : 72} innerRadius={BOUND + 30} />
+      {tier !== 'low' && <NightRain count={tier === 'med' ? 320 : 540} />}
     </group>
   )
 }
@@ -273,12 +323,16 @@ interface SceneProps {
   accent: string
   dead: boolean
   frozen: boolean
+  /** Player HP hit 0 — drives the avatar's death collapse (presentation only). */
+  playerDefeated: boolean
   flags: LoadoutFlags
   phaseRef: MutableRefObject<Phase>
   hitRef: MutableRefObject<number>
   attackRef: MutableRefObject<number>
   staggerRef: MutableRefObject<number>
   armorBreakRef: MutableRefObject<number>
+  bossReadyRef: MutableRefObject<number>
+  onCurtainUp: () => void
   onBossHit: (amount: number) => void
   onPlayerHit: (amount: number) => void
   onBossAttack: () => void
@@ -292,12 +346,15 @@ const VexScene = memo(function VexScene({
   accent,
   dead,
   frozen,
+  playerDefeated,
   flags,
   phaseRef,
   hitRef,
   attackRef,
   staggerRef,
   armorBreakRef,
+  bossReadyRef,
+  onCurtainUp,
   onBossHit,
   onPlayerHit,
   onBossAttack,
@@ -382,19 +439,38 @@ const VexScene = memo(function VexScene({
   const cutsceneT = useRef(0)
   const slowmoUntil = useRef(0)
 
+  // Entrance beat: hero-shot sweep on VEX (sim parked) before control opens.
+  // Held behind the black curtain until the real rig mounts (2.2s cap).
+  const introT = useRef(0)
+  const holdT = useRef(0)
+  const curtainCalled = useRef(false)
+  const introSnapped = useRef(false)
+  const introRoared = useRef(false)
+
   const enabledRef = useRef(true)
   enabledRef.current = !frozen
   const keys = useKeys(enabledRef)
 
   // Pools.
-  const bolts = useMemo<Bolt[]>(() => Array.from({ length: BOLT_POOL }, () => ({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0 })), [])
+  const bolts = useMemo<Bolt[]>(
+    () =>
+      Array.from({ length: BOLT_POOL }, () => ({
+        active: false,
+        pos: new THREE.Vector3(),
+        vel: new THREE.Vector3(),
+        life: 0,
+        damage: WEAPON.damage,
+      })),
+    [],
+  )
   const orbs = useMemo<Orb[]>(() => Array.from({ length: ORB_POOL }, () => ({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0, mode: 0 as const, tx: 0, tz: 0 })), [])
   const afters = useMemo<After[]>(() => Array.from({ length: AFTER_POOL }, () => ({ active: false, pos: new THREE.Vector3(), life: 0 })), [])
   const lines = useMemo<Line[]>(() => Array.from({ length: LINE_POOL }, () => ({ active: false, x: 0, z: 0, ang: 0, t: 0, warn: 0.9, struck: false })), [])
   const dshocks = useMemo<DShock[]>(() => Array.from({ length: DSHOCK_POOL }, () => ({ active: false, x: 0, z: 0, t: 0, dur: 0.7, maxR: BOUND, struck: false })), [])
 
   const boltsMesh = useRef<THREE.InstancedMesh>(null)
-  const orbsMesh = useRef<THREE.InstancedMesh>(null)
+  const orbFx = useRef<EnemyProjectilesHandle>(null)
+  const impactFx = useRef<ImpactFlashesHandle>(null)
   const afterMesh = useRef<THREE.InstancedMesh>(null)
   const lineRefs = useRef<(THREE.Mesh | null)[]>([])
   const lineMatRefs = useRef<(THREE.MeshBasicMaterial | null)[]>([])
@@ -415,15 +491,13 @@ const VexScene = memo(function VexScene({
   // Instanced geo/mat.
   const boltGeo = useMemo(() => new THREE.SphereGeometry(0.17, 8, 8), [])
   const boltMat = useMemo(() => new THREE.MeshBasicMaterial({ color: CYAN, toneMapped: false, fog: false }), [])
-  const orbGeo = useMemo(() => new THREE.IcosahedronGeometry(0.36, 0), [])
-  const orbMat = useMemo(() => new THREE.MeshBasicMaterial({ color: MAGENTA, toneMapped: false, fog: false }), [])
   const afterGeo = useMemo(() => new THREE.CapsuleGeometry(0.22, 0.9, 4, 8), [])
   const afterMat = useMemo(() => new THREE.MeshBasicMaterial({ color: CYAN, toneMapped: false, fog: false, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }), [])
   useEffect(
     () => () => {
-      boltGeo.dispose(); boltMat.dispose(); orbGeo.dispose(); orbMat.dispose(); afterGeo.dispose(); afterMat.dispose()
+      boltGeo.dispose(); boltMat.dispose(); afterGeo.dispose(); afterMat.dispose()
     },
-    [boltGeo, boltMat, orbGeo, orbMat, afterGeo, afterMat],
+    [boltGeo, boltMat, afterGeo, afterMat],
   )
 
   /* --- spawn helpers --- */
@@ -611,6 +685,8 @@ const VexScene = memo(function VexScene({
         const ang = radial ? (s / shots) * Math.PI * 2 : base + (s - (shots - 1) / 2) * 0.22
         spawnOrb(bossPos.current.x, bossPos.current.y + 1.4, bossPos.current.z, Math.sin(ang) * spd, -1.2, Math.cos(ang) * spd, 0)
       }
+      // Muzzle flare — the volley visibly LEAVES VEX's core.
+      impactFx.current?.spawn(bossPos.current.x, bossPos.current.y + 1.4, bossPos.current.z, MAGENTA, 1.2, 5)
     } else if (name === 'shardRain') {
       // Promote parked markers into falling meteors.
       for (const o of orbs) {
@@ -631,6 +707,7 @@ const VexScene = memo(function VexScene({
         const a = (n / N) * Math.PI * 2
         spawnOrb(bossPos.current.x, bossPos.current.y + 1.4, bossPos.current.z, Math.cos(a) * 16, 0, Math.sin(a) * 16, 1)
       }
+      impactFx.current?.spawn(bossPos.current.x, bossPos.current.y + 1.4, bossPos.current.z, MAGENTA, 1.8, 8)
       fireDShock(bossPos.current.x, bossPos.current.z, BOUND)
       fireDShock(bossPos.current.x, bossPos.current.z, BOUND * 0.6)
       if (dirRef.current) dirRef.current.shake(0.7)
@@ -647,12 +724,23 @@ const VexScene = memo(function VexScene({
     if (dir) dir.attach(camera)
     const now = performance.now()
 
+    // Entrance beat parks the whole sim while the camera sweeps VEX. The
+    // beat itself waits behind the curtain until the rig is resident.
+    const bossReady = bossReadyRef.current > 0 || holdT.current >= 2.2
+    if (!bossReady) holdT.current += realDt
+    else if (introT.current < INTRO_DUR) introT.current += realDt
+    if (bossReady && !curtainCalled.current) {
+      curtainCalled.current = true
+      onCurtainUp()
+    }
+    const intro = introT.current < INTRO_DUR
+
     // Slow-mo (parry / finisher) + hit-stop + cutscene gate the SIM.
     const slow = now < slowmoUntil.current
     if (dir) dir.setTimeScale(slow ? (flags.splitFocus ? 0.45 : 0.3) : 1)
     hitStop.current = Math.max(0, hitStop.current - realDt)
     cutsceneT.current = Math.max(0, cutsceneT.current - realDt)
-    const simFrozen = frozen || hitStop.current > 0 || cutsceneT.current > 0
+    const simFrozen = frozen || intro || hitStop.current > 0 || cutsceneT.current > 0
     const dt = simFrozen ? 0 : (dir ? dir.scaledDelta(realDt) : realDt)
     const phase = phaseRef.current
     const k = simFrozen ? {} : keys.current
@@ -854,7 +942,12 @@ const VexScene = memo(function VexScene({
       pos.current.z *= BOUND / rr
     }
 
-    if (sliceActive.current || action.current === 'dash') playerAnimRef.current = 'dash'
+    // Player defeat: the collapse is TOP priority — once hearts hit zero the
+    // avatar timbers and holds prone (the rig clamps 'death'), overriding any
+    // slice/dash/jump/move pose. Cleared on retry when the arena remounts with
+    // full hearts (playerAnimRef starts 'idle' on a fresh mount).
+    if (playerDefeated) playerAnimRef.current = 'death'
+    else if (sliceActive.current || action.current === 'dash') playerAnimRef.current = 'dash'
     else if (!grounded.current || action.current === 'roll') playerAnimRef.current = 'jump'
     else playerAnimRef.current = moving ? 'run' : 'idle'
 
@@ -908,7 +1001,8 @@ const VexScene = memo(function VexScene({
       bossHeading.current += dbh * 0.18
 
       // Anim selection for the rig.
-      if (staggered) vexAnimRef.current = 'stagger'
+      if (intro) vexAnimRef.current = 'cast' // entrance channel/roar pose
+      else if (staggered) vexAnimRef.current = 'stagger'
       else if (atkName.current === 'heavy' && attacking) vexAnimRef.current = 'heavy'
       else if (attacking) vexAnimRef.current = 'cast'
       else if (!bossGrounded.current) vexAnimRef.current = 'leap'
@@ -931,7 +1025,33 @@ const VexScene = memo(function VexScene({
     if (tmpFwd.current.lengthSq() < 1e-6) tmpFwd.current.set(0, 0, 1)
     tmpFwd.current.normalize()
     tmpRight.current.set(-tmpFwd.current.z, 0, tmpFwd.current.x)
-    if (dead) {
+    if (intro && !dead) {
+      // Entrance hero shot: swing low around VEX, rise + pull back to the
+      // gameplay framing as the beat ends.
+      const p = THREE.MathUtils.clamp(introT.current / INTRO_DUR, 0, 1)
+      const ease = p * p * (3 - 2 * p)
+      const ang = Math.atan2(pos.current.x - bossPos.current.x, pos.current.z - bossPos.current.z)
+      const sweep = ang + (1 - ease) * 1.15 - 0.28
+      const dist = 4.6 + ease * 10.2
+      const h = 1.5 + ease * (CAM_HEIGHT - 1.5)
+      tmpFrom.current.set(
+        bossPos.current.x + Math.sin(sweep) * dist,
+        h,
+        bossPos.current.z + Math.cos(sweep) * dist,
+      )
+      tmpLook.current.set(bossPos.current.x, 1.9 + (1 - ease) * 0.4, bossPos.current.z)
+      if (!introSnapped.current) {
+        introSnapped.current = true
+        camera.position.copy(tmpFrom.current)
+      }
+      if (!introRoared.current && introT.current > INTRO_DUR * 0.4) {
+        introRoared.current = true
+        if (dir) dir.shake(0.45)
+        if (shockFx.current) shockFx.current.fire(tmpTip.current.set(bossPos.current.x, 0.05, bossPos.current.z), 8, accent)
+        sfx.boom()
+      }
+      if (dir) dir.frame(tmpLook.current, tmpFrom.current, realDt)
+    } else if (dead) {
       // Orbiting finisher cam.
       const e = state.clock.elapsedTime
       const orbit = e * 0.7
@@ -955,13 +1075,39 @@ const VexScene = memo(function VexScene({
     /* ---- player shooting ---- */
     if (holdFire.current && !simFrozen && cooldown.current <= 0) {
       cooldown.current = BOLT_CD
-      const b = bolts.find((x) => !x.active)
-      if (b) {
+      const muzzleX = pos.current.x + tmpFwd.current.x * 0.7
+      const muzzleY = 1.2 + pos.current.y
+      const muzzleZ = pos.current.z + tmpFwd.current.z * 0.7
+      tmpDir.current
+        .set(
+          bossPos.current.x - muzzleX,
+          bossPos.current.y + 1.4 - muzzleY,
+          bossPos.current.z - muzzleZ,
+        )
+        .normalize()
+      const horiz = Math.hypot(tmpDir.current.x, tmpDir.current.z) || 1
+      const baseAng = Math.atan2(tmpDir.current.x, tmpDir.current.z)
+      let fired = false
+      for (let pellet = 0; pellet < WEAPON.pellets; pellet++) {
+        const b = bolts.find((x) => !x.active)
+        if (!b) break
         b.active = true
         b.life = BOLT_LIFE
-        b.pos.set(pos.current.x + tmpFwd.current.x * 0.7, 1.2 + pos.current.y, pos.current.z + tmpFwd.current.z * 0.7)
-        tmpDir.current.set(bossPos.current.x - b.pos.x, bossPos.current.y + 1.4 - b.pos.y, bossPos.current.z - b.pos.z).normalize()
-        b.vel.copy(tmpDir.current).multiplyScalar(BOLT_SPEED)
+        b.damage = WEAPON.damage
+        b.pos.set(muzzleX, muzzleY, muzzleZ)
+        const ang =
+          baseAng + weaponPelletYaw(pellet, Math.random(), WEAPON)
+        b.vel
+          .set(
+            Math.sin(ang) * horiz,
+            tmpDir.current.y,
+            Math.cos(ang) * horiz,
+          )
+          .normalize()
+          .multiplyScalar(BOLT_SPEED)
+        fired = true
+      }
+      if (fired) {
         fireRef.current = t
         playShot()
       }
@@ -976,10 +1122,6 @@ const VexScene = memo(function VexScene({
           hideInstance(m, i)
           continue
         }
-        if (!dead) {
-          tmpDir.current.set(bossPos.current.x - b.pos.x, bossPos.current.y + 1.4 - b.pos.y, bossPos.current.z - b.pos.z).normalize()
-          b.vel.lerp(tmpDir.current.multiplyScalar(BOLT_SPEED), 0.08)
-        }
         b.pos.addScaledVector(b.vel, dt)
         b.life -= dt
         let consumed = false
@@ -987,8 +1129,8 @@ const VexScene = memo(function VexScene({
           const d = Math.hypot(b.pos.x - bossPos.current.x, b.pos.y - (bossPos.current.y + 1.4), b.pos.z - bossPos.current.z)
           if (d < BOLT_HIT_R) {
             consumed = true
-            let dmg = BOLT_DMG
-            if (staggerTimer.current > 0) dmg = 2
+            let dmg = b.damage * BOSS_BOLT_DAMAGE_SCALE
+            if (staggerTimer.current > 0) dmg *= 2
             onBossHit(dmg)
             hitRef.current += 1
             if (sparks.current) sparks.current.burst(b.pos, accent, 5)
@@ -1049,18 +1191,19 @@ const VexScene = memo(function VexScene({
     }
 
     /* ---- orbs ---- */
-    if (orbsMesh.current) {
-      const m = orbsMesh.current
+    {
+      const fx = orbFx.current
       const homeSpeed = phase === 1 ? 11 : phase === 2 ? 13 : 15
+      fx?.begin(camera.quaternion)
       for (let i = 0; i < orbs.length; i++) {
         const o = orbs[i]
         if (!o.active) {
-          hideInstance(m, i)
+          fx?.hide(i)
           continue
         }
         // Parked shardRain markers stay hidden until executeAttack promotes them.
         if (o.mode === 1 && o.pos.y < -100) {
-          hideInstance(m, i)
+          fx?.hide(i)
           continue
         }
         if (o.mode === 0 && !simFrozen) {
@@ -1074,6 +1217,7 @@ const VexScene = memo(function VexScene({
           if (o.pos.y <= 0.4) {
             gone = true
             fireDShock(o.tx, o.tz, 4.5)
+            impactFx.current?.spawn(o.tx, 0.5, o.tz, HOT, 1.5, 6)
             if (sparks.current) sparks.current.burst(tmpDir.current.set(o.tx, 0.4, o.tz), HOT, 12)
             if (dir) dir.shake(0.14)
             sfx.boom()
@@ -1083,21 +1227,18 @@ const VexScene = memo(function VexScene({
           if (!simFrozen && !invuln.current && d < PLAYER_HIT_R) {
             gone = true
             onPlayerHit(1)
+            impactFx.current?.spawn(o.pos.x, o.pos.y, o.pos.z, MAGENTA, 1.3, 8)
             if (dir) dir.shake(0.16)
           }
         }
         if (gone || o.life <= 0) {
           o.active = false
-          hideInstance(m, i)
+          fx?.hide(i)
           continue
         }
-        dObj.current.position.copy(o.pos)
-        dObj.current.scale.setScalar(1 + Math.sin(t * 20 + i) * 0.1)
-        dObj.current.rotation.set(t * 2, t * 2.4, 0)
-        dObj.current.updateMatrix()
-        m.setMatrixAt(i, dObj.current.matrix)
+        fx?.set(i, o.pos, o.vel.x, o.vel.y, o.vel.z, t)
       }
-      m.instanceMatrix.needsUpdate = true
+      fx?.commit()
     }
 
     /* ---- damage shockwaves (visual handled by ShockwaveRing) ---- */
@@ -1231,12 +1372,14 @@ const VexScene = memo(function VexScene({
         const inReach = pd < 5.5
         const dir = dirRef.current
         if (parryActive && inReach) {
-          // PARRY! Stagger VEX, slow-mo punish window.
+          // PARRY! Stagger VEX, slow-mo punish window. Punch kept moderate —
+          // a full-strength dolly rammed the camera into the boss's back
+          // for the whole slow-mo window (QA).
           staggerTimer.current = STAGGER_TIME
           staggerRef.current += 1
           slowmoUntil.current = performance.now() + (flags.splitFocus ? 1100 : 800)
           if (dir) {
-            dir.punch(1.0)
+            dir.punch(0.55)
             dir.shake(0.45)
           }
           if (sparks.current) sparks.current.burst(tmpDir.current.set(pos.current.x, 1.4, pos.current.z), '#ffffff', 26)
@@ -1264,7 +1407,7 @@ const VexScene = memo(function VexScene({
       </group>
 
       <group ref={bossGroup} scale={BOSS_SCALE}>
-        <VexBoss3D
+        <VexBossSwitch
           accent={accent}
           phaseRef={phaseRef}
           animRef={vexAnimRef}
@@ -1272,9 +1415,20 @@ const VexScene = memo(function VexScene({
           attackRef={attackRef}
           staggerRef={staggerRef}
           armorBreakRef={armorBreakRef}
+          readyRef={bossReadyRef}
           dead={dead}
         />
       </group>
+
+      {/* Phase-3 nine-piece arena kit (throne / emblem / pillars / debris /
+          holo ring + warnings) — visual only, everything at or beyond the
+          play boundary except the walkable floor emblem. Mounted at EVERY
+          tier: it's baked-emissive instanced scenography, and dropping it on
+          a tier dip stripped the whole set mid-fight (QA: the late phases
+          played out in an empty void). */}
+      <Suspense fallback={null}>
+        <MeshyArenaDressing arenaRadius={BOUND + 1} kit />
+      </Suspense>
 
       {/* Player melee trail (world-space; mounted at scene root). */}
       <WeaponTrail ref={playerTrail} color={accent} width={0.22} segments={20} fade={0.16} />
@@ -1315,7 +1469,8 @@ const VexScene = memo(function VexScene({
 
       {/* Pooled projectiles / particles. */}
       <instancedMesh ref={boltsMesh} args={[boltGeo, boltMat, BOLT_POOL]} frustumCulled={false} />
-      <instancedMesh ref={orbsMesh} args={[orbGeo, orbMat, ORB_POOL]} frustumCulled={false} />
+      <EnemyProjectiles ref={orbFx} pool={ORB_POOL} color={MAGENTA} size={0.36} />
+      <ImpactFlashes ref={impactFx} pool={12} />
       <instancedMesh ref={afterMesh} args={[afterGeo, afterMat, AFTER_POOL]} frustumCulled={false} />
 
       {/* Cinematic VFX building blocks. */}
@@ -1342,6 +1497,12 @@ export interface CinematicBossArenaProps {
   accent?: string
   /** Optional edge id from the Threshold loadout (ignored if null). */
   loadout?: string | null
+  /** Modest v1-mastery adaptation; geometry and controls are unchanged. */
+  combatScale?: number
+  /** Starting hearts (defaults to full) — Boss Rush carries hearts between fights. */
+  initialHp?: number
+  /** Reports every hearts change so a rush can persist HP across arenas. */
+  onHpChange?: (hp: number) => void
   onWin: () => void
   onLose: () => void
   onFlee?: () => void
@@ -1351,14 +1512,24 @@ export function CinematicBossArena({
   bossName = 'VEX',
   accent = CYAN,
   loadout = null,
+  combatScale = 1,
+  initialHp,
+  onHpChange,
   onWin,
   onLose,
   onFlee,
 }: CinematicBossArenaProps): JSX.Element {
   const flags = useMemo(() => loadoutFlags(loadout), [loadout])
+  const bossHpMax = Math.round(
+    VEX_HP_MAX * Math.max(0.9, Math.min(1.1, combatScale)),
+  )
+  const phase2At = Math.round(bossHpMax * 0.66)
+  const phase3At = Math.round(bossHpMax * 0.33)
 
-  const [playerHp, setPlayerHp] = useState(PLAYER_HP)
-  const [bossHp, setBossHp] = useState(VEX_HP_MAX)
+  const [playerHp, setPlayerHp] = useState(() =>
+    Math.round(Math.min(PLAYER_HP, Math.max(1, initialHp ?? PLAYER_HP))),
+  )
+  const [bossHp, setBossHp] = useState(bossHpMax)
   const [phase, setPhase] = useState<Phase>(1)
   const [dead, setDead] = useState(false)
   const [hurt, setHurt] = useState(0)
@@ -1372,6 +1543,25 @@ export function CinematicBossArena({
   const [taunt, setTaunt] = useState<string | null>(null)
   const endedRef = useRef(false)
   const comboClearRef = useRef<number | null>(null)
+
+  // Entrance staging: an opaque curtain covers the mount (and the rig load);
+  // the scene lifts it via onCurtainUp, which starts the title-card clock.
+  const bossReadyRef = useRef(0)
+  const [curtain, setCurtain] = useState(true)
+  const [introBanner, setIntroBanner] = useState(true)
+  const onCurtainUp = useCallback(() => setCurtain(false), [])
+  useEffect(() => {
+    if (curtain) return
+    const id = window.setTimeout(() => setIntroBanner(false), 3100)
+    return () => window.clearTimeout(id)
+  }, [curtain])
+
+  // Report hearts through a ref so a changing callback identity never refires.
+  const onHpChangeRef = useRef(onHpChange)
+  onHpChangeRef.current = onHpChange
+  useEffect(() => {
+    onHpChangeRef.current?.(playerHp)
+  }, [playerHp])
 
   const phaseRef = useRef<Phase>(1)
   const hitRef = useRef(0)
@@ -1419,13 +1609,13 @@ export function CinematicBossArena({
 
   // Derive phase from boss HP.
   useEffect(() => {
-    const next: Phase = bossHp <= PHASE3_AT ? 3 : bossHp <= PHASE2_AT ? 2 : 1
+    const next: Phase = bossHp <= phase3At ? 3 : bossHp <= phase2At ? 2 : 1
     if (next !== phaseRef.current) {
       phaseRef.current = next
       setPhase(next)
     }
     if (bossHp <= 0 && !dead) setDead(true)
-  }, [bossHp, dead])
+  }, [bossHp, dead, phase2At, phase3At])
 
   // Phase taunt banner.
   useEffect(() => {
@@ -1464,19 +1654,51 @@ export function CinematicBossArena({
     return () => window.clearTimeout(id)
   }, [hurt])
 
-  const frozen = playerHp <= 0 || dead
-  const bossPct = Math.max(0, (bossHp / VEX_HP_MAX) * 100)
+  const playerDefeated = playerHp <= 0
+  const frozen = playerDefeated || dead
+  const bossPct = Math.max(0, (bossHp / bossHpMax) * 100)
   const enraged = phase >= 3
 
   const hud = (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', fontFamily: 'system-ui, sans-serif' }}>
+      {/* Entrance curtain — covers the mount + rig load. */}
+      <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: curtain ? 1 : 0, transition: 'opacity 0.5s ease' }} />
+
+      {/* Entrance beat: cinematic letterbox + boss title card (lower third). */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: introBanner ? '9%' : 0, background: '#000', transition: 'height 0.6s ease' }} />
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: introBanner ? '9%' : 0, background: '#000', transition: 'height 0.6s ease' }} />
+      <div
+        style={{
+          position: 'absolute',
+          top: '66%',
+          left: 0,
+          right: 0,
+          textAlign: 'center',
+          opacity: introBanner && !curtain ? 1 : 0,
+          transform: introBanner && !curtain ? 'translateY(0)' : 'translateY(-8px)',
+          transition: 'opacity 0.5s ease, transform 0.5s ease',
+        }}
+      >
+        <div style={{ color: accent, fontWeight: 800, fontSize: 13, letterSpacing: 6, textTransform: 'uppercase', textShadow: '0 2px 10px rgba(0,0,0,0.9)' }}>
+          Final Boss · The Peak
+        </div>
+        <div style={{ color: '#fff', fontWeight: 900, fontSize: 42, letterSpacing: 4, textTransform: 'uppercase', textShadow: `0 0 28px ${accent}aa, 0 3px 16px rgba(0,0,0,0.95)`, lineHeight: 1.1 }}>
+          {bossName}
+        </div>
+        <div style={{ color: 'rgba(255,255,255,0.75)', fontWeight: 700, fontSize: 15, letterSpacing: 3, textTransform: 'uppercase' }}>
+          The Null Herald
+        </div>
+      </div>
+
       {/* Hurt flash */}
       <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 90% at 50% 50%, transparent 40%, rgba(255,40,50,0.5) 100%)', opacity: flashOn ? 1 : 0, transition: 'opacity 0.18s ease' }} />
+      {/* Player-down treatment: the defeat reads as a beat, not a bug. */}
+      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 100% at 50% 50%, transparent 30%, rgba(60,0,8,0.75) 100%)', opacity: playerHp <= 0 ? 1 : 0, transition: 'opacity 0.6s ease' }} />
       {/* Parry flash */}
       <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(120% 90% at 50% 45%, ${accent}cc 0%, transparent 55%)`, opacity: parryFlash ? 1 : 0, transition: parryFlash ? 'opacity 0.05s ease' : 'opacity 0.4s ease', mixBlendMode: 'screen' }} />
 
       {/* Boss HP + phase pips */}
-      <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', width: 'min(620px, 88%)', textAlign: 'center' }}>
+      <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', width: 'min(620px, 88%)', textAlign: 'center', opacity: introBanner ? 0 : 1, transition: 'opacity 0.4s ease' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 6 }}>
           <span style={{ color: '#fff', fontWeight: 800, letterSpacing: 1, textShadow: '0 2px 6px rgba(0,0,0,0.7)' }}>{bossName} — THE NULL HERALD</span>
           <span style={{ color: accent, fontWeight: 800, fontSize: 13 }}>
@@ -1493,7 +1715,7 @@ export function CinematicBossArena({
       </div>
 
       {/* Player hearts */}
-      <div style={{ position: 'absolute', bottom: 20, left: 20 }}>
+      <div style={{ position: 'absolute', bottom: 20, left: 20, opacity: introBanner ? 0 : 1, transition: 'opacity 0.4s ease' }}>
         <div style={{ color: '#fff', fontWeight: 700, fontSize: 12, marginBottom: 6, letterSpacing: 1, textShadow: '0 2px 6px rgba(0,0,0,0.7)' }}>VITALS</div>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 280 }}>
           {Array.from({ length: PLAYER_HP }).map((_, i) => (
@@ -1511,7 +1733,7 @@ export function CinematicBossArena({
       )}
 
       {/* Ability legend */}
-      <div style={{ position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.82)', fontSize: 12.5, fontWeight: 600, textShadow: '0 2px 6px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
+      <div style={{ position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.82)', fontSize: 12.5, fontWeight: 600, textShadow: '0 2px 6px rgba(0,0,0,0.8)', whiteSpace: 'nowrap', opacity: introBanner ? 0 : 1, transition: 'opacity 0.4s ease' }}>
         WASD move · Click/Q slice · F/RMB shoot · Shift dash · Space jump · K roll · <span style={{ color: accent }}>L PARRY</span>
       </div>
 
@@ -1566,12 +1788,15 @@ export function CinematicBossArena({
           accent={accent}
           dead={dead}
           frozen={frozen}
+          playerDefeated={playerDefeated}
           flags={flags}
           phaseRef={phaseRef}
           hitRef={hitRef}
           attackRef={attackRef}
           staggerRef={staggerRef}
           armorBreakRef={armorBreakRef}
+          bossReadyRef={bossReadyRef}
+          onCurtainUp={onCurtainUp}
           onBossHit={onBossHit}
           onPlayerHit={onPlayerHit}
           onBossAttack={onBossAttack}
@@ -1582,7 +1807,7 @@ export function CinematicBossArena({
         />
       </CinematicStage>
     ),
-    [accent, dead, frozen, enraged, flags, phaseRef, hitRef, attackRef, staggerRef, armorBreakRef, onBossHit, onPlayerHit, onBossAttack, onTelegraph, onCombo, onParry, onPhaseBeat],
+    [accent, dead, frozen, playerDefeated, enraged, flags, phaseRef, hitRef, attackRef, staggerRef, armorBreakRef, onCurtainUp, onBossHit, onPlayerHit, onBossAttack, onTelegraph, onCombo, onParry, onPhaseBeat],
   )
 
   return (

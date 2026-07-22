@@ -8,6 +8,13 @@ import { buildWarmupSession } from '../lib/warmup'
 import { playCorrect, playWrong } from '../lib/soundFx'
 import type { ConceptId } from '../types/lesson'
 import { IconCheck, IconCompass } from '../components/icons'
+import {
+  NEETCODE_150_PROBLEM_BY_ID,
+} from '../content/curricula/neetcode150'
+import { academyMissionPath } from '../lib/academyQuest'
+import { isMissionRetentionDue } from '../lib/academyProgress'
+import type { ProblemSummary } from '../types/curriculum'
+import type { AcademyProgressState } from '../types/academy'
 import './WarmupPage.css'
 
 const CONCEPT_LABEL: Record<ConceptId, string> = {
@@ -23,11 +30,36 @@ const CONCEPT_LABEL: Record<ConceptId, string> = {
 
 export function WarmupPage() {
   const navigate = useNavigate()
-  const { learnerModel, recordConceptResult } = useProgress()
+  const {
+    learnerModel,
+    recordConceptResult,
+    dueProblemIds,
+    academyProgress,
+  } = useProgress()
   const { addXp } = usePlayerLevel()
 
   // Build the spaced + interleaved session once per visit.
   const session = useMemo(() => buildWarmupSession(learnerModel, 6), [learnerModel])
+  const dueAcademy = useMemo(() => {
+    const ids = new Set(
+      dueProblemIds.filter((id) => id.startsWith('problem:')),
+    )
+    for (const problemId of Object.keys(academyProgress.missionPractices)) {
+      if (
+        isMissionRetentionDue(
+          academyProgress,
+          problemId as `problem:${string}`,
+          Date.now(),
+        )
+      ) {
+        ids.add(problemId as `problem:${string}`)
+      }
+    }
+    return [...ids]
+      .map((id) => NEETCODE_150_PROBLEM_BY_ID.get(id as `problem:${string}`))
+      .filter((problem): problem is ProblemSummary => !!problem)
+      .slice(0, 8)
+  }, [academyProgress, dueProblemIds])
 
   const [index, setIndex] = useState(0)
   const [picked, setPicked] = useState<number | null>(null)
@@ -61,7 +93,7 @@ export function WarmupPage() {
   }
 
   // No practiced history yet — nothing to retrieve.
-  if (session.length === 0) {
+  if (session.length === 0 && dueAcademy.length === 0) {
     return (
       <div className="page">
         <AppHeader />
@@ -82,13 +114,31 @@ export function WarmupPage() {
     )
   }
 
+  if (session.length === 0) {
+    return (
+      <div className="page">
+        <AppHeader />
+        <main className="container warmup-main" id="main-content">
+          <AcademyDueLinks
+            problems={dueAcademy}
+            academyProgress={academyProgress}
+          />
+        </main>
+      </div>
+    )
+  }
+
   if (done) {
     return (
       <div className="page">
         <AppHeader />
         <main className="container warmup-main" id="main-content">
+          <AcademyDueLinks
+            problems={dueAcademy}
+            academyProgress={academyProgress}
+          />
           <section className="warmup-card warmup-results">
-            <span className="warmup-eyebrow">Warm-up complete</span>
+            <span className="warmup-eyebrow">Core primer complete</span>
             <h1>
               {correctCount} / {session.length} recalled
             </h1>
@@ -117,6 +167,10 @@ export function WarmupPage() {
     <div className="page">
       <AppHeader />
       <main className="container warmup-main" id="main-content">
+        <AcademyDueLinks
+          problems={dueAcademy}
+          academyProgress={academyProgress}
+        />
         <div className="warmup-progress" aria-label={`Question ${index + 1} of ${session.length}`}>
           {session.map((_, i) => (
             <span
@@ -128,7 +182,7 @@ export function WarmupPage() {
 
         <section className="warmup-card">
           <span className="warmup-eyebrow">
-            Daily warm-up · {CONCEPT_LABEL[q.concept]}
+            Core primer · {CONCEPT_LABEL[q.concept]}
           </span>
           <h1 className="warmup-q">{q.prompt}</h1>
 
@@ -172,5 +226,48 @@ export function WarmupPage() {
         </section>
       </main>
     </div>
+  )
+}
+
+function AcademyDueLinks({
+  problems,
+  academyProgress,
+}: {
+  problems: readonly ProblemSummary[]
+  academyProgress: AcademyProgressState
+}) {
+  if (problems.length === 0) return null
+  return (
+    <section className="warmup-card" aria-labelledby="academy-due-title">
+      <span className="warmup-eyebrow">Academy mastery · FSRS v1</span>
+      <h1 id="academy-due-title">Due academy practice</h1>
+      <p>
+        These links use the active academy problem schedule. Retention checks
+        appear only after their policy wait.
+      </p>
+      <div className="warmup-results-actions">
+        {problems.map((problem) => {
+          const retentionDue = isMissionRetentionDue(
+            academyProgress,
+            problem.id,
+            Date.now(),
+          )
+          const path = academyMissionPath(
+            problem.realmId,
+            problem.trackId,
+            problem.leetcodeSlug,
+          )
+          return (
+            <Link
+              key={problem.id}
+              className="btn ghost"
+              to={retentionDue ? `${path}?mode=retention` : path}
+            >
+              {retentionDue ? `Retain ${problem.title}` : problem.title}
+            </Link>
+          )
+        })}
+      </div>
+    </section>
   )
 }

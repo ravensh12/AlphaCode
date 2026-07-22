@@ -1,227 +1,684 @@
 /* ============================================================ Landing page
-   Dark, cinematic "Code City at night" theme. ALL dark theming is scoped to
-   the `.landing` container so the global light "paper" theme stays intact for
-   every other route. We override the shared `.btn`/`.card`/chip looks only
-   inside `.landing`. */
+   Cinematic "Code City at night" — matched to the in-game look: blue-black
+   sky, emissive windows, cyan/green mission glow, violet brand accents. ALL
+   dark theming is scoped to the `.landing` container so the global light
+   "paper" theme stays intact for every other route. We repaint the shared
+   `.btn` / `.brand` only inside `.landing`. */
 
 .landing {
   /* ---- Scoped Code City night palette (new vars; globals untouched) ---- */
-  --cc-bg-0: #070a10;
-  --cc-bg-1: #0a0f12;
-  --cc-haze: #15302a;
-  --cc-haze-2: #1b3a32;
-  --cc-tower: #0c1416;
-  --cc-tower-2: #10181c;
-  --cc-window: #e8b84a;
-  --cc-window-2: #f0c455;
-  --cc-street: #1a2422;
-  --cc-street-2: #232b2a;
-  --cc-lane: #b9b48a;
-  --cc-hero: #3f8c7a;
+  --cc-bg-0: #04060b;
+  --cc-bg-1: #070b13;
+  --cc-bg-2: #0a101b;
   --cc-cyan: #5ef0e0;
-  --cc-cyan-2: #6ffcd0;
-  --cc-eye: #ffcf3a;
-  --cc-lime: #b6ff5c;
-  --cc-violet: #6d4afe;
-  --cc-text: #eef7f2;
-  --cc-text-soft: #9bbcb2;
-  --cc-glass: rgba(13, 26, 25, 0.62);
-  --cc-glass-2: rgba(10, 20, 20, 0.5);
-  --cc-line: rgba(120, 220, 200, 0.16);
-  --cc-line-strong: rgba(120, 220, 200, 0.32);
+  --cc-spring: #57f2b8;
+  --cc-magenta: #ff4fd8;
+  --cc-violet: #7c5cff;
+  --cc-violet-deep: #6d4afe;
+  --cc-amber: #e8b84a;
+  --cc-text: #eaf4f6;
+  --cc-text-soft: #a3b5c7;
+  --cc-glass: rgba(9, 15, 24, 0.66);
+  --cc-line: rgba(140, 190, 220, 0.13);
+  --cc-line-strong: rgba(140, 190, 220, 0.28);
 
   overflow-x: hidden;
   position: relative;
   isolation: isolate;
   color: var(--cc-text);
   background:
-    radial-gradient(130% 78% at 50% 102%, rgba(27, 58, 50, 0.6) 0%, transparent 55%),
-    radial-gradient(150% 95% at 72% 92%, rgba(21, 48, 42, 0.5) 0%, transparent 52%),
-    linear-gradient(180deg, #070a10 0%, #080c11 44%, #0a0f12 100%);
+    radial-gradient(120% 60% at 80% -10%, rgba(124, 92, 255, 0.10) 0%, transparent 55%),
+    radial-gradient(110% 55% at 10% 8%, rgba(94, 240, 224, 0.06) 0%, transparent 50%),
+    linear-gradient(180deg, var(--cc-bg-0) 0%, var(--cc-bg-1) 55%, var(--cc-bg-0) 100%);
 }
 
-/* Faint amber-lit window glow drifting up out of the fog. */
-.landing::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 42vh;
-  z-index: -1;
-  pointer-events: none;
-  background-image: radial-gradient(circle, rgba(232, 184, 74, 0.55) 0 1px, transparent 2.4px);
-  background-size: 30px 40px;
-  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
-  mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
-  opacity: 0.35;
+.landing h1,
+.landing h2,
+.landing h3 {
+  color: var(--cc-text);
+}
+.landing p {
+  color: var(--cc-text-soft);
 }
 
-/* Distant tower silhouettes along the horizon, fading into the haze. */
-.landing::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 44vh;
-  z-index: -2;
-  pointer-events: none;
-  background-repeat: no-repeat;
-  background-image:
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2));
-  background-size:
-    70px 200px,
-    54px 300px,
-    92px 150px,
-    62px 360px,
-    112px 220px,
-    72px 300px,
-    120px 170px,
-    66px 330px,
-    104px 230px,
-    82px 280px;
-  background-position:
-    3% bottom,
-    12% bottom,
-    20% bottom,
-    29% bottom,
-    38% bottom,
-    51% bottom,
-    61% bottom,
-    73% bottom,
-    83% bottom,
-    93% bottom;
-  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
-  mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
-  opacity: 0.55;
+.landing-kicker {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--cc-cyan);
+  text-shadow: 0 0 18px rgba(94, 240, 224, 0.4);
 }
 
-/* Keep all real content above the atmospheric layers. */
-.landing > * {
+/* ---------------------------------------------------------------- Nav */
+.landing-nav {
   position: relative;
-  z-index: 1;
+  z-index: 3;
+  border-bottom: 1px solid var(--cc-line);
+  background: rgba(4, 6, 11, 0.72);
+  backdrop-filter: blur(10px);
 }
-
 .landing-nav-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 78px;
+  height: 72px;
 }
 
-/* Brand wordmark reads light on the dark sky; keep the violet "Code" accent. */
+/* Brand repaint: sleek dark-app header treatment (matches the in-game bar). */
 .landing .brand,
 .landing .brand-word {
   color: var(--cc-text);
 }
 .landing .brand-word-accent {
-  color: var(--cc-violet);
+  color: var(--cc-cyan);
 }
 .landing .brand-mark {
-  border-color: rgba(180, 230, 215, 0.35);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(109, 74, 254, 0.45);
+  border: 1px solid rgba(160, 140, 255, 0.4);
+  background: linear-gradient(160deg, var(--cc-violet) 0%, var(--cc-violet-deep) 100%);
+  box-shadow: 0 4px 18px rgba(109, 74, 254, 0.45);
 }
 
+/* ---------------------------------------------------------------- Buttons
+   Repaint the chunky global .btn into sleek game-UI pills — scoped only. */
+.landing .btn {
+  border: 1px solid var(--cc-line-strong);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  letter-spacing: 0.01em;
+}
+.landing .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+.landing .btn:active {
+  transform: translateY(1px) scale(0.99);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.landing .btn:not(.ghost):not(.subtle) {
+  --btn-bg: linear-gradient(165deg, #8a66ff 0%, var(--cc-violet-deep) 70%);
+  --btn-fg: #fff;
+  background: var(--btn-bg);
+  border-color: rgba(170, 150, 255, 0.5);
+  box-shadow: 0 0 26px rgba(109, 74, 254, 0.45), 0 10px 26px rgba(0, 0, 0, 0.5);
+}
+.landing .btn:not(.ghost):not(.subtle):hover {
+  box-shadow: 0 0 36px rgba(124, 92, 255, 0.6), 0 12px 30px rgba(0, 0, 0, 0.55);
+}
+.landing .btn.ghost {
+  --btn-bg: var(--cc-glass);
+  --btn-fg: var(--cc-text);
+  border-color: var(--cc-line-strong);
+  backdrop-filter: blur(8px);
+}
+.landing .btn.ghost:hover {
+  --btn-bg: rgba(16, 26, 40, 0.8);
+  border-color: rgba(94, 240, 224, 0.55);
+}
+.landing .btn.subtle {
+  --btn-bg: rgba(94, 240, 224, 0.12);
+  --btn-fg: var(--cc-cyan);
+  border-color: rgba(94, 240, 224, 0.4);
+  backdrop-filter: blur(8px);
+}
+.landing .btn.subtle:hover {
+  --btn-bg: rgba(94, 240, 224, 0.2);
+  border-color: rgba(94, 240, 224, 0.65);
+}
+.landing .btn.lg {
+  padding: 16px 34px;
+  font-size: 16px;
+  border-radius: 14px;
+}
+
+/* ---------------------------------------------------------------- Hero */
 .landing-hero {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 56px;
+  position: relative;
+  display: flex;
   align-items: center;
-  padding: 36px 20px 72px;
+  /* Leave room for the whole proof strip to sit above the fold, so the page
+     never cuts through a line of text at 900px-tall viewports. */
+  min-height: min(calc(100svh - 196px), 780px);
+  overflow: hidden;
+}
+
+/* Poster frame — the character on the rooftop over the city (baked from the
+   live scene below, so the canvas crossfade is seamless). This paints first
+   and is the hero's LCP element; the live 3D hydrates over it after idle. */
+.landing-hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  background-image: url('/landing/hero-rooftop.jpg');
+  background-size: cover;
+  background-position: 62% 38%;
+  filter: saturate(1.06);
+}
+
+/* The live rooftop scene: same stacking level as the poster but later in the
+   DOM, so it paints on top once it fades in. Pointer-events off — it's pure
+   backdrop. */
+.landing-hero-live {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1100ms ease;
+}
+.landing-hero-live.is-ready {
+  opacity: 1;
+}
+.landing-hero-live canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Legibility + mood: deep blue-black wash from the left (kept strong through
+   the CTA zone so background figures read as silhouettes, not clutter),
+   floor fade, and a whisper of cyan/magenta neon drifting through. */
+.landing-hero-veil {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(46% 58% at 22% 62%, rgba(4, 6, 11, 0.62) 0%, transparent 100%),
+    linear-gradient(90deg, rgba(4, 6, 11, 0.96) 0%, rgba(4, 6, 11, 0.85) 34%, rgba(4, 6, 11, 0.4) 60%, rgba(4, 6, 11, 0.08) 100%),
+    linear-gradient(180deg, rgba(4, 6, 11, 0.55) 0%, transparent 26%, transparent 64%, rgba(4, 6, 11, 0.92) 100%);
+}
+.landing-hero-veil::after {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(38% 30% at 82% 26%, rgba(94, 240, 224, 0.12) 0%, transparent 70%),
+    radial-gradient(30% 26% at 14% 84%, rgba(255, 79, 216, 0.08) 0%, transparent 70%);
+  animation: landingNeonDrift 14s ease-in-out infinite alternate;
+}
+@keyframes landingNeonDrift {
+  from { transform: translate3d(-1.5%, -1%, 0); opacity: 0.75; }
+  to { transform: translate3d(1.5%, 1.5%, 0); opacity: 1; }
+}
+
+/* Sparse rain streaks, barely-there. */
+.landing-rain {
+  position: absolute;
+  inset: -30% 0 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(
+      12deg,
+      transparent 0 90px,
+      rgba(170, 220, 240, 0.05) 90px 91px,
+      transparent 91px 220px
+    ),
+    repeating-linear-gradient(
+      12deg,
+      transparent 0 147px,
+      rgba(170, 220, 240, 0.035) 147px 148px,
+      transparent 148px 331px
+    );
+  animation: landingRain 1.1s linear infinite;
+  opacity: 0.8;
+}
+@keyframes landingRain {
+  to { transform: translateY(240px); }
+}
+
+.landing-hero-inner {
+  position: relative;
+  padding-top: 64px;
+  padding-bottom: 72px;
 }
 
 .landing-hero-copy {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 20px;
-}
-
-.landing-title {
-  font-size: clamp(36px, 5.4vw, 60px);
-  font-weight: 700;
-  line-height: 1.04;
-}
-
-.landing-brand-name {
-  font-size: clamp(52px, 8vw, 84px);
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  line-height: 0.95;
-  color: var(--cc-text);
-  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.6);
-}
-.landing-brand-accent {
-  color: var(--cc-violet);
-  text-shadow: 0 0 26px rgba(109, 74, 254, 0.65);
+  gap: 22px;
+  max-width: 620px;
 }
 
 .landing-eyebrow {
-  margin: -4px 0 0;
+  margin: 0;
   font-family: var(--display);
-  font-size: clamp(14px, 1.8vw, 17px);
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  color: var(--cc-cyan);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  text-shadow: 0 0 18px rgba(94, 240, 224, 0.4);
+  color: var(--cc-cyan);
+  text-shadow: 0 0 20px rgba(94, 240, 224, 0.45);
 }
 
-.lede-brand {
-  font-weight: 800;
-  font-size: 1.15em;
-  color: var(--ink);
-  letter-spacing: -0.02em;
+.landing-title {
+  font-size: clamp(42px, 6.2vw, 74px);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  text-shadow: 0 2px 40px rgba(0, 0, 0, 0.75);
+  text-wrap: balance;
 }
-.lede-leetcode {
-  font-size: 0.88em;
-  font-weight: 500;
-  color: var(--ink-faint);
-}
-.lede-zombie {
-  font-weight: 800;
-  color: var(--cc-lime);
-  -webkit-text-stroke: 0.6px rgba(0, 0, 0, 0.55);
-  text-shadow: 0 0 16px rgba(182, 255, 92, 0.5);
+/* Mission-glow gradient (the cyan/green the game actually renders in),
+   brightening toward the end of the line so "City." stays fully saturated. */
+.landing-title-accent {
+  background: linear-gradient(92deg, #b8fff4 0%, var(--cc-cyan) 45%, var(--cc-spring) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 24px rgba(94, 240, 224, 0.3));
 }
 
-/* ---------- Game feature chips (dark / neon-outlined) ---------- */
-.landing-chips {
-  list-style: none;
-  margin: 6px 0 2px;
-  padding: 0;
+.landing-lede {
+  font-size: clamp(16px, 2vw, 19px);
+  line-height: 1.6;
+  color: #bcccd9;
+  max-width: 560px;
+  text-shadow: 0 1px 18px rgba(0, 0, 0, 0.7);
+}
+/* The Google-interview claim — the line the whole page is selling. */
+.landing-lede-claim {
+  color: var(--cc-text);
+  font-weight: 650;
+  text-shadow: 0 0 22px rgba(94, 240, 224, 0.25), 0 1px 18px rgba(0, 0, 0, 0.7);
+}
+
+.landing-cta {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-}
-.landing-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 14px;
-  letter-spacing: -0.01em;
-  color: var(--cc-text);
-  background: var(--cc-glass);
-  border: 1.5px solid var(--cc-line-strong);
-  border-radius: 999px;
-  padding: 6px 14px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3), 0 8px 22px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px);
+  gap: 14px;
+  margin-top: 6px;
 }
 
+.landing-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 0;
+  margin: 0;
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #9fb3c6;
+}
+.landing-meta span {
+  white-space: nowrap;
+}
+/* Separator belongs to the preceding item so wrapped lines never start with
+   a hanging dot. */
+.landing-meta span:not(:last-child)::after {
+  content: '·';
+  margin: 0 10px;
+  color: var(--cc-cyan);
+}
+
+/* Entrance stagger for the hero copy. */
+.landing-hero-copy > * {
+  animation: landingRise 640ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.landing-hero-copy > *:nth-child(1) { animation-delay: 60ms; }
+.landing-hero-copy > *:nth-child(2) { animation-delay: 130ms; }
+.landing-hero-copy > *:nth-child(3) { animation-delay: 200ms; }
+.landing-hero-copy > *:nth-child(4) { animation-delay: 270ms; }
+.landing-hero-copy > *:nth-child(5) { animation-delay: 340ms; }
+@keyframes landingRise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------------------------------------------------------------- Proof strip */
+.landing-proof {
+  border-top: 1px solid var(--cc-line);
+  border-bottom: 1px solid var(--cc-line);
+  background: rgba(10, 16, 27, 0.55);
+  backdrop-filter: blur(8px);
+}
+.landing-proof-inner {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+  padding-top: 26px;
+  padding-bottom: 26px;
+}
+.landing-proof-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.landing-proof-item p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.landing-proof-item strong {
+  display: block;
+  color: var(--cc-text);
+  font-family: var(--display);
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+}
+.landing-proof-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  margin-top: 2px;
+}
+.landing-proof-icon.cyan {
+  border: 1px solid rgba(94, 240, 224, 0.3);
+  background: rgba(94, 240, 224, 0.08);
+  color: var(--cc-cyan);
+}
+.landing-proof-icon.violet {
+  border: 1px solid rgba(124, 92, 255, 0.38);
+  background: rgba(124, 92, 255, 0.1);
+  color: #a894ff;
+}
+.landing-proof-icon.magenta {
+  border: 1px solid rgba(255, 79, 216, 0.32);
+  background: rgba(255, 79, 216, 0.08);
+  color: var(--cc-magenta);
+}
+
+/* ---------------------------------------------------------------- IDE showcase */
+.landing-ide {
+  position: relative;
+  overflow: hidden;
+  padding: 84px 0;
+}
+.landing-ide-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(90deg, rgba(4, 6, 11, 0.97) 0%, rgba(4, 6, 11, 0.88) 45%, rgba(4, 6, 11, 0.72) 100%),
+    url('/landing/city-rooftop.jpg');
+  background-size: cover;
+  background-position: center 30%;
+}
+.landing-ide-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+  align-items: center;
+}
+.landing-ide-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.landing-ide-copy h2 {
+  font-size: clamp(28px, 3.6vw, 40px);
+  letter-spacing: -0.03em;
+}
+.landing-ide-lede {
+  font-size: 16px;
+  line-height: 1.65;
+  max-width: 480px;
+}
+
+/* The mission terminal — styled like the game's glass HUD panels. */
+.landing-terminal {
+  border: 1px solid var(--cc-line-strong);
+  border-radius: 16px;
+  background: rgba(6, 10, 17, 0.88);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 30px 70px rgba(0, 0, 0, 0.6),
+    0 0 50px rgba(94, 240, 224, 0.08);
+  overflow: hidden;
+}
+.landing-terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--cc-line);
+  background: rgba(12, 19, 30, 0.9);
+}
+.landing-terminal-dots {
+  display: inline-flex;
+  gap: 6px;
+}
+.landing-terminal-dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(140, 190, 220, 0.22);
+}
+.landing-terminal-title {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: var(--cc-text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.landing-terminal-status {
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cc-amber);
+  border: 1px solid rgba(232, 184, 74, 0.4);
+  background: rgba(232, 184, 74, 0.1);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.landing-terminal-code {
+  margin: 0;
+  padding: 20px 22px;
+  font-family: var(--mono);
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: #cfe3ea;
+  overflow-x: auto;
+}
+.landing-terminal-code .ln {
+  display: inline-block;
+  width: 2ch;
+  margin-right: 16px;
+  text-align: right;
+  color: rgba(140, 190, 220, 0.35);
+  user-select: none;
+}
+.landing-terminal-code .kw {
+  color: var(--cc-magenta);
+}
+.landing-terminal-code .fn {
+  color: #7cc4ff;
+}
+.landing-terminal-code .cst {
+  color: var(--cc-amber);
+}
+.landing-terminal-run {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 18px;
+  border-top: 1px solid var(--cc-line);
+  background: rgba(12, 19, 30, 0.9);
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.landing-terminal-pass {
+  color: var(--cc-spring);
+  text-shadow: 0 0 14px rgba(87, 242, 184, 0.5);
+}
+.landing-terminal-pass::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--cc-spring);
+  box-shadow: 0 0 10px rgba(87, 242, 184, 0.8);
+  vertical-align: 1px;
+}
+.landing-terminal-note {
+  color: var(--cc-text-soft);
+}
+
+/* ---------------------------------------------------------------- Shots */
+.landing-shots {
+  border-top: 1px solid var(--cc-line);
+  padding: 64px 0 72px;
+}
+.landing-shots-title {
+  font-size: clamp(24px, 3.2vw, 34px);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin-bottom: 30px;
+}
+.landing-shots-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.landing-shot {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.landing-shot img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border: 1px solid var(--cc-line-strong);
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 26px 60px rgba(0, 0, 0, 0.55),
+    0 0 46px rgba(94, 240, 224, 0.06);
+}
+.landing-shot figcaption {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #9fb3c6;
+}
+
+/* ---------------------------------------------------------------- Districts */
+.landing-districts {
+  border-top: 1px solid var(--cc-line);
+  padding: 64px 0 72px;
+  background: linear-gradient(180deg, rgba(10, 16, 27, 0.45) 0%, transparent 100%);
+}
+.landing-districts-title {
+  font-size: clamp(24px, 3.2vw, 34px);
+  letter-spacing: -0.025em;
+  margin: 10px 0 28px;
+}
+.landing-districts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 2px;
+  border: 1px solid var(--cc-line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--cc-line);
+}
+.landing-districts-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 13px 16px;
+  background: rgba(7, 11, 19, 0.92);
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #c3d2de;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.landing-districts-list li:hover {
+  background: rgba(13, 21, 34, 0.95);
+  color: var(--cc-text);
+}
+.landing-district-n {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: rgba(94, 240, 224, 0.6);
+}
+
+/* ---------------------------------------------------------------- Final CTA */
+.landing-final {
+  position: relative;
+  overflow: hidden;
+  border-top: 1px solid var(--cc-line);
+}
+.landing-final-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    radial-gradient(70% 100% at 50% 115%, rgba(109, 74, 254, 0.22) 0%, transparent 65%),
+    linear-gradient(180deg, rgba(4, 6, 11, 0.92) 0%, rgba(4, 6, 11, 0.62) 55%, rgba(4, 6, 11, 0.85) 100%),
+    url('/landing/cta-skyline.jpg');
+  background-size: auto, auto, cover;
+  background-position: center, center, center 40%;
+}
+.landing-final-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  padding-top: 96px;
+  padding-bottom: 104px;
+}
+.landing-final h2 {
+  font-size: clamp(28px, 4vw, 42px);
+  letter-spacing: -0.03em;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.8);
+}
+.landing-final p {
+  max-width: 460px;
+  line-height: 1.6;
+  color: #b6c6d4;
+  text-shadow: 0 1px 16px rgba(0, 0, 0, 0.8);
+}
+.landing-final .btn {
+  margin-top: 8px;
+}
+
+/* Gentle glow pulse on primary CTAs to draw the eye. */
+.landing-cta .btn:not(.ghost),
+.landing-final .btn {
+  animation: landingCtaPulse 3s ease-in-out 1.2s infinite;
+}
+@keyframes landingCtaPulse {
+  0%, 100% { box-shadow: 0 0 26px rgba(109, 74, 254, 0.45), 0 10px 26px rgba(0, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 40px rgba(124, 92, 255, 0.75), 0 10px 26px rgba(0, 0, 0, 0.5); }
+}
+.landing-cta .btn:not(.ghost):hover,
+.landing-final .btn:hover {
+  animation: none;
+}
+
+/* ---------------------------------------------------------------- Footer */
+.landing-footer {
+  padding: 24px 0 40px;
+  border-top: 1px solid var(--cc-line);
+}
 .landing-footer-brand {
   display: flex;
   flex-wrap: wrap;
@@ -230,7 +687,7 @@
 }
 .landing-footer-brand strong {
   font-family: var(--display);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 800;
   letter-spacing: -0.03em;
   color: var(--cc-text);
@@ -241,582 +698,119 @@
   font-weight: 500;
 }
 
-/* flat highlighter marker — a solid color band, not a gradient */
-.landing-title .hl {
-  box-shadow: inset 0 -0.3em 0 var(--cc-lime);
-}
-
-.landing-lede {
-  font-size: clamp(16px, 2.2vw, 19px);
-  line-height: 1.55;
-  color: var(--cc-text-soft);
-  max-width: 540px;
-}
-.landing-lede strong {
-  color: var(--cc-text);
-}
-
-.landing-cta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 4px;
-}
-
-/* ---- Scoped button repaint (do NOT touch the global .btn) ---- */
-.landing .btn {
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-}
-.landing .btn:hover {
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
-}
-.landing .btn.lg,
-.landing .btn:not(.ghost):not(.subtle) {
-  --btn-bg: var(--cc-violet);
-  --btn-fg: #fff;
-  border-color: rgba(160, 140, 255, 0.55);
-  box-shadow: 0 0 28px rgba(109, 74, 254, 0.55), 0 10px 30px rgba(0, 0, 0, 0.45);
-}
-.landing .btn.lg:hover,
-.landing .btn:not(.ghost):not(.subtle):hover {
-  box-shadow: 0 0 38px rgba(109, 74, 254, 0.7), 0 14px 34px rgba(0, 0, 0, 0.5);
-}
-.landing .btn.ghost {
-  --btn-bg: var(--cc-glass);
-  --btn-fg: var(--cc-text);
-  border-color: var(--cc-line-strong);
-  backdrop-filter: blur(6px);
-}
-.landing .btn.ghost:hover {
-  --btn-bg: rgba(20, 38, 36, 0.78);
-  border-color: var(--cc-cyan);
-}
-.landing .btn.subtle {
-  --btn-bg: var(--cc-window);
-  --btn-fg: #1c1402;
-  border-color: rgba(240, 196, 85, 0.6);
-  box-shadow: 0 0 24px rgba(232, 184, 74, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
-}
-
-.landing-footer {
-  padding: 22px 0 40px;
-  border-top: 1px solid var(--cc-line);
-}
-
-/* ---------- Animated game scene (Code City at night) ---------- */
-.landing-visual {
-  display: flex;
-  justify-content: center;
-}
-
-.game-scene {
-  position: relative;
-  width: 100%;
-  max-width: 520px;
-  aspect-ratio: 4 / 3;
-  overflow: hidden;
-  border: 1.5px solid var(--cc-line-strong);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 24px 60px rgba(0, 0, 0, 0.6),
-    0 0 60px rgba(20, 60, 52, 0.4);
-  background: #1a1430;
-  container-type: size;
-  transform: rotate(-1deg);
-  animation: gsFloat 5.5s ease-in-out infinite;
-}
-
-@keyframes gsFloat {
-  0%,
-  100% {
-    transform: rotate(-1deg) translateY(0);
+/* ---------------------------------------------------------------- Responsive */
+@media (max-width: 960px) {
+  .landing-proof-inner {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding-top: 30px;
+    padding-bottom: 30px;
   }
-  50% {
-    transform: rotate(-1deg) translateY(-9px);
+  .landing-ide {
+    padding: 56px 0;
   }
-}
-
-/* Sky */
-.gs-sky {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, #2a1a4d 0%, #4a2a63 42%, #b5567a 78%, #f0a35a 100%);
-}
-
-.gs-stars span {
-  position: absolute;
-  width: 1.1cqw;
-  height: 1.1cqw;
-  background: #fff;
-  border-radius: 50%;
-  opacity: 0.85;
-  animation: gsTwinkle 3s ease-in-out infinite;
-}
-.gs-stars span:nth-child(1) { left: 12%; top: 12%; animation-delay: 0s; }
-.gs-stars span:nth-child(2) { left: 28%; top: 8%; animation-delay: 0.6s; }
-.gs-stars span:nth-child(3) { left: 47%; top: 16%; animation-delay: 1.2s; }
-.gs-stars span:nth-child(4) { left: 63%; top: 7%; animation-delay: 0.3s; }
-.gs-stars span:nth-child(5) { left: 78%; top: 14%; animation-delay: 1.5s; }
-.gs-stars span:nth-child(6) { left: 90%; top: 9%; animation-delay: 0.9s; }
-
-@keyframes gsTwinkle {
-  0%, 100% { opacity: 0.25; }
-  50% { opacity: 0.95; }
-}
-
-/* Distant skyline silhouettes */
-.gs-skyline {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 26%;
-  height: 34%;
-}
-.gs-tower {
-  position: absolute;
-  bottom: 0;
-  background: #3a2a57;
-  border: 0.8cqw solid #2a1c41;
-  border-bottom: none;
-  border-radius: 1.5cqw 1.5cqw 0 0;
-}
-.gs-tower.t1 { left: 6%; width: 11cqw; height: 22cqw; }
-.gs-tower.t2 { left: 20%; width: 9cqw; height: 30cqw; background: #45325f; }
-.gs-tower.t3 { left: 33%; width: 12cqw; height: 18cqw; }
-.gs-tower.t4 { left: 49%; width: 8cqw; height: 26cqw; background: #45325f; }
-.gs-tower.t5 { left: 60%; width: 10cqw; height: 21cqw; }
-
-/* Checkpoint building (right) with beacon */
-.gs-checkpoint {
-  position: absolute;
-  right: 6%;
-  bottom: 26%;
-  width: 22cqw;
-  height: 30cqw;
-  background: #efe7d6;
-  border: 1cqw solid var(--ink);
-  border-radius: 1.5cqw;
-}
-.gs-cp-roof {
-  position: absolute;
-  left: -1cqw;
-  top: -4cqw;
-  width: calc(100% + 2cqw);
-  height: 5cqw;
-  background: #b5563f;
-  border: 1cqw solid var(--ink);
-  border-radius: 1.5cqw 1.5cqw 0 0;
-}
-.gs-cp-door {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  width: 8cqw;
-  height: 12cqw;
-  background: var(--primary);
-  border: 0.8cqw solid var(--ink);
-  border-bottom: none;
-  border-radius: 4cqw 4cqw 0 0;
-}
-.gs-beacon {
-  position: absolute;
-  left: 50%;
-  top: -13cqw;
-  transform: translateX(-50%);
-  width: 4cqw;
-  height: 4cqw;
-  background: var(--lime);
-  border: 0.8cqw solid var(--ink);
-  border-radius: 50%;
-  box-shadow: 0 0 0 0 rgba(170, 230, 60, 0.7);
-  animation: gsBeacon 1.6s ease-out infinite;
-}
-@keyframes gsBeacon {
-  0% { box-shadow: 0 0 0 0 rgba(170, 230, 60, 0.7); }
-  70% { box-shadow: 0 0 0 6cqw rgba(170, 230, 60, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(170, 230, 60, 0); }
-}
-
-/* Street */
-.gs-ground {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 26%;
-  background: linear-gradient(180deg, #41414f 0%, #2c2c38 100%);
-  border-top: 1cqw solid var(--ink);
-}
-.gs-lane {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 45%;
-  height: 1.4cqw;
-  background: repeating-linear-gradient(
-    90deg,
-    #f2c94c 0,
-    #f2c94c 6cqw,
-    transparent 6cqw,
-    transparent 12cqw
-  );
-  animation: gsLane 0.9s linear infinite;
-}
-@keyframes gsLane {
-  to { background-position: -12cqw 0; }
-}
-
-/* HUD */
-.gs-hud {
-  position: absolute;
-  top: 4cqw;
-  left: 4cqw;
-  right: 4cqw;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.gs-hearts {
-  display: flex;
-  gap: 1.5cqw;
-}
-.gs-heart {
-  width: 4cqw;
-  height: 4cqw;
-  background: #ff5d6c;
-  border: 0.7cqw solid var(--ink);
-  transform: rotate(45deg);
-  border-radius: 1cqw;
-  position: relative;
-}
-.gs-heart::before,
-.gs-heart::after {
-  content: '';
-  position: absolute;
-  width: 100%;
-  height: 100%;
-  background: #ff5d6c;
-  border-radius: 50%;
-}
-.gs-heart::before { top: -55%; left: 0; }
-.gs-heart::after { left: -55%; top: 0; }
-.gs-heart:nth-child(3) { animation: gsHeartPulse 1.4s ease-in-out infinite; }
-@keyframes gsHeartPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-.gs-timer {
-  width: 26cqw;
-  height: 3.6cqw;
-  background: rgba(0, 0, 0, 0.35);
-  border: 0.7cqw solid var(--ink);
-  border-radius: 2cqw;
-  overflow: hidden;
-}
-.gs-timer-fill {
-  display: block;
-  height: 100%;
-  width: 100%;
-  background: var(--lime);
-  transform-origin: left center;
-  animation: gsTimer 5s linear infinite;
-}
-@keyframes gsTimer {
-  0% { transform: scaleX(1); background: var(--lime); }
-  70% { background: #f2c94c; }
-  100% { transform: scaleX(0.12); background: #ff5d6c; }
-}
-
-.gs-ko {
-  position: absolute;
-  right: 16%;
-  top: 34%;
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 7cqw;
-  color: #fff;
-  -webkit-text-stroke: 0.9cqw var(--ink);
-  paint-order: stroke fill;
-  transform: rotate(-8deg) scale(0);
-  animation: gsKO 1.4s ease-out infinite;
-}
-@keyframes gsKO {
-  0%, 26% { transform: rotate(-8deg) scale(0); opacity: 0; }
-  34% { transform: rotate(-8deg) scale(1.15); opacity: 1; }
-  46% { transform: rotate(-8deg) scale(1); opacity: 1; }
-  60%, 100% { transform: rotate(-8deg) scale(1) translateY(-3cqw); opacity: 0; }
-}
-
-/* Zombies */
-.gs-zombie {
-  position: absolute;
-  bottom: 25%;
-  width: 12cqw;
-  height: 20cqw;
-}
-.gs-zombie.z1 { left: 62%; animation: gsZombieHit 1.4s ease-in-out infinite; }
-.gs-zombie.z2 { left: 78%; transform: scale(0.9); animation: gsZombieWalk 1.4s ease-in-out infinite; animation-delay: 0.2s; }
-.gs-zombie.z3 { left: 90%; transform: scale(0.82); animation: gsZombieWalk 1.6s ease-in-out infinite; animation-delay: 0.5s; }
-.gs-z-head {
-  position: absolute;
-  top: 0;
-  left: 2cqw;
-  width: 7cqw;
-  height: 7cqw;
-  background: #7cc04a;
-  border: 0.8cqw solid var(--ink);
-  border-radius: 2cqw;
-}
-.gs-z-body {
-  position: absolute;
-  top: 6.5cqw;
-  left: 1cqw;
-  width: 9cqw;
-  height: 11cqw;
-  background: #5f9e38;
-  border: 0.8cqw solid var(--ink);
-  border-radius: 2cqw;
-}
-.gs-z-arm {
-  position: absolute;
-  top: 8cqw;
-  left: -3cqw;
-  width: 6cqw;
-  height: 2.6cqw;
-  background: #7cc04a;
-  border: 0.8cqw solid var(--ink);
-  border-radius: 1.5cqw;
-  transform: rotate(-8deg);
-}
-@keyframes gsZombieWalk {
-  0%, 100% { transform: translateY(0) rotate(-2deg); }
-  50% { transform: translateY(-1.4cqw) rotate(2deg); }
-}
-.gs-zombie.z2 { transform-origin: bottom center; }
-@keyframes gsZombieHit {
-  0%, 28% { transform: translateX(0) rotate(0); filter: none; }
-  34% { transform: translateX(3cqw) rotate(10deg); filter: brightness(2.4) saturate(0); }
-  44% { transform: translateX(1.5cqw) rotate(6deg); }
-  60% { transform: translateX(0) rotate(0); }
-  100% { transform: translateX(0) rotate(0); }
-}
-
-/* Impact burst */
-.gs-impact {
-  position: absolute;
-  left: 60%;
-  bottom: 34%;
-  width: 9cqw;
-  height: 9cqw;
-  background:
-    radial-gradient(circle, #fff7c2 0 30%, transparent 32%),
-    conic-gradient(from 0deg, transparent 0 8%, #ffd84a 8% 16%, transparent 16% 25%,
-      #ffd84a 25% 33%, transparent 33% 50%, #ffd84a 50% 58%, transparent 58% 66%,
-      #ffd84a 66% 75%, transparent 75% 83%, #ffd84a 83% 91%, transparent 91%);
-  border-radius: 50%;
-  transform: scale(0);
-  animation: gsImpact 1.4s ease-out infinite;
-}
-@keyframes gsImpact {
-  0%, 28% { transform: scale(0) rotate(0); opacity: 0; }
-  34% { transform: scale(1.1) rotate(20deg); opacity: 1; }
-  48% { transform: scale(1.4) rotate(40deg); opacity: 0; }
-  100% { transform: scale(1.4) rotate(40deg); opacity: 0; }
-}
-
-/* Bolts */
-.gs-bolt {
-  position: absolute;
-  bottom: 37%;
-  left: 26%;
-  width: 7cqw;
-  height: 2.4cqw;
-  background: linear-gradient(90deg, rgba(170, 230, 60, 0) 0%, var(--lime) 60%, #fff 100%);
-  border-radius: 2cqw;
-  box-shadow: 0 0 2cqw var(--lime);
-  opacity: 0;
-}
-.gs-bolt.b1 { animation: gsBolt 1.4s linear infinite; animation-delay: 0s; }
-.gs-bolt.b2 { animation: gsBolt 1.4s linear infinite; animation-delay: 0.12s; }
-.gs-bolt.b3 { animation: gsBolt 1.4s linear infinite; animation-delay: 0.24s; }
-@keyframes gsBolt {
-  0% { transform: translateX(0); opacity: 0; }
-  3% { opacity: 1; }
-  24% { transform: translateX(34cqw); opacity: 1; }
-  27% { transform: translateX(36cqw); opacity: 0; }
-  100% { transform: translateX(36cqw); opacity: 0; }
-}
-
-/* Hero */
-.gs-hero {
-  position: absolute;
-  left: 8%;
-  bottom: 24%;
-  width: 20cqw;
-  height: 28cqw;
-  animation: gsHeroBob 0.6s ease-in-out infinite, gsHeroRecoil 1.4s ease-out infinite;
-}
-.gs-hero-head {
-  position: absolute;
-  top: 0;
-  left: 5cqw;
-  width: 9cqw;
-  height: 9cqw;
-  background: #ffd9a8;
-  border: 0.9cqw solid var(--ink);
-  border-radius: 3cqw;
-}
-.gs-hero-visor {
-  position: absolute;
-  top: 3cqw;
-  left: 8.5cqw;
-  width: 6cqw;
-  height: 2.6cqw;
-  background: #4cd6e6;
-  border: 0.7cqw solid var(--ink);
-  border-radius: 1.5cqw;
-}
-.gs-hero-body {
-  position: absolute;
-  top: 8.5cqw;
-  left: 3.5cqw;
-  width: 11cqw;
-  height: 11cqw;
-  background: var(--primary);
-  border: 0.9cqw solid var(--ink);
-  border-radius: 3cqw;
-}
-.gs-hero-legs {
-  position: absolute;
-  bottom: 0;
-  left: 4.5cqw;
-  width: 9cqw;
-  height: 6cqw;
-  background: #2f3550;
-  border: 0.9cqw solid var(--ink);
-  border-radius: 1.5cqw;
-}
-.gs-hero-arm {
-  position: absolute;
-  top: 11cqw;
-  left: 11cqw;
-  width: 8cqw;
-  height: 3cqw;
-  background: #ffd9a8;
-  border: 0.8cqw solid var(--ink);
-  border-radius: 1.5cqw;
-}
-.gs-hero-gun {
-  position: absolute;
-  top: 10.5cqw;
-  left: 16cqw;
-  width: 9cqw;
-  height: 4cqw;
-  background: #33384f;
-  border: 0.8cqw solid var(--ink);
-  border-radius: 1cqw;
-}
-.gs-muzzle {
-  position: absolute;
-  top: 10cqw;
-  left: 24cqw;
-  width: 5cqw;
-  height: 5cqw;
-  background:
-    radial-gradient(circle, #fff 0 30%, #ffd84a 32% 60%, transparent 62%);
-  border-radius: 50%;
-  transform: scale(0);
-  animation: gsMuzzle 1.4s linear infinite;
-}
-@keyframes gsMuzzle {
-  0% { transform: scale(0); opacity: 0; }
-  2% { transform: scale(1.2); opacity: 1; }
-  9% { transform: scale(0.6); opacity: 0.4; }
-  12% { transform: scale(1.1); opacity: 1; }
-  19% { transform: scale(0.6); opacity: 0.4; }
-  22% { transform: scale(1); opacity: 1; }
-  28% { transform: scale(0); opacity: 0; }
-  100% { transform: scale(0); opacity: 0; }
-}
-@keyframes gsHeroBob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1cqw); }
-}
-@keyframes gsHeroRecoil {
-  0%, 26% { margin-left: 0; }
-  4% { margin-left: -1.6cqw; }
-  12% { margin-left: -1cqw; }
-  20% { margin-left: -1.4cqw; }
-  30%, 100% { margin-left: 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .game-scene,
-  .game-scene * {
-    animation: none !important;
-  }
-  .gs-bolt { opacity: 1; transform: translateX(18cqw); }
-  .gs-muzzle { transform: scale(1); opacity: 1; }
-  .gs-impact { transform: scale(1.1); opacity: 1; }
-  .gs-ko { transform: rotate(-8deg) scale(1); opacity: 1; }
-  .gs-timer-fill { transform: scaleX(0.6); }
-}
-
-@media (max-width: 860px) {
-  .landing-hero {
+  .landing-ide-inner {
     grid-template-columns: 1fr;
     gap: 36px;
-    padding-top: 12px;
   }
-  .game-scene {
-    max-width: 440px;
-  }
-}
-
-/* ---------- Entrance polish + CTA emphasis ---------- */
-.landing-hero-copy > * {
-  animation: landingRise 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-.landing-hero-copy > *:nth-child(1) { animation-delay: 60ms; }
-.landing-hero-copy > *:nth-child(2) { animation-delay: 120ms; }
-.landing-hero-copy > *:nth-child(3) { animation-delay: 180ms; }
-.landing-hero-copy > *:nth-child(4) { animation-delay: 240ms; }
-.landing-hero-copy > *:nth-child(5) { animation-delay: 300ms; }
-
-@keyframes landingRise {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
+  .landing-shots-grid {
+    grid-template-columns: 1fr;
   }
 }
 
-/* Draw the eye to the primary CTA with a gentle, slow glow pulse. */
-.landing-cta .btn {
-  animation: landingCtaPulse 2.8s ease-in-out 1.1s infinite;
-}
-@keyframes landingCtaPulse {
-  0%, 100% {
-    box-shadow: var(--shadow-sm);
+@media (max-width: 640px) {
+  .landing-nav-inner {
+    height: 64px;
   }
-  50% {
-    box-shadow: var(--shadow-sm), 0 0 26px rgba(94, 240, 224, 0.55);
+  .landing-hero {
+    min-height: min(calc(94svh - 64px), 720px);
   }
-}
-.landing-cta .btn:hover {
-  animation: none;
+  .landing-hero-inner {
+    padding-top: 48px;
+    padding-bottom: 56px;
+  }
+  /* Dedicated mobile poster crop: keep the character centered in view. */
+  .landing-hero-bg {
+    background-image: url('/landing/hero-rooftop-mobile.jpg');
+    background-position: 50% 30%;
+  }
+  /* Small screens: keep the copy zone washed but let the character through
+     on the lower-right where he stands. */
+  .landing-hero-veil {
+    background:
+      linear-gradient(90deg, rgba(4, 6, 11, 0.82) 0%, rgba(4, 6, 11, 0.55) 55%, rgba(4, 6, 11, 0.22) 100%),
+      linear-gradient(180deg, rgba(4, 6, 11, 0.72) 0%, rgba(4, 6, 11, 0.35) 34%, transparent 60%, rgba(4, 6, 11, 0.9) 100%);
+  }
+  /* Stack the CTAs into a left column so the rooftop character owns the
+     right side of the hero without anything colliding with him. */
+  .landing-cta {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    max-width: 250px;
+  }
+  .landing-cta .btn {
+    justify-content: center;
+  }
+  /* Drop the meta separators on mobile: after wrapping, a trailing dot
+     floats over the rooftop character and reads as a stray pixel. Cap the
+     width so the tags wrap before touching the character. */
+  .landing-meta {
+    gap: 6px 18px;
+    max-width: 240px;
+  }
+  .landing-meta span:not(:last-child)::after {
+    content: none;
+  }
+  .landing-terminal-code {
+    font-size: 13px;
+  }
+  .landing-shots {
+    padding: 48px 0 56px;
+  }
+  .landing-districts {
+    padding: 48px 0 56px;
+  }
+  .landing-districts-list {
+    grid-template-columns: 1fr 1fr;
+  }
+  .landing-districts-list li {
+    font-size: 12.5px;
+    padding: 11px 12px;
+    gap: 8px;
+  }
+  .landing-final-inner {
+    padding-top: 72px;
+    padding-bottom: 80px;
+  }
 }
 
+@media (max-width: 400px) {
+  .landing-districts-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------- Motion */
 @media (prefers-reduced-motion: reduce) {
+  .landing-rain,
+  .landing-hero-veil::after {
+    animation: none !important;
+  }
+  .landing-rain {
+    display: none;
+  }
   .landing-hero-copy > * {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
   }
-  .landing-cta .btn {
+  .landing-cta .btn,
+  .landing-final .btn {
     animation: none !important;
+  }
+  .landing .btn,
+  .landing-districts-list li {
+    transition: none;
   }
 }

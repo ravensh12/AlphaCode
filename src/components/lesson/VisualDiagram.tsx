@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import type { DiagramSpec } from '../../types/lesson'
 import { analyzeSequenceMotion } from '../../lib/diagramMotion'
 import { hashMapChangedRows, stackTopChanged } from '../../lib/diagramDiff'
+import { ProblemDiagrams } from './ProblemDiagrams'
 import './VisualDiagram.css'
 
 type SwapFlyer = {
@@ -469,5 +470,14 @@ export function VisualDiagram({
           vizClass={vizClass('viz viz-binary')}
         />
       )
+
+    case 'linkedList':
+    case 'tree':
+    case 'graph':
+    case 'grid':
+    case 'intervals':
+    case 'recursion':
+    case 'bits':
+      return <ProblemDiagrams diagram={diagram} />
   }
 }

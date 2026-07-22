@@ -1,16 +1,20 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
+import { Loader } from '../components/Loader'
+import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
 import { useGauntlet } from '../context/GauntletContext'
 import type { ConceptId } from '../types/lesson'
 import { IconCheck, IconArrowRight, IconBolt } from '../components/icons'
+import { resolveFinalGauntletAccessWithShowcase } from '../lib/showcaseOverride'
+import { createGauntletEventId } from '../lib/gauntletProgress'
 import './FinalJourneyPage.css'
 
 /**
  * "The Ascent" — the journey beyond Code City. A short series of interleaved
- * warm-up retrieval trials (one per concept) that activate prior knowledge and
- * feed the spaced-repetition scheduler before the high-stakes Mastery Trial.
+ * warm-up retrieval trials sampled from academy foundations. They activate
+ * prior knowledge before the high-stakes 18-topic certification trial.
  * Low stakes by design: retrieval practice that warms the mind for the exam.
  */
 
@@ -76,19 +80,33 @@ const TRIALS: Trial[] = [
 
 export function FinalJourneyPage() {
   const navigate = useNavigate()
-  const { allLessonsComplete, readyForFinalGauntlet } = useProgress()
-  const { recordOutcome } = useGauntlet()
+  const { isShowcaseAccount } = useAuth()
+  const { ready, academyCampaignComplete, readyForFinalGauntlet } =
+    useProgress()
+  const { ready: gauntletReady, recordOutcome } = useGauntlet()
 
   const [step, setStep] = useState(0)
   const [picked, setPicked] = useState<number | null>(null)
   const [missed, setMissed] = useState(false)
   const [cleared, setCleared] = useState(0)
+  const [journeyRunId] = useState(() => createGauntletEventId('journey'))
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // The Final Gauntlet only opens after both Code City and The Threshold are
   // cleared. Worlds not done -> back to the quest; worlds done but Threshold
-  // not -> route through The Threshold first.
-  if (!readyForFinalGauntlet) {
-    return <Navigate to={allLessonsComplete ? '/threshold' : '/quest'} replace />
+  // not -> route through The Threshold first. The showcase account may enter
+  // at any time.
+  const access = resolveFinalGauntletAccessWithShowcase(
+    isShowcaseAccount,
+    ready && gauntletReady,
+    academyCampaignComplete,
+    readyForFinalGauntlet,
+  )
+  if (access.status === 'loading') {
+    return <Loader label="Restoring final journey progress" night />
+  }
+  if (access.status === 'redirect') {
+    return <Navigate to={access.to} replace />
   }
 
   const summit = step >= TRIALS.length
@@ -101,17 +119,27 @@ export function FinalJourneyPage() {
     if (!correct) setMissed(true)
   }
 
-  function next() {
+  async function next() {
     if (picked === null) return
     const correct = picked === trial.answerIndex
     if (correct) {
-      recordOutcome({
-        questionId: `journey-${trial.concept}`,
-        concept: trial.concept,
-        firstTryCorrect: !missed,
-        attempts: missed ? 2 : 1,
-        usedHint: false,
-      })
+      try {
+        await recordOutcome(`${journeyRunId}:${trial.concept}`, {
+          questionId: `journey-${trial.concept}`,
+          concept: trial.concept,
+          firstTryCorrect: !missed,
+          attempts: missed ? 2 : 1,
+          usedHint: false,
+        })
+        setSaveError(null)
+      } catch (error) {
+        setSaveError(
+          error instanceof Error
+            ? error.message
+            : 'Journey progress could not be saved locally.',
+        )
+        return
+      }
       setCleared((c) => c + 1)
       setStep((s) => s + 1)
       setPicked(null)
@@ -150,8 +178,9 @@ export function FinalJourneyPage() {
                 <span className="fj-tag">The Ascent · Trial {step + 1} of {TRIALS.length}</span>
                 <h1>{trial.label}</h1>
                 <p className="fj-sub">
-                  Beyond Code City lies the Core — a corruption that has swallowed every pattern you
-                  learned. Reclaim each one to climb.
+                  Across 150 missions, you trained 18 topics. These quick
+                  foundation gates sharpen a few core moves before the full
+                  certification trial.
                 </p>
               </header>
 
@@ -197,7 +226,8 @@ export function FinalJourneyPage() {
                         <p>{trial.explain}</p>
                       </>
                     )}
-                    <button type="button" className="fj-btn fj-btn-primary" onClick={next}>
+                    {saveError && <p role="alert">{saveError}</p>}
+                    <button type="button" className="fj-btn fj-btn-primary" onClick={() => void next()}>
                       {picked === trial.answerIndex ? 'Climb higher' : 'Try again'}
                       <IconArrowRight size={16} />
                     </button>
@@ -210,12 +240,14 @@ export function FinalJourneyPage() {
               <span className="fj-tag">The Summit</span>
               <h1>The Core awaits</h1>
               <p className="fj-sub">
-                Every pattern is sharp in your mind again. Ahead is the <strong>Mastery Trial</strong> —
-                a single test of everything you know. Pass it, and the corrupted guardian itself will rise.
+                Your 150-mission campaign across all 18 topics led here. Ahead
+                is the <strong>NeetCode 150 Certification Trial</strong> — 36
+                interleaved recognition and transfer checks. Pass it, and the
+                corrupted guardian itself will rise.
               </p>
               <div className="fj-summit-actions">
                 <button type="button" className="fj-btn fj-btn-primary fj-btn-lg" onClick={() => navigate('/final/exam')}>
-                  Enter the Mastery Trial <IconArrowRight size={18} />
+                  Enter the Certification Trial <IconArrowRight size={18} />
                 </button>
                 <Link className="fj-btn fj-btn-ghost" to="/quest">Not yet</Link>
               </div>

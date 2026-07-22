@@ -143,24 +143,39 @@
   color: var(--ink);
 }
 
-/* Controls hint */
+/* Controls panel — aligned keycap rows above the action buttons; the "?"
+   chip below toggles it (auto-collapses after the first minute of play). */
 .over3d-controls-hint {
   position: absolute;
   right: 14px;
-  bottom: 16px;
+  bottom: 178px;
   z-index: 6;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  justify-content: flex-end;
-  max-width: 280px;
+  flex-direction: column;
+  gap: 5px;
   background: rgba(26, 23, 48, 0.66);
   border-radius: var(--radius);
-  padding: 8px 12px;
+  padding: 10px 12px;
   font-size: 12px;
   font-weight: 700;
   color: #fff;
   pointer-events: none;
+}
+
+.over3d-controls-hint > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* Right-aligned key column so every label starts on the same edge. */
+.over3d-keys {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 3px;
+  min-width: 76px;
+  font-style: normal;
 }
 
 .over3d-controls-hint kbd {
@@ -170,7 +185,32 @@
   border: 1.5px solid rgba(255, 255, 255, 0.35);
   border-radius: 4px;
   padding: 1px 5px;
-  margin-right: 2px;
+}
+
+.over3d-controls-toggle {
+  position: absolute;
+  right: 14px;
+  bottom: 16px;
+  z-index: 7;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  background: rgba(26, 23, 48, 0.72);
+  color: #fff;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+.over3d-controls-toggle.is-on {
+  border-color: rgba(94, 240, 224, 0.7);
+  color: #9ef5e8;
 }
 
 /* Action buttons (dash + sprint), stacked above the controls hint */
@@ -409,19 +449,8 @@
   opacity: 0.85;
 }
 
-.over3d-objective {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: rgba(26, 23, 48, 0.74);
-  color: #fff;
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 15px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  border: 2px solid rgba(255, 255, 255, 0.25);
-}
+/* (The old top-left location block merged into the centered checkpoint
+   element — see the hold-out banner section below.) */
 
 .over3d-stats {
   display: flex;
@@ -449,11 +478,19 @@
   background: var(--yellow);
 }
 
+/* ---- Bottom-edge lanes ---------------------------------------------------
+   Bottom-anchored HUD lives in three lanes that never collide:
+   - LEFT  (0..~330px): the guide chip (grows up to ~120px tall when wrapped).
+   - RIGHT (~330px from the right): controls toggle / dash+sprint / panel.
+   - CENTER: interaction prompt at 28px, toast above it at 80px — kept low so
+     they never cover the player character; both are width-capped so a long
+     line can never reach into the side lanes. */
+
 /* Enter prompt */
 .over3d-prompt {
   position: absolute;
   left: 50%;
-  bottom: 76px;
+  bottom: 28px;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -466,7 +503,7 @@
   font-size: 15px;
   box-shadow: var(--shadow);
   z-index: 6;
-  max-width: 90%;
+  max-width: min(680px, 92vw);
 }
 
 .over3d-prompt.is-locked {
@@ -595,30 +632,6 @@
 
 .cp-label.boss {
   background: var(--coral-soft);
-}
-
-.cp-gate-label {
-  transform: translateY(-50%);
-  white-space: nowrap;
-  font-family: var(--display, inherit);
-  font-weight: 800;
-  font-size: 12px;
-  letter-spacing: 0.3px;
-  color: #0b1322;
-  background: rgba(255, 255, 255, 0.92);
-  border: 2px solid #0b1322;
-  border-radius: 999px;
-  padding: 2px 9px;
-  box-shadow: 2px 2px 0 rgba(11, 19, 34, 0.6);
-}
-
-.cp-gate-label.is-current {
-  background: #fff3b0;
-}
-
-.cp-gate-label.is-passed {
-  background: #b7f0cf;
-  color: #0a5f3a;
 }
 
 /* Combat: aim crosshair (4 ticks + center dot) */
@@ -784,13 +797,23 @@
   }
 }
 
+/* Player rank pill — sits directly beside the hearts, so it borrows the
+   health bar's pill language (same glass, same border, same height). */
 .over3d-chip-level {
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
+  justify-content: center;
+  gap: 3px;
   font-weight: 800;
-  background: var(--ink);
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: rgba(26, 23, 48, 0.74);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  box-shadow: none;
   color: #ffd65c;
+  white-space: nowrap;
 }
 
 .over3d-level-bar {
@@ -808,12 +831,6 @@
   border-radius: 999px;
   background: #ffd65c;
   transition: width 0.3s ease;
-}
-
-.over3d-chip-gun {
-  font-weight: 800;
-  background: var(--ink);
-  color: #fff;
 }
 
 .over3d-chip-music {
@@ -1556,6 +1573,16 @@
   border-color: var(--cc-line-strong);
   color: var(--cc-text);
 }
+.over3d-page .over3d-controls-toggle {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  color: var(--cc-text);
+  backdrop-filter: blur(8px);
+}
+.over3d-page .over3d-controls-toggle.is-on {
+  border-color: rgba(94, 240, 224, 0.7);
+  color: var(--cc-cyan, #9ef5e8);
+}
 
 .over3d-page .over3d-sprint-btn,
 .over3d-page .over3d-dash-btn {
@@ -1594,13 +1621,6 @@
   opacity: 1;
 }
 
-.over3d-page .over3d-objective {
-  background: var(--cc-glass);
-  border-color: var(--cc-line-strong);
-  color: var(--cc-text);
-  backdrop-filter: blur(8px);
-}
-
 .over3d-page .over3d-chip {
   background: var(--cc-glass);
   border-color: var(--cc-line-strong);
@@ -1621,11 +1641,6 @@
 }
 .over3d-page .over3d-levels-btn:hover {
   box-shadow: 0 0 28px rgba(232, 184, 74, 0.5), 0 12px 28px rgba(0, 0, 0, 0.5);
-}
-.over3d-page .over3d-chip-gun {
-  background: var(--cc-violet);
-  color: #fff;
-  border-color: rgba(160, 140, 255, 0.5);
 }
 .over3d-page .over3d-chip-timer {
   background: rgba(31, 143, 78, 0.85);
@@ -1709,6 +1724,14 @@
 .over3d-page .over3d-health-num {
   color: var(--cc-text);
 }
+/* Rank pill mirrors the health pill's glass, keeps its gold rank text. */
+.over3d-page .over3d-chip-level {
+  background: var(--cc-glass);
+  border-color: var(--cc-line-strong);
+  color: #ffd65c;
+  box-shadow: none;
+  backdrop-filter: blur(6px);
+}
 
 .over3d-page .over3d-levelup {
   background: var(--cc-glass);
@@ -1743,40 +1766,53 @@
   stroke: var(--cc-cyan) !important;
 }
 
-/* --- Gun heat bar ------------------------------------------------------- */
-.over3d-page .over3d-heat {
+/* --- Gun heat bar (slim, no weapon-name box) ----------------------------- */
+/* Invisible while cool; fades in as heat builds; red + label when jammed. */
+.over3d-heatbar {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-weight: 700;
+  align-self: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ff8aa0;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
 }
-.over3d-page .over3d-heat-track {
-  width: 54px;
-  height: 7px;
+.over3d-heatbar.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.over3d-heatbar-track {
+  width: 64px;
+  height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(10, 22, 21, 0.65);
+  border: 1px solid var(--cc-line, rgba(120, 220, 200, 0.16));
   overflow: hidden;
 }
-.over3d-page .over3d-heat-fill {
+.over3d-heatbar-fill {
   display: block;
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #5ef2ff, #ffce63);
   transition: width 0.15s linear;
 }
-.over3d-page .over3d-heat.is-hot .over3d-heat-fill {
+.over3d-heatbar.is-hot .over3d-heatbar-fill {
   background: linear-gradient(90deg, #ffce63, #ff8a2a);
 }
-.over3d-page .over3d-heat.is-jammed {
-  color: #ff8aa0;
-  border-color: rgba(255, 90, 120, 0.6);
+.over3d-heatbar.is-jammed {
   animation: nightPulse 0.7s ease-in-out infinite;
 }
-.over3d-page .over3d-heat.is-jammed .over3d-heat-fill {
+.over3d-heatbar.is-jammed .over3d-heatbar-track {
+  border-color: rgba(255, 90, 120, 0.6);
+}
+.over3d-heatbar.is-jammed .over3d-heatbar-fill {
   background: #ff5b7e;
 }
 
-/* --- Hold-out siege banner --------------------------------------------- */
+/* --- Checkpoint status (merged location + hold-out banner) -------------- */
 .over3d-page .over3d-holdbar {
   position: absolute;
   top: 74px;
@@ -1794,6 +1830,39 @@
   border-radius: 14px;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(6px);
+  transition: padding 0.25s ease, opacity 0.25s ease, background 0.25s ease;
+}
+/* Minimized: a slim one-liner so the screen centre stays clear in combat. */
+.over3d-page .over3d-holdbar.is-idle {
+  padding: 4px 14px;
+  opacity: 0.72;
+  background: rgba(14, 12, 26, 0.6);
+  box-shadow: none;
+}
+.over3d-page .over3d-holdbar-realm {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--cc-text-soft);
+}
+.over3d-page .over3d-holdbar-state {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--cc-text);
+}
+.over3d-page .over3d-holdbar-state.is-open-state {
+  color: #9bffc4;
+}
+.over3d-page .over3d-holdbar-mini {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 12.5px;
+  color: var(--cc-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .over3d-page .over3d-holdbar.is-open {
   border-color: rgba(110, 231, 160, 0.6);
@@ -1833,8 +1902,18 @@
   transition: width 0.25s linear;
 }
 .over3d-page .over3d-holdbar-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 12px;
+  font-weight: 700;
   color: var(--cc-text-soft);
+}
+.over3d-page .over3d-holdbar-hint b {
+  font-variant-numeric: tabular-nums;
+}
+.over3d-page .over3d-holdbar-hint svg {
+  flex-shrink: 0;
 }
 
 /* --- Nightfall ---------------------------------------------------------- */
@@ -1849,6 +1928,17 @@
     radial-gradient(120% 90% at 50% 40%, rgba(10, 16, 46, 0) 35%, rgba(6, 9, 30, 0.5) 100%),
     linear-gradient(180deg, rgba(20, 16, 60, 0.55), rgba(40, 8, 24, 0.6));
   mix-blend-mode: multiply;
+}
+/* Realism rebuild (MEDIUM+): the scene now grades its own night (fog, IBL,
+   emissives) — the CSS wash retreats to a soft edge vignette so the skyline
+   stays readable instead of drowning in a violet multiply. LOW keeps the
+   original wash above (pinned look). */
+.over3d-page .over3d-stage.is-clean-grade .over3d-night {
+  background: radial-gradient(
+    115% 90% at 50% 42%,
+    rgba(8, 10, 32, 0) 52%,
+    rgba(5, 7, 24, 0.42) 100%
+  );
 }
 .over3d-page .over3d-night.is-on {
   opacity: 1;
@@ -2007,3 +2097,68 @@
 .over3d-page .over3d-surge-msg.is-wrong {
   color: var(--cc-coral) !important;
 }
+
+/* ============================================================================
+   Living Code City — interaction layer chrome
+   ========================================================================== */
+
+/* Courier delivery chip (label + live distance). */
+.over3d-chip-courier {
+  background: rgba(255, 210, 63, 0.16);
+  border-color: rgba(255, 210, 63, 0.55);
+  color: #ffe9a8;
+}
+
+/* Transient city toast (delivery complete, photo saved, cloud check…).
+   Fixed + above the photo overlay (z 70) so "Photo saved" reads through it. */
+.over3d-city-toast {
+  position: fixed;
+  left: 50%;
+  /* Center lane, one step above the interaction prompt (28px) — low enough to
+     stay off the player character while clearing the prompt at any length. */
+  bottom: 80px;
+  transform: translateX(-50%);
+  z-index: 80;
+  padding: 10px 18px;
+  border-radius: 18px;
+  max-width: min(560px, 86vw);
+  text-align: center;
+  line-height: 1.35;
+  background: rgba(10, 16, 28, 0.88);
+  border: 1.5px solid rgba(255, 210, 63, 0.6);
+  color: #ffe9a8;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  pointer-events: none;
+  animation: over3d-toast-in 0.22s ease-out;
+}
+
+@keyframes over3d-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* Photo mode hides the gameplay HUD — the overlay's viewfinder is the UI.
+   (The photo overlay itself mounts on top and stays interactive.) */
+.over3d-stage.is-photo-mode .over3d-hud,
+.over3d-stage.is-photo-mode .over3d-right-rail,
+.over3d-stage.is-photo-mode .guide-panel,
+.over3d-stage.is-photo-mode .over3d-prompt,
+.over3d-stage.is-photo-mode .over3d-action-btns,
+.over3d-stage.is-photo-mode .over3d-controls-hint,
+.over3d-stage.is-photo-mode .over3d-controls-toggle,
+.over3d-stage.is-photo-mode .over3d-holdbar,
+.over3d-stage.is-photo-mode .over3d-nightbar,
+.over3d-stage.is-photo-mode .over3d-joystick,
+.over3d-stage.is-photo-mode .over3d-fire-btn {
+  display: none;
+}
+
+

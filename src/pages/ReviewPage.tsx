@@ -73,7 +73,7 @@ export function ReviewPage() {
         streakCurrent={streak.current}
         nextLessonTitle={null}
         isLastLesson={false}
-        onExit={() => navigate(`/world/${lessonId}`)}
+        onExit={() => navigate('/quest/list')}
         onTakeQuiz={() => navigate(`/lesson/${lessonId}/quiz`)}
         onReplay={() => {
           setReviewMode(false)
@@ -93,7 +93,7 @@ export function ReviewPage() {
         <AppHeader />
         <main className="container lp">
           <div className="lp-top">
-            <Link to={`/world/${lessonId}`} className="lp-exit" aria-label="Back to world">
+            <Link to="/quest/list" className="lp-exit" aria-label="Back to levels">
               <IconArrowLeft size={18} />
             </Link>
           </div>
@@ -121,7 +121,10 @@ export function ReviewPage() {
   // Bit review helper, built from the full lesson steps (richer concept + hint
   // context). Only interactive (answerable) steps; missed ones first.
   const tutorItems: ReviewTutorItem[] = review.steps
-    .filter((s) => s.targetVariables && s.targetVariables.length > 0)
+    .filter(
+      (s) =>
+        (s.targetVariables && s.targetVariables.length > 0) || !!s.assessment,
+    )
     .map((s) => ({ s, missed: missedIds.includes(s.id) }))
     .sort((a, b) => Number(b.missed) - Number(a.missed))
     .map(({ s, missed }, i) => ({
@@ -140,7 +143,7 @@ export function ReviewPage() {
       <AppHeader />
       <main className="container lp lp-review">
         <div className="lp-top">
-          <Link to={`/world/${lessonId}`} className="lp-exit" aria-label="Back to world">
+          <Link to="/quest/list" className="lp-exit" aria-label="Back to levels">
             <IconArrowLeft size={18} />
           </Link>
         </div>
@@ -192,8 +195,8 @@ export function ReviewPage() {
             <Link className="btn ghost lg" to={`/lesson/${lessonId}/quiz`}>
               Replay full lesson
             </Link>
-            <Link className="btn ghost lg" to={`/world/${lessonId}`}>
-              Back to world
+            <Link className="btn ghost lg" to="/quest/list">
+              Back to levels
             </Link>
           </div>
         </div>

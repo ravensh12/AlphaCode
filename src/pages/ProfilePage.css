@@ -1,30 +1,149 @@
-/* Profile uses the same Code City night theme as the lessons (.lp provides the
-   cc-* vars + the night-sky backdrop; here we just style the profile content). */
+/* ============================================================== Profile page
+   Restyled to the levels-page design language (see QuestMapPage.css): dark
+   sleek base, neon accents, big type, generous whitespace, subtle animated
+   background. Scoped to `.profile-page`; the global light theme is untouched
+   on other routes. */
+
+.profile-page {
+  --qp-bg-0: #06080e;
+  --qp-bg-1: #0a0e18;
+  --qp-cyan: #5ef0e0;
+  --qp-violet: #8f6bff;
+  --qp-lime: #b6ff5c;
+  --qp-amber: #e8b84a;
+  --qp-coral: #ff6b6b;
+  --qp-text: #eaf2f1;
+  --qp-text-soft: #93a6b4;
+  --qp-text-faint: #5d6f7d;
+  --qp-glass: rgba(13, 19, 30, 0.66);
+  --qp-glass-2: rgba(10, 15, 24, 0.5);
+  --qp-line: rgba(140, 180, 220, 0.12);
+  --qp-line-strong: rgba(140, 180, 220, 0.26);
+
+  position: relative;
+  isolation: isolate;
+  color: var(--qp-text);
+  background: linear-gradient(175deg, var(--qp-bg-0) 0%, var(--qp-bg-1) 60%, #0a1016 100%);
+}
+
+/* Animated background: drifting grid + one violet orb (fixed pseudo layers). */
+.profile-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(140, 190, 230, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(140, 190, 230, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 78%);
+  mask: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 78%);
+}
+/* Soft violet glow anchored bottom-right; viewport-sized, never overflows. */
+.profile-page::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background: radial-gradient(
+    46vw 46vw at 94% 108%,
+    rgba(143, 107, 255, 0.11),
+    transparent 68%
+  );
+}
+@media (prefers-reduced-motion: no-preference) {
+  .profile-page::before {
+    animation: qpGridDriftProfile 90s linear infinite;
+  }
+  .profile-page::after {
+    animation: qpOrbProfile 56s ease-in-out infinite alternate;
+  }
+}
+@keyframes qpGridDriftProfile {
+  to { background-position: 56px 56px; }
+}
+@keyframes qpOrbProfile {
+  to { opacity: 0.55; }
+}
+
+.profile-page h1,
+.profile-page h2,
+.profile-page h3 {
+  color: var(--qp-text);
+}
+.profile-page p {
+  color: var(--qp-text);
+}
+.profile-page .eyebrow {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--qp-cyan);
+}
 
 .profile-main {
-  max-width: 720px;
+  position: relative;
+  z-index: 1;
+  max-width: 760px;
+  padding: 30px 20px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---------- Back link (44px target; matches .academy-back) ---------- */
+.profile-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 4px 10px 4px 2px;
+  color: var(--qp-text-soft);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: color 0.14s ease;
+}
+.profile-back:hover {
+  color: var(--qp-cyan);
 }
 
 /* ---------- Hero ---------- */
 .profile-hero {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 18px;
+  gap: 20px;
+  padding: 26px 30px;
+  border-radius: 20px;
+  background: var(--qp-glass);
+  border: 1px solid var(--qp-line);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
 }
 
 .profile-name {
   font-family: var(--display);
-  font-size: 32px;
-  margin: 4px 0 2px;
-  color: var(--cc-text);
+  font-size: clamp(26px, 4vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 6px 0 2px;
+  color: var(--qp-text);
 }
 
 .profile-sub {
   margin: 0;
-  color: var(--cc-text-soft);
-  font-weight: 700;
+  color: var(--qp-text-soft);
+  font-weight: 600;
+  font-size: 14.5px;
 }
 
 .profile-stats {
@@ -39,41 +158,45 @@
   gap: 2px;
   min-width: 88px;
   padding: 12px 14px;
-  background: var(--cc-glass);
-  border: 1.5px solid var(--cc-line-strong);
-  border-radius: var(--radius);
-  color: var(--cc-text);
+  background: var(--qp-glass-2);
+  border: 1px solid var(--qp-line);
+  border-radius: 14px;
+  color: var(--qp-text);
 }
 .profile-stat .icon {
-  color: var(--cc-cyan);
+  color: var(--qp-cyan);
 }
 
 .profile-stat-num {
   font-family: var(--display);
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--cc-text);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--qp-text);
 }
 .profile-stat-num small {
   font-size: 13px;
-  color: var(--cc-text-faint);
+  color: var(--qp-text-faint);
 }
 
 .profile-stat-label {
-  font-size: 11.5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--cc-text-soft);
+  letter-spacing: 0.1em;
+  color: var(--qp-text-soft);
   font-weight: 700;
 }
 
 /* ---------- Cards ---------- */
 .profile-card {
-  background: var(--cc-glass);
-  border: 1.5px solid var(--cc-line-strong);
-  border-radius: var(--radius-lg);
-  padding: 22px 22px;
-  color: var(--cc-text);
+  background: var(--qp-glass);
+  border: 1px solid var(--qp-line);
+  border-radius: 20px;
+  padding: 24px 28px;
+  color: var(--qp-text);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
 }
 
 .profile-card-head {
@@ -81,19 +204,58 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .profile-card h2 {
   font-family: var(--display);
-  font-size: 20px;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   margin: 0;
-  color: var(--cc-text);
+  color: var(--qp-text);
+}
+.profile-card h3 {
+  font-family: var(--display);
+  font-size: 14.5px;
+  font-weight: 700;
+  margin: 16px 0 8px;
 }
 
 .profile-card-hint {
-  font-size: 12.5px;
-  color: var(--cc-text-soft);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--qp-text-faint);
+  text-align: right;
+}
+
+.profile-card > p {
+  color: var(--qp-text-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.profile-card > p strong {
+  color: var(--qp-text);
+}
+
+.profile-card > p + .btn {
+  margin-top: 16px;
+}
+
+/* Scoped button repaint (global .btn untouched elsewhere). */
+.profile-page .btn:not(.ghost):not(.subtle):not(.lime) {
+  --btn-bg: var(--qp-violet);
+  --btn-fg: #fff;
+  border-color: rgba(160, 140, 255, 0.55);
+  box-shadow: 0 0 24px rgba(143, 107, 255, 0.4), 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+.profile-page .btn.ghost {
+  --btn-bg: var(--qp-glass-2);
+  --btn-fg: var(--qp-text);
+  border-color: var(--qp-line-strong);
+}
+.profile-page .btn.ghost:hover {
+  border-color: var(--qp-cyan);
 }
 
 /* ---------- Skills list ---------- */
@@ -121,25 +283,25 @@
 
 .profile-skill-name {
   font-weight: 700;
-  font-size: 14.5px;
-  color: var(--cc-text);
+  font-size: 14px;
+  color: var(--qp-text);
 }
 
 .profile-skill-band {
-  font-size: 11.5px;
-  font-weight: 800;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
 .profile-skill-bar {
-  height: 11px;
+  height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--cc-line);
+  background: rgba(140, 180, 220, 0.14);
   overflow: hidden;
 }
 
@@ -152,50 +314,50 @@
 
 .profile-skill-meta {
   display: block;
-  margin-top: 4px;
+  margin-top: 5px;
   font-size: 11.5px;
-  color: var(--cc-text-faint);
+  color: var(--qp-text-faint);
 }
 
-/* Band colours from the night palette. */
+/* Band colours from the neon palette. */
 .band-weak {
   color: #ff8aa0;
 }
 .profile-skill-fill.band-weak {
-  background: var(--cc-coral);
+  background: var(--qp-coral);
 }
 .band-developing {
-  color: var(--cc-window);
+  color: var(--qp-amber);
 }
 .profile-skill-fill.band-developing {
-  background: var(--cc-window);
+  background: var(--qp-amber);
 }
 .band-solid {
-  color: var(--cc-cyan);
+  color: var(--qp-cyan);
 }
 .profile-skill-fill.band-solid {
-  background: var(--cc-cyan);
+  background: var(--qp-cyan);
 }
 .band-mastered {
-  color: var(--cc-lime);
+  color: var(--qp-lime);
 }
 .profile-skill-fill.band-mastered {
-  background: var(--cc-lime);
+  background: var(--qp-lime);
 }
 
 .profile-due-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--cc-cyan);
-  box-shadow: 0 0 8px var(--cc-cyan);
+  background: var(--qp-cyan);
+  box-shadow: 0 0 8px var(--qp-cyan);
 }
 
 /* ---------- Coach + due ---------- */
 .profile-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 18px;
+  gap: 20px;
 }
 @media (max-width: 720px) {
   .profile-row {
@@ -206,8 +368,8 @@
 .profile-coach p {
   margin: 0;
   font-size: 15px;
-  line-height: 1.5;
-  color: var(--cc-text);
+  line-height: 1.55;
+  color: var(--qp-text);
 }
 
 .profile-due-list {
@@ -223,29 +385,44 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--cc-text);
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--qp-text);
+}
+.profile-due-item a {
+  color: var(--qp-text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--qp-line-strong);
+  transition: color 0.14s ease, border-color 0.14s ease;
+}
+.profile-due-item a:hover {
+  color: var(--qp-cyan);
+  border-color: var(--qp-cyan);
 }
 
 .profile-due-mark {
-  width: 9px;
-  height: 9px;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--cc-cyan);
-  box-shadow: 0 0 8px var(--cc-cyan);
+  background: var(--qp-cyan);
+  box-shadow: 0 0 8px var(--qp-cyan);
 }
 
 .profile-due-empty {
   margin: 0 0 12px;
-  color: var(--cc-text-soft);
+  color: var(--qp-text-soft);
+  font-size: 14px;
 }
 
 .profile-due-note {
   margin: 0;
   font-size: 12.5px;
-  color: var(--cc-text-soft);
+  color: var(--qp-text-soft);
   line-height: 1.45;
+}
+.profile-due-note strong {
+  color: var(--qp-cyan);
 }
 
 /* ---------- Empty state ---------- */
@@ -255,11 +432,18 @@
 }
 .profile-empty h2 {
   margin-bottom: 10px;
-  color: var(--cc-text);
+  color: var(--qp-text);
 }
 .profile-empty p {
   max-width: 520px;
   margin: 0 auto 18px;
-  color: var(--cc-text-soft);
-  line-height: 1.5;
+  color: var(--qp-text-soft);
+  line-height: 1.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-skill-fill,
+  .profile-due-item a {
+    transition: none;
+  }
 }

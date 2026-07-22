@@ -1,0 +1,21 @@
+{
+  "placeholders": false,
+  "totalBytes": 12846017,
+  "bytes": {
+    "assets/hdri/city-day-2k.hdr": 5451493,
+    "assets/models/citizen-bot.bin": 483792,
+    "assets/models/robot-sentinel.glb": 220840,
+    "assets/textures/asphalt/asphalt_arm.ktx2": 211619,
+    "assets/textures/asphalt/asphalt_diff.ktx2": 211715,
+    "assets/textures/asphalt/asphalt_nor.ktx2": 1305470,
+    "assets/textures/brick/brick_arm.ktx2": 182727,
+    "assets/textures/brick/brick_diff.ktx2": 228397,
+    "assets/textures/brick/brick_nor.ktx2": 1271294,
+    "assets/textures/concrete/concrete_arm.ktx2": 177552,
+    "assets/textures/concrete/concrete_diff.ktx2": 166206,
+    "assets/textures/concrete/concrete_nor.ktx2": 1158140,
+    "assets/textures/ground/ground_arm.ktx2": 213042,
+    "assets/textures/ground/ground_diff.ktx2": 232185,
+    "assets/textures/ground/ground_nor.ktx2": 1331545
+  }
+}

@@ -1,0 +1,632 @@
+/* ============================================================ Academy pages
+   Restyled to the levels-page design language (see QuestMapPage.css): dark
+   sleek base, neon accents, big type, generous whitespace, subtle animated
+   background. All theming stays scoped to `.academy-page` so the global light
+   theme is untouched on every other route. Layout, routes, gates, and copy
+   semantics live in the TSX; this file only paints. */
+
+.academy-page {
+  --qp-bg-0: #06080e;
+  --qp-bg-1: #0a0e18;
+  --qp-cyan: #5ef0e0;
+  --qp-violet: #8f6bff;
+  --qp-lime: #b6ff5c;
+  --qp-amber: #e8b84a;
+  --qp-coral: #ff6b6b;
+  --qp-text: #eaf2f1;
+  --qp-text-soft: #93a6b4;
+  --qp-text-faint: #5d6f7d;
+  --qp-glass: rgba(13, 19, 30, 0.66);
+  --qp-glass-2: rgba(10, 15, 24, 0.5);
+  --qp-line: rgba(140, 180, 220, 0.12);
+  --qp-line-strong: rgba(140, 180, 220, 0.26);
+
+  position: relative;
+  isolation: isolate;
+  color: var(--qp-text);
+  background: linear-gradient(175deg, var(--qp-bg-0) 0%, var(--qp-bg-1) 60%, #0a1016 100%);
+}
+
+/* Animated background: the levels page's drifting grid, as a fixed pseudo
+   layer (no extra DOM). Off under reduced motion. */
+.academy-page::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(140, 190, 230, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(140, 190, 230, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 78%);
+  mask: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 78%);
+}
+
+/* One soft cyan glow anchored top-left (lighter variant of the levels bg).
+   Viewport-sized layer with a corner gradient — never overflows the page. */
+.academy-page::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background: radial-gradient(
+    46vw 46vw at 8% -6%,
+    rgba(94, 240, 224, 0.11),
+    transparent 68%
+  );
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .academy-page::before {
+    animation: qpGridDriftAcademy 90s linear infinite;
+  }
+  .academy-page::after {
+    animation: qpOrbAcademy 52s ease-in-out infinite alternate;
+  }
+}
+@keyframes qpGridDriftAcademy {
+  to { background-position: 56px 56px; }
+}
+@keyframes qpOrbAcademy {
+  to { opacity: 0.55; }
+}
+
+/* ---- Base text ---- */
+.academy-page h1,
+.academy-page h2,
+.academy-page h3 {
+  color: var(--qp-text);
+}
+.academy-page p {
+  color: var(--qp-text);
+}
+.academy-page .muted {
+  color: var(--qp-text-soft);
+}
+.academy-page .eyebrow {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--qp-cyan);
+}
+
+.academy-main {
+  flex: 1;
+  position: relative;
+  z-index: 1;
+  padding: 28px 20px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ---- Back link (44px target) ---- */
+.academy-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 4px 10px 4px 2px;
+  color: var(--qp-text-soft);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: color 0.14s ease;
+}
+.academy-back:hover {
+  color: var(--qp-cyan);
+}
+
+/* ---- Notices + route toast ---- */
+.academy-notice {
+  padding: 12px 16px;
+  border: 1px solid var(--qp-line-strong);
+  border-radius: 12px;
+  background: rgba(232, 184, 74, 0.1);
+  color: var(--qp-text);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Rendered over the dark lesson runner too (outside .academy-page), so it
+   carries its own night styling instead of page-scoped vars. */
+.academy-route-toast {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  z-index: 80;
+  width: min(92vw, 720px);
+  padding: 11px 14px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(240, 196, 85, 0.5);
+  border-radius: 12px;
+  background: rgba(28, 22, 6, 0.92);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  color: #f6efdd;
+  font-weight: 700;
+  backdrop-filter: blur(8px);
+}
+
+/* ---- Hero: checkpoint identity + practiced/retained meters ---- */
+.academy-hero {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 26px 30px;
+  border-radius: 20px;
+  background: var(--qp-glass);
+  border: 1px solid var(--qp-line);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
+}
+
+.academy-hero-copy {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+}
+
+.academy-hero h1,
+.academy-blocked h1 {
+  margin: 4px 0 0;
+  font-family: var(--display);
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+}
+
+.academy-hero-realm {
+  color: var(--qp-text-soft);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.academy-progress {
+  flex: 0 0 auto;
+  width: min(100%, 250px);
+  display: grid;
+  gap: 14px;
+  align-content: center;
+  padding-left: 28px;
+  border-left: 1px solid var(--qp-line);
+}
+
+.academy-meter {
+  display: grid;
+  gap: 7px;
+}
+.academy-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.academy-meter-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--qp-text-soft);
+}
+.academy-meter-value {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--qp-text);
+}
+.academy-meter-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(140, 180, 220, 0.14);
+}
+.academy-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.35s ease;
+}
+.academy-meter--practiced .academy-meter-fill {
+  background: linear-gradient(90deg, var(--qp-violet), #b39aff);
+}
+.academy-meter--practiced .academy-meter-label {
+  color: var(--qp-violet);
+}
+.academy-meter--retained .academy-meter-fill {
+  background: linear-gradient(90deg, #8fe85c, var(--qp-lime));
+}
+.academy-meter--retained .academy-meter-label {
+  color: var(--qp-lime);
+}
+
+/* ---- Details explainer (hero + interstitials) ---- */
+.academy-legend {
+  border: 1px solid var(--qp-line, rgba(140, 180, 220, 0.12));
+  border-radius: 10px;
+  background: var(--qp-glass-2, rgba(10, 15, 24, 0.5));
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--qp-text-soft, #93a6b4);
+}
+.academy-legend summary {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: var(--display);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--qp-text-soft, #93a6b4);
+  border-radius: 10px;
+}
+.academy-legend summary:hover {
+  color: var(--qp-cyan, #5ef0e0);
+}
+.academy-legend[open] summary {
+  color: var(--qp-text, #eaf2f1);
+}
+.academy-legend p {
+  margin: 0;
+  padding: 0 12px 10px;
+  color: var(--qp-text-soft, #93a6b4);
+}
+.academy-legend p strong {
+  color: var(--qp-text, #eaf2f1);
+}
+
+/* ---- Primary CTA (levels-page "continue" treatment) ---- */
+.academy-primary {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.academy-page .academy-primary {
+  padding: 12px 22px;
+  border: none;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 14.5px;
+  text-decoration: none;
+  color: #08130f;
+  background: linear-gradient(115deg, var(--qp-cyan), #8ef0c9);
+  box-shadow: 0 0 26px rgba(94, 240, 224, 0.3);
+  transition: transform 0.14s ease, box-shadow 0.18s ease;
+}
+.academy-page .academy-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 38px rgba(94, 240, 224, 0.5);
+}
+
+/* ---- Mission list head ---- */
+.academy-list-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+.academy-list-head h2 {
+  margin-bottom: 4px;
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.academy-list-head .muted {
+  font-size: 13px;
+}
+
+.academy-complete-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  padding: 6px 12px;
+  border: 1px solid rgba(182, 255, 92, 0.45);
+  border-radius: 999px;
+  background: rgba(182, 255, 92, 0.1);
+  color: var(--qp-lime, #b6ff5c);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---- Mission rows (quest-track treatment) ---- */
+.academy-missions {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.academy-mission {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto 18px;
+  align-items: center;
+  gap: 14px;
+  min-height: 60px;
+  padding: 12px 16px;
+  border: 1px solid var(--qp-line);
+  border-radius: 13px;
+  background: var(--qp-glass-2);
+  color: var(--qp-text);
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.academy-mission:hover {
+  border-color: rgba(94, 240, 224, 0.4);
+  transform: translateX(3px);
+}
+
+/* Locked routes stay fully readable — dimming the surface, not the text. */
+.academy-mission.is-locked {
+  opacity: 0.65;
+}
+.academy-mission.is-locked:hover {
+  border-color: var(--qp-line-strong);
+  transform: none;
+}
+
+.academy-mission-number {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--qp-line-strong);
+  border-radius: 50%;
+  color: var(--qp-text-soft);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+.academy-mission.is-retained .academy-mission-number {
+  background: var(--qp-lime);
+  border-color: transparent;
+  color: #0a1a06;
+}
+.academy-mission.is-pending .academy-mission-number,
+.academy-mission.is-due .academy-mission-number {
+  border-color: rgba(240, 196, 85, 0.5);
+  color: var(--qp-amber);
+}
+.academy-mission.is-practiced .academy-mission-number {
+  background: rgba(143, 107, 255, 0.16);
+  border-color: rgba(160, 140, 255, 0.5);
+  color: #b3a4ff;
+}
+
+.academy-mission-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.academy-mission-copy strong {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--qp-text);
+  overflow-wrap: anywhere;
+}
+
+.academy-mission-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 6px;
+  color: var(--qp-text-faint);
+  font-size: 12px;
+}
+.academy-mission-meta > span + span::before {
+  content: '·';
+  margin-right: 6px;
+  color: var(--qp-text-faint);
+}
+.academy-mission-meta time {
+  color: var(--qp-text-soft);
+  font-weight: 700;
+}
+
+.academy-diff {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--qp-line-strong);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.academy-diff.diff-easy {
+  border-color: rgba(182, 255, 92, 0.4);
+  color: var(--qp-lime);
+}
+.academy-diff.diff-medium {
+  border-color: rgba(240, 196, 85, 0.4);
+  color: var(--qp-amber);
+}
+.academy-diff.diff-hard {
+  border-color: rgba(255, 107, 107, 0.4);
+  color: var(--qp-coral);
+}
+
+.academy-mission-status {
+  justify-self: end;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: right;
+  color: var(--qp-text-soft);
+}
+.academy-mission.is-retained .academy-mission-status {
+  color: var(--qp-lime);
+}
+.academy-mission.is-pending .academy-mission-status,
+.academy-mission.is-due .academy-mission-status {
+  color: var(--qp-amber);
+}
+.academy-mission.is-practiced .academy-mission-status {
+  color: #b3a4ff;
+}
+.academy-mission.is-open .academy-mission-status {
+  color: var(--qp-cyan);
+}
+
+.academy-mission-go {
+  color: var(--qp-text-faint);
+  transition: color 0.14s ease, transform 0.14s ease;
+}
+.academy-mission:hover .academy-mission-go {
+  color: var(--qp-cyan);
+  transform: translateX(2px);
+}
+
+/* ---- Blocked / interstitial cards (dark glass) ---- */
+.academy-page .card {
+  background: var(--qp-glass);
+  border: 1px solid var(--qp-line);
+  border-radius: 20px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+}
+
+.academy-blocked {
+  width: min(100%, 620px);
+  margin: 8vh auto 0;
+  padding: 28px;
+  display: grid;
+  gap: 16px;
+  justify-items: start;
+}
+
+.academy-mission-context {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--qp-cyan);
+}
+
+.academy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.academy-mission-done {
+  justify-content: center;
+}
+
+/* ---- Scoped button repaint (global .btn untouched) ---- */
+.academy-page .btn:not(.academy-primary) {
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+}
+.academy-page .btn:not(.ghost):not(.subtle):not(.lime):not(.academy-primary) {
+  --btn-bg: var(--qp-violet);
+  --btn-fg: #fff;
+  border-color: rgba(160, 140, 255, 0.55);
+  box-shadow: 0 0 24px rgba(143, 107, 255, 0.4), 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+.academy-page .btn:not(.ghost):not(.subtle):not(.lime):not(.academy-primary):hover {
+  box-shadow: 0 0 32px rgba(143, 107, 255, 0.55), 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+.academy-page .btn.ghost {
+  --btn-bg: var(--qp-glass);
+  --btn-fg: var(--qp-text);
+  border-color: var(--qp-line-strong);
+  backdrop-filter: blur(6px);
+}
+.academy-page .btn.ghost:hover {
+  --btn-bg: rgba(18, 27, 42, 0.78);
+  border-color: var(--qp-cyan);
+}
+.academy-page .btn:disabled {
+  background: rgba(14, 21, 33, 0.6);
+  color: var(--qp-text-faint);
+  border-color: var(--qp-line);
+  box-shadow: none;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 760px) {
+  .academy-hero {
+    flex-direction: column;
+    gap: 20px;
+    padding: 22px;
+  }
+  .academy-progress {
+    width: 100%;
+    padding-left: 0;
+    border-left: none;
+    padding-top: 18px;
+    border-top: 1px solid var(--qp-line);
+  }
+}
+
+@media (max-width: 640px) {
+  .academy-list-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .academy-mission {
+    grid-template-columns: 32px minmax(0, 1fr);
+    row-gap: 8px;
+  }
+  .academy-mission-status {
+    grid-column: 2;
+    justify-self: start;
+    text-align: left;
+  }
+  .academy-mission-go {
+    display: none;
+  }
+
+  .academy-primary,
+  .academy-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .academy-blocked {
+    margin-top: 4vh;
+    padding: 22px 18px;
+  }
+}
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  .academy-mission,
+  .academy-mission-go,
+  .academy-meter-fill,
+  .academy-back,
+  .academy-page .academy-primary {
+    transition: none;
+  }
+  .academy-mission:hover,
+  .academy-page .academy-primary:hover {
+    transform: none;
+  }
+  .academy-mission:hover .academy-mission-go {
+    transform: none;
+  }
+}

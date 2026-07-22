@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from './Brand'
 import { useAuth } from '../context/AuthContext'
+import { useProgress } from '../context/ProgressContext'
 import { IconCompass, IconGauge, IconSpeaker, IconSpeakerOff } from './icons'
 import { isMuted as isMusicMuted, toggleMusic } from '../lib/themeMusic'
 import { isSfxMuted, toggleSfx, playToggle } from '../lib/soundFx'
@@ -9,6 +10,7 @@ import './AppHeader.css'
 
 export function AppHeader() {
   const { displayName, isGuest, signOut } = useAuth()
+  const { progressError, clearProgressError } = useProgress()
   const navigate = useNavigate()
   const location = useLocation()
   const onCoursePage = location.pathname === '/quest'
@@ -79,6 +81,14 @@ export function AppHeader() {
           )}
         </div>
       </div>
+      {progressError && (
+        <div className="app-header-save-error" role="alert">
+          <span>Progress was not saved: {progressError}</span>
+          <button type="button" onClick={clearProgressError}>
+            Dismiss
+          </button>
+        </div>
+      )}
     </header>
   )
 }

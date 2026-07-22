@@ -14,6 +14,16 @@ import type { DashState } from './ThirdPersonController'
 import { ZombieHorde } from './ZombieHorde'
 import { CombatFx, type CombatFxApi } from './CombatFx'
 import {
+  EnemyProjectiles,
+  ImpactFlashes,
+  type EnemyProjectilesHandle,
+  type ImpactFlashesHandle,
+} from './projectileFx'
+import {
+  resolveEquippedWeapon,
+  weaponPelletYaw,
+} from './weaponProfile'
+import {
   VARIANTS,
   VAR_NORMAL,
   VAR_RUNNER,
@@ -23,10 +33,17 @@ import {
   VAR_GLITCH,
   DIE_DURATION,
   STAGGER_TIME,
+  KNOCKBACK_DAMP,
+  KNOCKBACK_MAX,
   SPIT_WINDUP,
   SLAM_WINDUP,
   type ZombieSlot,
 } from './zombieTypes'
+
+const WEAPON = resolveEquippedWeapon({ run: 'default' })
+
+/** How many snapshot zombies to re-activate per frame after a remount. */
+const RESTORE_PER_FRAME = 4
 
 export type ZombieSnap = { x: number; z: number; hp: number; facing: number; variant?: number }
 
@@ -50,41 +67,24 @@ export type CombatApi = {
   snapshot: () => ZombieSnap[]
 }
 
-/** A gun tier. The first is deliberately awful; each checkpoint upgrades it. */
-export type Gun = {
-  name: string
-  /** Seconds between shots (lower = faster). */
-  cooldown: number
-  /** Damage per bolt (zombies have 2+ HP). */
-  damage: number
-  /** Bolts fired per trigger pull. */
-  pellets: number
-  /** Random inaccuracy in radians (higher = worse). */
-  spread: number
-  /** Angle between pellets in a multi-shot, radians. */
-  fan: number
-  /** Auto-aim cone, stored as cos(half-angle). Bigger angle = more help. */
-  aimConeCos: number
-  /** Bolt travel speed (m/s). */
-  boltSpeed: number
+/**
+ * A scripted encounter fight anchored to a mission beat: a lone bounty ELITE
+ * (a hulking, high-HP glitch that guards a data shard) or a RESCUE ring of
+ * zombies pinning a trapped citizen. The system spawns it when the player
+ * approaches the anchor and reports back once every member is destroyed.
+ */
+export type EncounterSpawn = {
+  id: string
+  kind: 'bounty' | 'rescue'
+  x: number
+  z: number
 }
 
-/** One gun per checkpoint (index 0 = Checkpoint 1). Weak → devastating. */
-// Auto-aim is deliberately SLIGHT now — it only nudges a near-miss onto a target,
-// it won't snap across the screen. Your own aim carries the shot, so precision +
-// tracking are real skills (Fortnite-style), while early guns still feel clumsy.
-export const GUNS: Gun[] = [
-  { name: 'Rusty Slinger', cooldown: 0.85, damage: 1, pellets: 1, spread: 0.14, fan: 0, aimConeCos: Math.cos(0.04), boltSpeed: 44 },
-  { name: 'Scrap Pistol', cooldown: 0.55, damage: 1, pellets: 1, spread: 0.085, fan: 0, aimConeCos: Math.cos(0.07), boltSpeed: 60 },
-  { name: 'Bolt Repeater', cooldown: 0.36, damage: 2, pellets: 1, spread: 0.05, fan: 0, aimConeCos: Math.cos(0.10), boltSpeed: 76 },
-  { name: 'Twin Blaster', cooldown: 0.30, damage: 2, pellets: 2, spread: 0.05, fan: 0.06, aimConeCos: Math.cos(0.12), boltSpeed: 88 },
-  { name: 'Pulse Rifle', cooldown: 0.18, damage: 3, pellets: 2, spread: 0.03, fan: 0.05, aimConeCos: Math.cos(0.14), boltSpeed: 102 },
-  { name: 'Pattern Cannon', cooldown: 0.11, damage: 3, pellets: 3, spread: 0.035, fan: 0.07, aimConeCos: Math.cos(0.16), boltSpeed: 118 },
-]
-
-export function gunForLevel(level: number): Gun {
-  return GUNS[Math.max(0, Math.min(GUNS.length - 1, level))]
-}
+// --- Encounter tuning ------------------------------------------------------
+const BOUNTY_TRIGGER_SQ = 46 * 46 // elite rises when the player gets this close
+const RESCUE_TRIGGER_SQ = 30 * 30 // rescue ring wakes a little later
+const BOUNTY_HP_MULT = 4 // elite = a real duel, not a popcorn kill
+const RESCUE_RING_SIZE = 5
 
 type SpitSlot = {
   active: boolean
@@ -114,12 +114,19 @@ type PickupSlot = {
 // instead of ~26 individual meshes per zombie. That collapses thousands of
 // draw calls + per-frame matrix updates down to a fixed handful, which is the
 // single biggest win for a churning crowd of undead.
-const MAX_ZOMBIES = 90
+// ELITE-HORDE RETUNE: fewer zombies on the field, but each one is tougher and
+// every kill lands harder (hitstop + shake + burst + knockback). A 28-body cap
+// also cuts the horde's camera + shadow vertex cost by two thirds vs the old
+// 90 — the single biggest per-frame line item.
+const MAX_ZOMBIES = 28
 const MAX_ARROWS = 90
 const MAX_SPITS = 48 // enemy acid projectiles in flight at once
-const ZOMBIE_SPEED = 3.7 // fast + tough from the start — the horde really chases you down
-const ZOMBIE_HP = 4 // tougher to kill than before
-const SPAWN_EVERY = 0.3 // the horde appears noticeably faster
+// GLOBAL PACE PASS: 3.9 → 3.43 (×0.88) in lockstep with the player's
+// RUN/SPRINT/DASH slowdown in ThirdPersonController — every breed's chase
+// matchup (speedMul × this base) keeps its exact relative speed.
+const ZOMBIE_SPEED = 3.43 // fast + tough from the start — the horde really chases you down
+const ZOMBIE_HP = 9 // elite bodies: a real exchange per kill, not popcorn
+const SPAWN_EVERY = 0.9 // sparse, deliberate pressure — every body on screen matters
 const ATTACK_DIST = 1.9
 
 // --- Spitter (ranged) tuning ---------------------------------------------
@@ -130,10 +137,16 @@ const SPIT_HIT_R_SQ = SPIT_HIT_R * SPIT_HIT_R
 const SPIT_RANGE = 19 // spitters open fire inside this range
 const SPIT_STANDOFF = 11 // ...and try to hold this distance, retreating if crowded
 const SPIT_INTERVAL = 1.7 // base seconds between shots (kept readable / dodgeable)
+// Spitter projectile look (visual only — hitbox/speed/damage untouched).
+// Chartreuse, NOT teal-green: the night city's ambient accents (HUD, terminals,
+// traffic lights) live in mint/teal, so the threat color must sit apart.
+const ACID_GLOW = '#b4ff14' // sickly chartreuse plasma
+const ACID_CORE = '#faffd8' // hot pale center (burned over-unity by the FX layer)
+const ACID_SPLASH = '#d0ff32'
 const DESPAWN_DIST = 150
-/** Max travel distance for the best gun; weaker guns reach less far (same lifetime). */
+/** Max travel distance for the always-equipped Pattern Cannon. */
 const ARROW_MAX_RANGE = 48
-const ARROW_LIFE = ARROW_MAX_RANGE / GUNS[GUNS.length - 1].boltSpeed
+const ARROW_LIFE = ARROW_MAX_RANGE / WEAPON.boltSpeed
 const AIM_MAX_RANGE = ARROW_MAX_RANGE + 4
 const AIM_MAX_RANGE_SQ = AIM_MAX_RANGE * AIM_MAX_RANGE
 const HIT_RADIUS = 1.7
@@ -153,9 +166,20 @@ const PLAYER_IFRAME = 0.7
 // --- Weak-point / precision crits ----------------------------------------
 // A bolt the player lined up themselves (auto-aim didn't have to bend it) is a
 // "clean" shot and crits more often — aiming is rewarded, button-mashing less so.
-const CRIT_DMG_MULT = 2
+// With the tougher elite bodies, a crit is a real event: triple damage turns a
+// three-hit exchange into a one-two finish when your aim is true.
+const CRIT_DMG_MULT = 3
 const CRIT_CHANCE_AIMED = 0.5
 const CRIT_CHANCE_ASSISTED = 0.12
+/** Impulse (m/s) a non-fatal bolt adds along its travel direction. Damped at
+ *  KNOCKBACK_DAMP it slides the body back ~0.9m over ~0.3s — a readable shove
+ *  instead of the old 1m same-frame position snap. */
+const HIT_KNOCKBACK_IMPULSE = 8
+/** Seconds after hit-stun ends to ease back up to full seek speed (no snap). */
+const SEEK_RECOVER = 0.25
+/** Impulse (m/s) the killing blow launches the corpse with before it falls
+ *  (~1.6m of damped slide — the same launch distance as the old snap). */
+const KILL_KNOCKBACK_IMPULSE = 14.4
 
 // --- Brute slam ----------------------------------------------------------
 const SLAM_RANGE = 6.5 // brute begins a slam wind-up inside this range
@@ -170,12 +194,14 @@ const MAX_PICKUPS = 14
 const PICKUP_LIFE = 12 // seconds a dropped heart lingers before fading
 const PICKUP_R = 1.7 // collection radius
 const PICKUP_R_SQ = PICKUP_R * PICKUP_R
-const DROP_CHANCE = [0.06, 0.05, 0.32, 0.09, 0.07] // per-variant heart drop odds
+// Per-variant heart odds — a touch richer than the old flood tuning, since
+// far fewer (but tougher) kills now carry the whole heal economy.
+const DROP_CHANCE = [0.1, 0.08, 0.4, 0.13, 0.11]
 
 // --- Gun heat / overheat (Phase 9: skill + sword-vs-gun decisions) -------
 // The blaster builds heat as you fire and JAMS if you redline it, so you can't
 // just hold the trigger forever — you must fire in disciplined bursts or switch
-// to the sword. Fast/overcharged guns heat up quicker, making them a trade-off.
+// to the sword.
 const HEAT_PER_SHOT = 0.075 // heat added per trigger pull (0..1 scale)
 const HEAT_DECAY = 0.55 // heat shed per second while not firing
 const OVERHEAT_MS = 1500 // jam duration once the gun redlines
@@ -198,15 +224,6 @@ const KILL_SFX_GAP = 0.06
 // --- Knowledge glitch (Phase 5) ------------------------------------------
 const GLITCH_SPAWN_EVERY = 26 // seconds between glitch spawns (when one is wanted)
 const GLITCH_SPAWN_R = 40 // distance from the player a glitch rises at
-
-// --- Weapon crates (Phase 7) ---------------------------------------------
-const MAX_CRATES = 2
-const CRATE_LIFE = 40 // seconds a crate lingers before fading
-const CRATE_R = 2.6 // collection radius
-const CRATE_R_SQ = CRATE_R * CRATE_R
-const CRATE_SPAWN_EVERY = 9 // try to keep one weapon chest beckoning at all times
-const CRATE_MIN_DIST = 30 // chests appear at a distance — you go get them
-const CRATE_MAX_DIST = 58
 
 // --- Stealth (Phase 7) ---------------------------------------------------
 // While the player is laying low, zombies beyond this range lose their lock and
@@ -246,18 +263,18 @@ function CombatSystemImpl({
   apiRef,
   paused,
   difficulty = 0,
-  gunLevel = 0,
   heartBonus = 0,
   intensity = 0,
   wantGlitch = false,
   night = false,
   zombieShadows = true,
   shelters,
+  encounter = null,
+  onEncounterCleared,
   onKill,
   onPlayerHit,
   onHeal,
   onGlitchKill,
-  onChest,
   dashRef,
   stealthRef,
   gunHeatRef,
@@ -269,8 +286,6 @@ function CombatSystemImpl({
   paused: boolean
   /** Ramps as the player clears checkpoints — faster, tougher, more frequent. */
   difficulty?: number
-  /** Current gun tier (0 = worst). Improves each checkpoint. */
-  gunLevel?: number
   /** Extra heart-drop chance per kill (learner-adaptive mercy for strugglers). */
   heartBonus?: number
   /** 0..1 progress through the current checkpoint siege — escalates the waves. */
@@ -283,6 +298,10 @@ function CombatSystemImpl({
   zombieShadows?: boolean
   /** Safe-house positions; standing inside one during night = total safety. */
   shelters?: { x: number; z: number }[]
+  /** Pending mission-beat fight (bounty elite / rescue ring), if any. */
+  encounter?: EncounterSpawn | null
+  /** Fired once when every member of the active encounter is destroyed. */
+  onEncounterCleared?: (id: string) => void
   onKill: () => void
   /** Called when a zombie/acid reaches the player; `damage` = hearts lost (breed-specific). */
   onPlayerHit: (damage?: number) => void
@@ -290,8 +309,6 @@ function CombatSystemImpl({
   onHeal?: () => void
   /** Called when a Glitch carrier is destroyed — triggers a knowledge surge. */
   onGlitchKill?: () => void
-  /** Called when the player collects a weapon crate — triggers an overcharge. */
-  onChest?: () => void
   /** Shared blade-dash state — drives the slicing sweep + i-frames. */
   dashRef?: MutableRefObject<DashState>
   /** Shared stealth state — when active, spawns pause and far zombies lose lock. */
@@ -317,13 +334,18 @@ function CombatSystemImpl({
   sheltersRef.current = shelters
   const onGlitchKillRef = useRef(onGlitchKill)
   onGlitchKillRef.current = onGlitchKill
-  const onChestRef = useRef(onChest)
-  onChestRef.current = onChest
+  const encounterRef = useRef<EncounterSpawn | null>(null)
+  encounterRef.current = encounter
+  const onEncounterClearedRef = useRef(onEncounterCleared)
+  onEncounterClearedRef.current = onEncounterCleared
+  // Live encounter fight: which beat it belongs to and its member slots.
+  const encState = useRef<{
+    id: string | null
+    spawned: boolean
+    members: ZombieSlot[]
+  }>({ id: null, spawned: false, members: [] })
   const glitchTimer = useRef(0)
   const glitchActive = useRef(false)
-  const crateTimer = useRef(CRATE_SPAWN_EVERY * 0.5)
-  const gunRef = useRef(GUNS[0])
-  gunRef.current = gunForLevel(gunLevel)
   const lastFire = useRef(-9999)
   // Gun heat (0..1) + the clock time the gun is jammed until after a redline.
   const heatAmt = useRef(0)
@@ -338,36 +360,24 @@ function CombatSystemImpl({
       dieAt: 0,
       dieHow: 'shot' as const,
       hitAt: -10,
+      kbX: 0,
+      kbZ: 0,
       bornAt: 0,
       seed: Math.random() * 10,
       variant: VAR_NORMAL,
       cd: 0,
       castAt: 0,
     }))
-    // Restore the horde that was alive before a trip to the list view so it
-    // doesn't all vanish and respawn. Negative born/hit times = "already risen,
-    // not staggered" under the fresh clock.
-    const snap = loadZombieSnapshot()
-    if (snap) {
-      for (let i = 0; i < snap.length && i < pool.length; i++) {
-        const s = snap[i]
-        const z = pool[i]
-        z.active = true
-        z.state = 'walk'
-        z.hp = s.hp
-        z.pos.set(s.x, 0, s.z)
-        z.facing = s.facing
-        z.bornAt = -100
-        z.hitAt = -100
-        z.dieAt = 0
-        z.dieHow = 'shot'
-        z.seed = Math.random() * 10
-        z.variant = s.variant ?? VAR_NORMAL
-        z.cd = 0
-        z.castAt = 0
-      }
-    }
     return pool
+  }, [])
+
+  // Restore the horde that was alive before a trip to the list view so it
+  // doesn't all vanish and respawn — but staggered over frames from the frame
+  // loop below: re-activating ~28 skinned zombies in a single frame causes a
+  // visible hitch right as the remounted world fades in.
+  const restoreQueue = useMemo<{ snaps: ZombieSnap[]; next: number } | null>(() => {
+    const snap = loadZombieSnapshot()
+    return snap && snap.length > 0 ? { snaps: snap, next: 0 } : null
   }, [])
 
   const arrows = useMemo<ArrowSlot[]>(
@@ -394,37 +404,6 @@ function CombatSystemImpl({
     [],
   )
 
-  // Weapon crates the player can detour for — collecting one overcharges the gun.
-  const crates = useMemo<PickupSlot[]>(
-    () =>
-      Array.from({ length: MAX_CRATES }, () => ({
-        active: false,
-        pos: new THREE.Vector3(),
-        bornAt: 0,
-      })),
-    [],
-  )
-
-  function spawnCrate(px: number, pz: number, now: number) {
-    for (let i = 0; i < crates.length; i++) {
-      if (crates[i].active) continue
-      const ang = Math.random() * Math.PI * 2
-      const r = CRATE_MIN_DIST + Math.random() * (CRATE_MAX_DIST - CRATE_MIN_DIST)
-      let x = px + Math.cos(ang) * r
-      let z = pz + Math.sin(ang) * r
-      const edge = GROUND_HALF - 8
-      const d = Math.hypot(x, z)
-      if (d > edge) {
-        x *= edge / d
-        z *= edge / d
-      }
-      crates[i].active = true
-      crates[i].pos.set(x, 0, z)
-      crates[i].bornAt = now
-      return
-    }
-  }
-
   // Player i-frames + audio throttles (clock times). Live in refs so they never
   // trigger a React re-render from inside the frame loop.
   const invulnUntil = useRef(-10)
@@ -434,6 +413,29 @@ function CombatSystemImpl({
   function kick(now: number, shake: number, stopFor = 0) {
     if (shakeRef && shake > shakeRef.current) shakeRef.current = shake
     if (hitstopRef && stopFor > 0) hitstopRef.current = Math.max(hitstopRef.current, now + stopFor)
+  }
+
+  // Encounter members must ALWAYS get a body: prefer a free slot, else evict
+  // the wave zombie farthest from the player (never a fellow member or the
+  // glitch carrier). A full pool used to silently skip members, leaving
+  // bounty beats with nothing to kill.
+  function claimEncounterSlot(px: number, pz: number): ZombieSlot | null {
+    const free = zombies.find((z) => !z.active)
+    if (free) return free
+    let best: ZombieSlot | null = null
+    let bestD = -1
+    for (let i = 0; i < zombies.length; i++) {
+      const z = zombies[i]
+      if (z.encMember || z.variant === VAR_GLITCH) continue
+      const dx = z.pos.x - px
+      const dz = z.pos.z - pz
+      const d2 = dx * dx + dz * dz
+      if (d2 > bestD) {
+        bestD = d2
+        best = z
+      }
+    }
+    return best
   }
 
   function dropHeart(x: number, z: number, now: number) {
@@ -512,6 +514,8 @@ function CombatSystemImpl({
     slot.life = SPIT_LIFE
     slot.pos.set(zx, 1.2, zz)
     slot.vel.set(dx / len, dy / len, dz / len).multiplyScalar(SPIT_SPEED)
+    // Brief muzzle glow at the spitter so the release reads at range.
+    impactFx.current?.spawn(zx, 1.2, zz, ACID_SPLASH, 0.8, 3)
   }
 
   // --- Instanced render targets -------------------------------------------
@@ -520,10 +524,9 @@ function CombatSystemImpl({
   const boltCoreRef = useRef<THREE.InstancedMesh>(null)
   const boltHeadRef = useRef<THREE.InstancedMesh>(null)
   const boltTailRef = useRef<THREE.InstancedMesh>(null)
-  const spitRef = useRef<THREE.InstancedMesh>(null)
+  const spitFx = useRef<EnemyProjectilesHandle>(null)
+  const impactFx = useRef<ImpactFlashesHandle>(null)
   const pickupRef = useRef<THREE.InstancedMesh>(null)
-  const crateRef = useRef<THREE.InstancedMesh>(null)
-  const crateBeamRef = useRef<THREE.InstancedMesh>(null)
 
   const geo = useMemo(() => {
     // Bolt parts, baked so each shares one oriented instance matrix.
@@ -534,17 +537,11 @@ function CombatSystemImpl({
     const boltTail = new THREE.ConeGeometry(0.07, 0.9, 8)
     boltTail.rotateX(-Math.PI / 2)
     boltTail.translate(0, 0, -0.45)
-    // Spitter acid bolt — a glob of toxic sludge.
-    const spit = new THREE.SphereGeometry(0.16, 10, 10)
+    // (Spitter acid renders through the shared <EnemyProjectiles> layers.)
     // Dropped health orb — a single glowing gem (one instanced draw call for the
     // whole drop pool). Reads as a pickup via its pink glow + bob/spin.
     const heart = new THREE.OctahedronGeometry(0.32, 0)
-    // Weapon chest — a chunky glowing supply box…
-    const crate = new THREE.BoxGeometry(1.1, 1.1, 1.1)
-    // …with a tall light beam so you can spot it from across the city.
-    const crateBeam = new THREE.CylinderGeometry(0.7, 0.7, 40, 12, 1, true)
-    crateBeam.translate(0, 20, 0)
-    return { boltCore, boltHead, boltTail, spit, heart, crate, crateBeam }
+    return { boltCore, boltHead, boltTail, heart }
   }, [])
 
   const mats = useMemo(() => {
@@ -552,10 +549,7 @@ function CombatSystemImpl({
       boltCore: new THREE.MeshBasicMaterial({ color: '#d6fbff', toneMapped: false, fog: false }),
       boltHead: new THREE.MeshBasicMaterial({ color: '#eafdff', toneMapped: false, fog: false }),
       boltTail: new THREE.MeshBasicMaterial({ color: '#46d6ff', transparent: true, opacity: 0.4, toneMapped: false, fog: false }),
-      spit: new THREE.MeshStandardMaterial({ color: '#b6ff3a', emissive: '#7dff1a', emissiveIntensity: 1.4, roughness: 0.5, toneMapped: false }),
       heart: new THREE.MeshStandardMaterial({ color: '#ff5b7e', emissive: '#ff2d6a', emissiveIntensity: 1.6, roughness: 0.35, toneMapped: false }),
-      crate: new THREE.MeshStandardMaterial({ color: '#ffcf57', emissive: '#ff9b1a', emissiveIntensity: 1.1, roughness: 0.4, metalness: 0.3, toneMapped: false }),
-      crateBeam: new THREE.MeshBasicMaterial({ color: '#ffd76a', transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false, toneMapped: false, fog: false }),
     }
   }, [])
 
@@ -590,8 +584,7 @@ function CombatSystemImpl({
   // Expose the fire() handle.
   apiRef.current = {
     fire(origin, dir) {
-      const gun = gunRef.current
-      // Rate of fire — weak guns shoot slowly, top guns rip.
+      const gun = WEAPON
       const now = performance.now()
       // Jammed: the gun redlined and is venting heat — reach for the sword (Q).
       if (now < overheatUntil.current) return false
@@ -609,8 +602,8 @@ function CombatSystemImpl({
       // Travel along the laser sight the player sees.
       const v = fireDir.current.copy(dir).normalize()
 
-      // Kid-friendly auto-aim: bend toward the nearest zombie inside the gun's
-      // cone. Early guns have almost no assist, so they feel clumsy.
+      // Kid-friendly auto-aim: bend a near-miss toward the nearest zombie inside
+      // the Pattern Cannon's established top-tier assist cone.
       let best: ZombieSlot | null = null
       let bestDot = gun.aimConeCos
       for (let i = 0; i < zombies.length; i++) {
@@ -640,9 +633,7 @@ function CombatSystemImpl({
       for (let p = 0; p < gun.pellets; p++) {
         const slot = arrows.find((a) => !a.active)
         if (!slot) break
-        const fanOff = (p - (gun.pellets - 1) / 2) * gun.fan
-        const jitter = (Math.random() * 2 - 1) * gun.spread
-        const ang = baseAng + fanOff + jitter
+        const ang = baseAng + weaponPelletYaw(p, Math.random(), gun)
         slot.active = true
         slot.life = ARROW_LIFE
         slot.damage = gun.damage
@@ -656,8 +647,10 @@ function CombatSystemImpl({
       return true
     },
     snapshot() {
+      // Encounter members are excluded: the beat respawns its own fight on
+      // return, so restoring them too would duplicate the elite / ring.
       return zombies
-        .filter((z) => z.active && z.state === 'walk')
+        .filter((z) => z.active && z.state === 'walk' && !z.encMember)
         .map((z) => ({ x: z.pos.x, z: z.pos.z, hp: z.hp, facing: z.facing, variant: z.variant }))
     },
   }
@@ -672,21 +665,42 @@ function CombatSystemImpl({
         for (let i = 0; i < MAX_ARROWS; i++) m.setMatrixAt(i, scratch.hidden)
         m.instanceMatrix.needsUpdate = true
       }
-      if (spitRef.current) {
-        for (let i = 0; i < MAX_SPITS; i++) spitRef.current.setMatrixAt(i, scratch.hidden)
-        spitRef.current.instanceMatrix.needsUpdate = true
-      }
       if (pickupRef.current) {
         for (let i = 0; i < MAX_PICKUPS; i++) pickupRef.current.setMatrixAt(i, scratch.hidden)
         pickupRef.current.instanceMatrix.needsUpdate = true
       }
-      if (crateRef.current) {
-        for (let i = 0; i < MAX_CRATES; i++) crateRef.current.setMatrixAt(i, scratch.hidden)
-        crateRef.current.instanceMatrix.needsUpdate = true
-      }
-      if (crateBeamRef.current) {
-        for (let i = 0; i < MAX_CRATES; i++) crateBeamRef.current.setMatrixAt(i, scratch.hidden)
-        crateBeamRef.current.instanceMatrix.needsUpdate = true
+    }
+    // Drain the saved-horde snapshot a few zombies per frame instead of all at
+    // once. Negative born/hit times = "already risen, not staggered" under the
+    // fresh clock, so restored walkers pop in fully upright, just spread out.
+    if (restoreQueue && restoreQueue.next < restoreQueue.snaps.length) {
+      let budget = RESTORE_PER_FRAME
+      while (budget > 0 && restoreQueue.next < restoreQueue.snaps.length) {
+        const s = restoreQueue.snaps[restoreQueue.next++]
+        for (let i = 0; i < zombies.length; i++) {
+          const z = zombies[i]
+          if (z.active) continue
+          z.active = true
+          z.state = 'walk'
+          z.hp = s.hp
+          z.pos.set(s.x, 0, s.z)
+          z.facing = s.facing
+          z.bornAt = -100
+          z.hitAt = -100
+          z.kbX = 0
+          z.kbZ = 0
+          z.dieAt = 0
+          z.dieHow = 'shot'
+          z.seed = Math.random() * 10
+          z.variant = s.variant ?? VAR_NORMAL
+          z.cd = 0
+          z.castAt = 0
+          z.encMember = false
+          z.encAnchorX = undefined
+          z.encAnchorZ = undefined
+          break
+        }
+        budget--
       }
     }
     if (paused) return
@@ -744,11 +758,13 @@ function CombatSystemImpl({
     // thicker and faster the waves get — building to a frantic climax.
     const inten = intensityRef.current
     // After dark the horde turns fast + relentless — standing your ground is death.
+    // Pace pass: cap 8.4→7.39, tier ramp 0.26→0.23, intensity 1.2→1.06 — the
+    // whole escalation curve is ×0.88, matching the player slowdown exactly.
     const speed =
-      Math.min(8.4, ZOMBIE_SPEED + (tier - 1) * 0.26 + inten * 1.2) *
+      Math.min(7.39, ZOMBIE_SPEED + (tier - 1) * 0.23 + inten * 1.06) *
       (isNight ? NIGHT_SPEED_MUL : 1)
     const spawnEvery =
-      Math.max(0.2, (SPAWN_EVERY - (tier - 1) * 0.03) * (1 - inten * 0.4)) *
+      Math.max(0.4, (SPAWN_EVERY - (tier - 1) * 0.03) * (1 - inten * 0.4)) *
       (isNight ? NIGHT_SPAWN_MUL : 1)
     const spawnHp = ZOMBIE_HP + Math.min(7, Math.floor((tier - 1) / 2)) + Math.round(inten * 2)
 
@@ -757,8 +773,9 @@ function CombatSystemImpl({
     spawnTimer.current += dt
     if (!stealthed && spawnTimer.current >= spawnEvery) {
       spawnTimer.current = 0
-      // Hordes — spawn big packs even early so there's always plenty to blast.
-      const burst = (tier >= 8 ? 12 : tier >= 3 ? 10 : 7) + Math.round(inten * 5)
+      // Elite squads: 2-3 bodies at a time, ramping with tier + siege heat.
+      // Small numbers keep each zombie legible and worth a real exchange.
+      const burst = (tier >= 8 ? 4 : tier >= 3 ? 3 : 2) + Math.round(inten * 2)
       for (let b = 0; b < burst; b++) {
         const slot = zombies.find((z) => !z.active)
         if (!slot) break
@@ -780,11 +797,114 @@ function CombatSystemImpl({
         slot.hp = Math.max(1, Math.round(spawnHp * vdef.hpMul) + vdef.hpAdd)
         slot.pos.set(x, 0, z)
         slot.hitAt = -10
+        slot.kbX = 0
+        slot.kbZ = 0
         slot.bornAt = now
         slot.seed = Math.random() * 10
         slot.castAt = 0
+        slot.encMember = false
+        slot.encAnchorX = undefined
+        slot.encAnchorZ = undefined
         // Spitters wait a beat before their first shot so they don't all volley at once.
         slot.cd = variant === VAR_SPITTER ? now + 0.5 + Math.random() * 0.9 : 0
+      }
+    }
+
+    // --- Mission-beat encounter: bounty elite / rescue ring ----------------
+    // Spawns once when the player nears the beat's anchor; reports the win
+    // the moment every member has fallen. Members are exempt from distance
+    // despawn so the fight can't be cheesed by walking away.
+    const enc = encounterRef.current
+    if (!enc) {
+      if (encState.current.id) {
+        encState.current = { id: null, spawned: false, members: [] }
+      }
+    } else {
+      if (encState.current.id !== enc.id) {
+        encState.current = { id: enc.id, spawned: false, members: [] }
+      }
+      const live = encState.current
+      if (!live.spawned) {
+        const pdx = player.x - enc.x
+        const pdz = player.z - enc.z
+        const trigger =
+          enc.kind === 'bounty' ? BOUNTY_TRIGGER_SQ : RESCUE_TRIGGER_SQ
+        if (pdx * pdx + pdz * pdz <= trigger) {
+          const count = enc.kind === 'bounty' ? 1 : RESCUE_RING_SIZE
+          // Top up from however many members exist (0 on the first pass): if a
+          // frame ever fails to place the full roster, the next one retries
+          // instead of declaring a half-spawned (or empty) fight live.
+          for (let m = live.members.length; m < count; m++) {
+            const slot = claimEncounterSlot(player.x, player.z)
+            if (!slot) break
+            const ang = (m / count) * Math.PI * 2 + 0.6
+            const r = enc.kind === 'bounty' ? 6 : 4.2 + (m % 2) * 1.4
+            const variant =
+              enc.kind === 'bounty'
+                ? VAR_BRUTE
+                : m === 0
+                  ? VAR_SPITTER
+                  : m % 2 === 0
+                    ? VAR_RUNNER
+                    : VAR_NORMAL
+            const vdef = VARIANTS[variant]
+            slot.active = true
+            slot.state = 'walk'
+            slot.variant = variant
+            slot.hp =
+              enc.kind === 'bounty'
+                ? Math.round(
+                    (spawnHp * vdef.hpMul + vdef.hpAdd) * BOUNTY_HP_MULT,
+                  )
+                : Math.max(1, Math.round(spawnHp * vdef.hpMul) + vdef.hpAdd)
+            // Keep the spawn point on the playfield even for beats that sit
+            // near the map rim, so a member can't rise out of reach.
+            let mx = enc.x + Math.cos(ang) * r
+            let mz = enc.z + Math.sin(ang) * r
+            const edge = GROUND_HALF - 6
+            const md = Math.hypot(mx, mz)
+            if (md > edge) {
+              mx *= edge / md
+              mz *= edge / md
+            }
+            slot.pos.set(mx, 0, mz)
+            slot.hitAt = -10
+            slot.kbX = 0
+            slot.kbZ = 0
+            slot.bornAt = now
+            slot.seed = Math.random() * 10
+            slot.castAt = 0
+            slot.cd = variant === VAR_SPITTER ? now + 0.8 : 0
+            slot.encMember = true
+            // Rescue rings menace their trapped citizen until the player is
+            // close enough to fight (see the lunge theater in the sim loop).
+            if (enc.kind === 'rescue') {
+              slot.encAnchorX = enc.x
+              slot.encAnchorZ = enc.z
+            } else {
+              slot.encAnchorX = undefined
+              slot.encAnchorZ = undefined
+            }
+            live.members.push(slot)
+          }
+          // Only a full roster counts as spawned — a partial pass retries.
+          live.spawned = live.members.length >= count
+        }
+      } else if (live.members.length > 0) {
+        // A member still standing keeps the fight alive; a slot that died (or
+        // was recycled by the wave spawner, which clears encMember) is down.
+        let down = true
+        for (const member of live.members) {
+          if (member.active && member.state === 'walk' && member.encMember) {
+            down = false
+            break
+          }
+        }
+        if (down) {
+          live.members = []
+          kick(now, 0.5, 0.1)
+          onEncounterClearedRef.current?.(enc.id)
+        }
       }
     }
 
@@ -811,21 +931,18 @@ function CombatSystemImpl({
           slot.hp = Math.max(1, Math.round(spawnHp * vdef.hpMul) + vdef.hpAdd)
           slot.pos.set(x, 0, z)
           slot.hitAt = -10
+          slot.kbX = 0
+          slot.kbZ = 0
           slot.bornAt = now
           slot.seed = Math.random() * 10
           slot.castAt = 0
           slot.cd = 0
+          slot.encMember = false
+          slot.encAnchorX = undefined
+          slot.encAnchorZ = undefined
           glitchActive.current = true
         }
       }
-    }
-
-    // --- Weapon chest: always keep one beckoning objective on the map -----
-    crateTimer.current += dt
-    if (crateTimer.current >= CRATE_SPAWN_EVERY) {
-      crateTimer.current = 0
-      const anyCrate = crates.some((c) => c.active)
-      if (!anyCrate) spawnCrate(player.x, player.z, now)
     }
 
     // --- Zombies ----------------------------------------------------------
@@ -833,6 +950,14 @@ function CombatSystemImpl({
       const z = zombies[zi]
       if (!z.active) continue
       if (z.state === 'die') {
+        // Corpses keep their damped knockback slide (the kill launch).
+        if (z.kbX !== 0 || z.kbZ !== 0) {
+          z.pos.x += z.kbX * dt
+          z.pos.z += z.kbZ * dt
+          const kbDamp = Math.exp(-KNOCKBACK_DAMP * dt)
+          z.kbX *= kbDamp
+          z.kbZ *= kbDamp
+        }
         if (now - z.dieAt > DIE_DURATION) z.active = false
         continue
       }
@@ -852,6 +977,8 @@ function CombatSystemImpl({
           z.dieHow = 'dash'
           fxRef.current?.impact(z.pos.x, 1.2, z.pos.z, 0, false, true)
           spawnBurst(z.pos.x, z.pos.z, now)
+          // Slicing through a body mid-dash lands its own beat.
+          kick(now, 0.2, 0.05)
           if (now - lastKillSfx.current > KILL_SFX_GAP) {
             lastKillSfx.current = now
             playEnemyKill()
@@ -867,7 +994,7 @@ function CombatSystemImpl({
         }
       }
 
-      if (d2 > DESPAWN_DIST_SQ) {
+      if (d2 > DESPAWN_DIST_SQ && !z.encMember) {
         z.active = false
         if (z.variant === VAR_GLITCH) glitchActive.current = false
         continue
@@ -905,8 +1032,44 @@ function CombatSystemImpl({
         spawnBurst(z.pos.x, z.pos.z, now)
         continue
       }
-      // Freeze briefly after being struck so hits feel like they land.
-      if (now - z.hitAt < STAGGER_TIME) continue
+      // ---- Hit reaction ----------------------------------------------------
+      // A bolt adds a velocity impulse (never a position snap); it decays
+      // exponentially so the body slides back a short beat along the shot line
+      // and settles — no teleport jitter, no fighting the seek AI.
+      if (z.kbX !== 0 || z.kbZ !== 0) {
+        z.pos.x += z.kbX * dt
+        z.pos.z += z.kbZ * dt
+        const kbDamp = Math.exp(-KNOCKBACK_DAMP * dt)
+        z.kbX *= kbDamp
+        z.kbZ *= kbDamp
+        if (z.kbX * z.kbX + z.kbZ * z.kbZ < 0.01) {
+          z.kbX = 0
+          z.kbZ = 0
+        }
+      }
+      // Hit-stun: seek pauses briefly so the shove reads clean...
+      const sinceStagger = now - z.hitAt
+      if (sinceStagger < STAGGER_TIME) continue
+      // ...then pursuit eases back up to full speed instead of snapping.
+      const recover = Math.min(1, (sinceStagger - STAGGER_TIME) / SEEK_RECOVER)
+
+      // Rescue-ring THEATER: while the player is still far, ring members
+      // menace the trapped citizen — lunging in at them and backing off —
+      // instead of beelining across the map. Pure staging; the moment the
+      // player closes in they turn and fight for real.
+      if (z.encAnchorX !== undefined && z.encAnchorZ !== undefined && d2 > 14 * 14) {
+        const ax = z.encAnchorX - z.pos.x
+        const az = z.encAnchorZ - z.pos.z
+        const ad = Math.hypot(ax, az) || 1
+        // Each member breathes on its own phase: in to ~1.6m (a lunge at the
+        // citizen), back out to ~4.6m, forever.
+        const wantR = 3.1 + Math.sin(now * 1.7 + z.seed * 6.3) * 1.5
+        const err = ad - wantR
+        z.pos.x += (ax / ad) * THREE.MathUtils.clamp(err, -1, 1) * speed * 0.55 * dt
+        z.pos.z += (az / ad) * THREE.MathUtils.clamp(err, -1, 1) * speed * 0.55 * dt
+        z.facing = Math.atan2(ax, az) // menace the citizen, not the player
+        continue
+      }
 
       // Spitters hold their distance and lob acid — but only after a visible
       // wind-up (a charge glow) so the player can read it and dodge.
@@ -930,7 +1093,7 @@ function CombatSystemImpl({
         if (dist > SPIT_RANGE) dir = 1 // close in until in range
         else if (dist < SPIT_STANDOFF) dir = -0.85 // crowded — back away
         if (dir !== 0) {
-          const step = (speed * vdef.speedMul * dir * dt) / dist
+          const step = (speed * vdef.speedMul * recover * dir * dt) / dist
           z.pos.x += dx * step
           z.pos.z += dz * step
         }
@@ -964,7 +1127,7 @@ function CombatSystemImpl({
       }
 
       // Each melee breed has its own pace; runners + mutants put on a closing burst.
-      let vspeed = speed * vdef.speedMul
+      let vspeed = speed * vdef.speedMul * recover
       if (vdef.lunge && d2 < LUNGE_DIST_SQ) vspeed *= 1.3
       const step = (vspeed * dt) / (Math.sqrt(d2) || 1)
       z.pos.x += dx * step
@@ -1011,21 +1174,36 @@ function CombatSystemImpl({
               lastHitSfx.current = now
               playEnemyHit()
             }
-            // Knockback along the arrow's travel direction.
+            // Knockback impulse along the bolt's travel direction (staggers
+            // too, via hitAt) — every connected bolt visibly rocks the body,
+            // and the damped slide replaces the old same-frame position snap.
             const len = Math.hypot(a.vel.x, a.vel.z) || 1
-            z.pos.x += (a.vel.x / len) * 0.6
-            z.pos.z += (a.vel.z / len) * 0.6
+            z.kbX += (a.vel.x / len) * HIT_KNOCKBACK_IMPULSE
+            z.kbZ += (a.vel.z / len) * HIT_KNOCKBACK_IMPULSE
+            // Rapid fire stacks pressure, not physics: cap the total speed.
+            const kbLen = Math.hypot(z.kbX, z.kbZ)
+            if (kbLen > KNOCKBACK_MAX) {
+              z.kbX *= KNOCKBACK_MAX / kbLen
+              z.kbZ *= KNOCKBACK_MAX / kbLen
+            }
           } else {
             z.state = 'die'
             z.dieAt = now
             z.dieHow = 'shot'
+            // Launch the corpse along the killing bolt before it drops.
+            const len = Math.hypot(a.vel.x, a.vel.z) || 1
+            z.kbX = (a.vel.x / len) * KILL_KNOCKBACK_IMPULSE
+            z.kbZ = (a.vel.z / len) * KILL_KNOCKBACK_IMPULSE
             spawnBurst(z.pos.x, z.pos.z, now, crit)
             if (now - lastKillSfx.current > KILL_SFX_GAP) {
               lastKillSfx.current = now
               playEnemyKill()
             }
-            // Brutes are a slog, so they pay out — a heart on top of a small shake.
-            if (z.variant === VAR_BRUTE) kick(now, 0.3, 0.05)
+            // EVERY kill lands a beat: a hitstop tick + shake, bigger on crits.
+            // With the elite retune each body takes a real exchange, so the
+            // payoff has to feel like an event — not a popcorn pop.
+            if (z.variant === VAR_BRUTE) kick(now, 0.42, 0.11)
+            else kick(now, crit ? 0.3 : 0.2, crit ? 0.09 : 0.06)
             if (Math.random() < (DROP_CHANCE[z.variant] ?? 0.06) + heartBonusRef.current)
               dropHeart(z.pos.x, z.pos.z, now)
             if (z.variant === VAR_GLITCH) {
@@ -1050,6 +1228,8 @@ function CombatSystemImpl({
         s.pos.y < 0 ||
         s.pos.x * s.pos.x + s.pos.z * s.pos.z > GROUND_HALF_SQ
       ) {
+        // Acid that lands splats on the pavement instead of blinking out.
+        if (s.pos.y < 0.4) impactFx.current?.spawn(s.pos.x, 0.14, s.pos.z, ACID_SPLASH, 0.8, 5)
         s.active = false
         continue
       }
@@ -1059,6 +1239,7 @@ function CombatSystemImpl({
         const ddz = s.pos.z - dash.z
         if (ddx * ddx + ddz * ddz <= dashR2) {
           s.active = false
+          impactFx.current?.spawn(s.pos.x, s.pos.y, s.pos.z, ACID_SPLASH, 0.9, 6)
           continue
         }
       }
@@ -1067,6 +1248,7 @@ function CombatSystemImpl({
       const hdz = s.pos.z - player.z
       if (hdx * hdx + hdy * hdy + hdz * hdz < SPIT_HIT_R_SQ) {
         s.active = false
+        impactFx.current?.spawn(s.pos.x, s.pos.y, s.pos.z, ACID_SPLASH, 1.2, 8)
         if (!dashActive && !invuln) {
           onPlayerHit(isNight ? 2 : 1)
           invulnUntil.current = now + PLAYER_IFRAME
@@ -1088,23 +1270,6 @@ function CombatSystemImpl({
       if (pdx * pdx + pdz * pdz < PICKUP_R_SQ) {
         pk.active = false
         onHeal?.()
-      }
-    }
-
-    // --- Weapon crates: fade out over time, collect on contact -----------
-    for (let ci = 0; ci < crates.length; ci++) {
-      const cr = crates[ci]
-      if (!cr.active) continue
-      if (now - cr.bornAt > CRATE_LIFE) {
-        cr.active = false
-        continue
-      }
-      const cdx = cr.pos.x - player.x
-      const cdz = cr.pos.z - player.z
-      if (cdx * cdx + cdz * cdz < CRATE_R_SQ) {
-        cr.active = false
-        kick(now, 0.25, 0.04)
-        onChestRef.current?.()
       }
     }
 
@@ -1140,23 +1305,19 @@ function CombatSystemImpl({
       boltTail.instanceMatrix.needsUpdate = true
     }
 
-    // --- Acid bolts (instanced) ------------------------------------------
-    const spitMesh = spitRef.current
-    if (spitMesh) {
+    // --- Acid bolts (layered core / halo / trail) -------------------------
+    {
+      const fx = spitFx.current
+      fx?.begin(state.camera.quaternion)
       for (let i = 0; i < spits.length; i++) {
         const s = spits[i]
         if (!s.active) {
-          spitMesh.setMatrixAt(i, hidden)
+          fx?.hide(i)
           continue
         }
-        const wob = 1 + Math.sin(now * 28 + i) * 0.14 // a queasy pulsing glob
-        o.position.copy(s.pos)
-        o.quaternion.identity()
-        o.scale.set(wob, wob, wob)
-        o.updateMatrix()
-        spitMesh.setMatrixAt(i, o.matrix)
+        fx?.set(i, s.pos, s.vel.x, s.vel.y, s.vel.z, now)
       }
-      spitMesh.instanceMatrix.needsUpdate = true
+      fx?.commit()
     }
 
     // --- Death poofs ------------------------------------------------------
@@ -1205,36 +1366,6 @@ function CombatSystemImpl({
       pkMesh.instanceMatrix.needsUpdate = true
     }
 
-    // --- Weapon chests + their guiding light beams (instanced) -----------
-    const crMesh = crateRef.current
-    const beamMesh = crateBeamRef.current
-    if (crMesh) {
-      for (let i = 0; i < crates.length; i++) {
-        const cr = crates[i]
-        if (!cr.active) {
-          crMesh.setMatrixAt(i, hidden)
-          if (beamMesh) beamMesh.setMatrixAt(i, hidden)
-          continue
-        }
-        const age = now - cr.bornAt
-        const remain = THREE.MathUtils.clamp((CRATE_LIFE - age) / 2, 0, 1)
-        o.position.set(cr.pos.x, 0.6 + Math.sin(now * 2 + i) * 0.14, cr.pos.z)
-        o.rotation.set(0, now * 1.1 + i, 0)
-        o.scale.set(remain, remain, remain)
-        o.updateMatrix()
-        crMesh.setMatrixAt(i, o.matrix)
-        if (beamMesh) {
-          const pulse = 0.85 + Math.sin(now * 3 + i) * 0.15
-          o.position.set(cr.pos.x, 0, cr.pos.z)
-          o.rotation.set(0, 0, 0)
-          o.scale.set(pulse, 1, pulse)
-          o.updateMatrix()
-          beamMesh.setMatrixAt(i, o.matrix)
-        }
-      }
-      crMesh.instanceMatrix.needsUpdate = true
-      if (beamMesh) beamMesh.instanceMatrix.needsUpdate = true
-    }
   })
 
   return (
@@ -1243,7 +1374,7 @@ function CombatSystemImpl({
           all 90 bodies (+1 for blob shadows). Suspense holds it back while the
           GLB + baked animation texture stream in — combat sim runs regardless. */}
       <Suspense fallback={null}>
-        <ZombieHorde zombies={zombies} paused={paused} shadows={zombieShadows} />
+        <ZombieHorde zombies={zombies} paused={paused} shadows={zombieShadows} nearShadowOnly />
       </Suspense>
       <CombatFx ref={fxRef} />
 
@@ -1251,12 +1382,11 @@ function CombatSystemImpl({
       <instancedMesh ref={boltHeadRef} args={[geo.boltHead, mats.boltHead, MAX_ARROWS]} frustumCulled={false} />
       <instancedMesh ref={boltTailRef} args={[geo.boltTail, mats.boltTail, MAX_ARROWS]} frustumCulled={false} />
 
-      <instancedMesh ref={spitRef} args={[geo.spit, mats.spit, MAX_SPITS]} frustumCulled={false} />
+      {/* Spitter acid — toxic plasma core + glow + trail, plus splash flashes. */}
+      <EnemyProjectiles ref={spitFx} organic pool={MAX_SPITS} color={ACID_GLOW} coreColor={ACID_CORE} size={0.26} trail={0.85} />
+      <ImpactFlashes ref={impactFx} pool={12} />
 
       <instancedMesh ref={pickupRef} args={[geo.heart, mats.heart, MAX_PICKUPS]} frustumCulled={false} />
-
-      <instancedMesh ref={crateRef} args={[geo.crate, mats.crate, MAX_CRATES]} frustumCulled={false} />
-      <instancedMesh ref={crateBeamRef} args={[geo.crateBeam, mats.crateBeam, MAX_CRATES]} frustumCulled={false} />
 
       {bursts.map((_, i) => (
         <mesh

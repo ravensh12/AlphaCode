@@ -28,10 +28,37 @@
   min-height: 36px;
   flex-wrap: wrap;
 }
-.lp-restart-quiz {
+.lp-restart-quiz,
+.lp-skip-quiz {
   flex-shrink: 0;
   font-size: 13px;
   padding: 8px 12px;
+}
+
+/* Dev-only bypass for the showcase account — visually set apart. */
+.lp-skip-quiz {
+  border-color: color-mix(in srgb, var(--lime, #b7f542) 45%, transparent);
+  color: var(--lime, #b7f542);
+}
+
+/* Per-question demo skip (showcase account only) — deliberately quiet. */
+.lp-skip-step {
+  align-self: center;
+  margin-top: 4px;
+  padding: 4px 10px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--muted, #8b93a7);
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+.lp-skip-step:hover:not(:disabled) {
+  color: var(--text, #e8ecf5);
+}
+.lp-skip-step:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .review-mastery-bar {
@@ -100,50 +127,9 @@
   background: var(--surface-2);
   color: var(--ink);
 }
-
-/* Levels indicator — quiet, glanceable */
-.levels-link {
-  display: inline-flex;
-  padding: 6px;
-  border-radius: 999px;
-}
-.levels-link:hover {
-  background: var(--surface-2);
-}
-
-.section-tracker {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  align-items: flex-end;
-}
-.section-tracker-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.section-label {
-  font-family: var(--display);
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  width: 32px;
-  color: var(--ink-soft);
-  opacity: 0.55;
-}
-.section-label.active {
-  opacity: 1;
-  color: var(--ink);
-}
-.levels-teach .level-seg.done {
-  background: var(--lime);
-}
-.levels-quiz .level-seg.done {
-  background: var(--primary);
-}
-.levels-quiz .level-seg.now {
-  background: var(--primary);
+.lp-exit:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .lp-learn {
@@ -246,20 +232,6 @@
   background: var(--primary);
 }
 
-.section-banner {
-  align-self: center;
-  margin: 0;
-  font-family: var(--display);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-soft);
-}
-.section-banner.quiz {
-  color: var(--primary);
-}
-
 .levels {
   display: flex;
   align-items: center;
@@ -287,6 +259,11 @@
 }
 .level-seg.todo {
   background: var(--paper-2);
+}
+/* Exam mode: a neutral "answered" fill that never reveals correctness. */
+.level-seg.answered {
+  background: var(--primary);
+  opacity: 0.45;
 }
 
 /* ---------- Stage (progressive disclosure) ---------- */
@@ -863,6 +840,9 @@
 .feedback.revealed {
   background: var(--yellow-soft);
 }
+.feedback.error {
+  background: var(--cyan-soft);
+}
 .feedback.revealed .feedback-icon {
   background: var(--yellow);
   color: var(--ink);
@@ -885,6 +865,10 @@
 .feedback.incorrect .feedback-icon {
   background: var(--coral);
   color: #fff;
+}
+.feedback.error .feedback-icon {
+  background: var(--cyan);
+  color: var(--ink);
 }
 .feedback-text {
   font-size: 14.5px;
@@ -1156,6 +1140,37 @@
   color: var(--tone, var(--primary));
 }
 
+/* ---------- Exam mode: neutral "answer locked in" acknowledgement ---------- */
+.exam-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  align-self: center;
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 14px;
+}
+.exam-locked-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: examLockedPulse 0.9s ease-in-out infinite;
+}
+@keyframes examLockedPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 /* ---------- NeetCode readiness ---------- */
 .neetcode-ready {
   width: 100%;
@@ -1362,6 +1377,12 @@
   justify-self: end;
   white-space: nowrap;
 }
+.review-ans.assessment-answer {
+  max-width: 220px;
+  white-space: normal;
+  text-align: right;
+  line-height: 1.35;
+}
 .review-item.missed .review-ans {
   color: #b00d12;
 }
@@ -1392,6 +1413,10 @@
   .review-ans {
     grid-column: 3 / 4;
     justify-self: start;
+  }
+  .review-ans.assessment-answer {
+    max-width: none;
+    text-align: left;
   }
   .var-box {
     width: 72px;
@@ -1675,6 +1700,17 @@
 .lp .level-seg.now {
   box-shadow: 0 0 12px rgba(109, 74, 254, 0.5);
 }
+.lp .level-seg.answered {
+  background: var(--cc-violet);
+  opacity: 0.45;
+}
+.lp .exam-locked {
+  background: var(--cc-glass);
+  color: var(--cc-text-soft);
+}
+.lp .exam-locked-dot {
+  background: var(--cc-violet);
+}
 .lp .section-banner {
   color: var(--cc-text-soft);
 }
@@ -1949,6 +1985,9 @@
 .lp .feedback.revealed {
   background: var(--cc-amber-soft);
 }
+.lp .feedback.error {
+  background: var(--cc-cyan-soft);
+}
 .lp .feedback-text {
   color: var(--cc-text);
 }
@@ -1970,6 +2009,11 @@
   background: var(--cc-window);
   color: #1c1402;
   border-color: var(--cc-window);
+}
+.lp .feedback.error .feedback-icon {
+  background: var(--cc-cyan);
+  color: #06201c;
+  border-color: var(--cc-cyan);
 }
 
 /* ---- Completion ---- */

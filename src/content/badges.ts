@@ -132,14 +132,6 @@ export function computeBadgeCounts(
   return counts
 }
 
-/** @deprecated use computeBadgeCounts — ids earned once per lesson run. */
-export function computeBadgeIds(
-  a: { lightningCount: number; quickCount: number; correctFirstTry: number },
-  interactiveTotal: number,
-): BadgeId[] {
-  return BADGE_ORDER.filter((id) => computeBadgeCounts(a, interactiveTotal)[id] > 0)
-}
-
 export type SpeedTier = 'lightning' | 'quick' | null
 
 /** Classify a single correct answer's response time. */

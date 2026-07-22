@@ -7,18 +7,6 @@ export type MasteryBand = 'strong' | 'ready' | 'review' | 'struggling'
  * Legacy formula (kept for reference). Quiz scoring uses {@link computeQuizMastery}.
  * mastery = min(100, 50 + correctFirstTry*10 + completedSteps*5 - wrongAttempts*3)
  */
-export function computeMastery(input: {
-  correctFirstTry: number
-  completedSteps: number
-  wrongAttempts: number
-}): number {
-  const raw =
-    50 +
-    input.correctFirstTry * 10 +
-    input.completedSteps * 5 -
-    input.wrongAttempts * 3
-  return Math.max(0, Math.min(100, Math.round(raw)))
-}
 
 /**
  * Quiz mastery = percent of interactive questions you got right on the first try.

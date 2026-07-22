@@ -19,6 +19,11 @@ import {
 } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { CinematicQualityProvider, qualityDpr, useQuality, type QualityTier } from './quality'
+import {
+  clampSimTier,
+  resolveQualityProfile,
+  type QualityProfile,
+} from '../../../lib/graphicsQuality'
 
 /* ============================================================================
    CinematicStage — the single source of truth for the "realistic" look.
@@ -27,7 +32,9 @@ import { CinematicQualityProvider, qualityDpr, useQuality, type QualityTier } fr
    rig, a fully procedural IBL mood (drei Environment + Lightformers, NO asset
    downloads) and a quality-aware post stack. A drei PerformanceMonitor steps
    the tier high → med → low on sustained low FPS; every effect reads the tier
-   so consumer scenes inherit the scaling for free.
+   so consumer scenes inherit the scaling for free. The unified graphics
+   profile (src/lib/graphicsQuality.ts — user override or auto-detect) bounds
+   the machine: it supplies the initial tier and the ceiling it may climb to.
 
    USAGE (other agents — do not change the prop contract):
 
@@ -245,6 +252,7 @@ function DprSync({ tier }: { tier: QualityTier }): null {
 function CinematicWorld({
   children,
   environment,
+  profile,
   bloom,
   dof,
   ssao,
@@ -254,6 +262,7 @@ function CinematicWorld({
 }: {
   children: ReactNode
   environment: 'arena' | 'void'
+  profile: QualityProfile
   bloom: number
   dof: boolean
   ssao: boolean
@@ -261,12 +270,19 @@ function CinematicWorld({
   chromaticAberration: boolean
   vignette: boolean
 }): JSX.Element {
-  // Start at LOW so the opening frames (when input feels worst) are cheap; ramp
-  // up only once FPS is comfortably stable, and drop fast on dips. Cooldowns add
-  // hysteresis so the tier never oscillates (and tier-change recompiles stay rare).
-  const [tier, setTier] = useState<QualityTier>('low')
+  // The unified graphics profile bounds the machine: it starts at the
+  // profile's initial tier (LOW for most devices, so the opening frames stay
+  // cheap; MED on ULTRA-class GPUs) and never climbs past the profile's max
+  // (a user-forced LOW/MEDIUM stays locked). Within those bounds, the
+  // PerformanceMonitor still adapts: ramp up only once FPS is comfortably
+  // stable, drop fast on dips, with cooldown hysteresis so the tier never
+  // oscillates (tier-change recompiles stay rare).
+  const maxTier = profile.cinematic.max
+  const [tier, setTier] = useState<QualityTier>(() =>
+    clampSimTier(profile.cinematic.initial, maxTier),
+  )
   const cooldown = useRef(0)
-  // Hold the first ~1.5s at LOW no matter what so the fight opens smooth.
+  // Hold the first ~1.5s at the initial tier no matter what.
   useEffect(() => {
     cooldown.current = performance.now() + 1500
   }, [])
@@ -277,14 +293,17 @@ function CinematicWorld({
     cooldown.current = now + 2000 // downgrade readily
     setTier((t) => (t === 'high' ? 'med' : 'low'))
   }, [])
-  const stepUp = useCallback((api: PerformanceMonitorApi) => {
-    // Only climb when there's clear, sustained headroom.
-    if (api.fps < 58) return
-    const now = performance.now()
-    if (now < cooldown.current) return
-    cooldown.current = now + 6000 // upgrade conservatively
-    setTier((t) => (t === 'low' ? 'med' : 'high'))
-  }, [])
+  const stepUp = useCallback(
+    (api: PerformanceMonitorApi) => {
+      // Only climb when there's clear, sustained headroom.
+      if (api.fps < 58) return
+      const now = performance.now()
+      if (now < cooldown.current) return
+      cooldown.current = now + 6000 // upgrade conservatively
+      setTier((t) => clampSimTier(t === 'low' ? 'med' : 'high', maxTier))
+    },
+    [maxTier],
+  )
   const fallback = useCallback(() => setTier('low'), [])
 
   return (
@@ -336,10 +355,17 @@ export function CinematicStage({
   const camPos = cameraInitial?.position ?? [0, 6, 16]
   const camFov = cameraInitial?.fov ?? 55
 
+  // Unified quality profile (user override or auto-detect) — resolved once per
+  // stage mount. It seeds the tier machine's start/ceiling and the initial dpr.
+  const profile = useMemo(() => resolveQualityProfile(), [])
+
   // Stable identities for the Canvas props — passing fresh arrays/objects each
   // render makes R3F re-apply dpr/camera/gl (a resize/clear) every render, which
   // stalls input. These never need to change (DprSync drives DPR imperatively).
-  const dpr = useMemo<[number, number]>(() => qualityDpr('low'), [])
+  const dpr = useMemo<[number, number]>(
+    () => qualityDpr(clampSimTier(profile.cinematic.initial, profile.cinematic.max)),
+    [profile],
+  )
   const glOpts = useMemo(
     () => ({
       antialias: false,
@@ -366,14 +392,15 @@ export function CinematicStage({
         // The composer renders to offscreen targets and SMAA does the edge AA,
         // so a multisampled/stencil default framebuffer would only cost memory.
         gl={glOpts}
-        // Start at the LOW clamp (matches the scaler's LOW start); DprSync
-        // re-clamps as the PerformanceMonitor steps the tier.
+        // Start at the profile's initial-tier clamp; DprSync re-clamps as the
+        // PerformanceMonitor steps the tier.
         dpr={dpr}
         camera={cameraOpts}
       >
         {fog && <fog attach="fog" args={[fog.color, fog.near, fog.far]} />}
         <CinematicWorld
           environment={environment}
+          profile={profile}
           bloom={bloom}
           dof={dof}
           ssao={ssao}

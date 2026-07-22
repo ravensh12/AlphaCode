@@ -1,0 +1,230 @@
+/* Photo mode — HUD-hidden framing chrome. The centre stays fully transparent
+   so the live 3D scene shows through; only the rails and corners are glass. */
+.photo-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 14px;
+  background: transparent;
+  pointer-events: none; /* let the scene breathe; controls re-enable below */
+}
+
+.photo-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: auto;
+}
+
+.photo-eyebrow {
+  font-family: var(--display, inherit);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+  background: var(--cc-glass, rgba(13, 26, 25, 0.78));
+  color: var(--cc-cyan, #5ef0e0);
+}
+
+.photo-exit {
+  cursor: pointer;
+  padding: 8px 16px;
+  font-family: var(--display, inherit);
+  font-weight: 800;
+  font-size: 13px;
+  border-radius: 10px;
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+  background: var(--cc-glass, rgba(13, 26, 25, 0.78));
+  color: var(--cc-text, #eef7f2);
+}
+
+.photo-exit:hover,
+.photo-exit:focus-visible {
+  border-color: var(--cc-cyan, #5ef0e0);
+  color: var(--cc-cyan, #5ef0e0);
+  outline: none;
+}
+
+/* Viewfinder: transparent middle, corner marks, frame + sticker readouts. */
+.photo-viewfinder {
+  position: relative;
+  flex: 1;
+  margin: 12px 6vw;
+  border-radius: 14px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.photo-corner {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border: 2.5px solid var(--cc-cyan, #5ef0e0);
+  opacity: 0.85;
+  filter: drop-shadow(0 0 6px rgba(94, 240, 224, 0.45));
+}
+
+.photo-corner.is-tl {
+  top: 0;
+  left: 0;
+  border-right: none;
+  border-bottom: none;
+  border-top-left-radius: 12px;
+}
+
+.photo-corner.is-tr {
+  top: 0;
+  right: 0;
+  border-left: none;
+  border-bottom: none;
+  border-top-right-radius: 12px;
+}
+
+.photo-corner.is-bl {
+  bottom: 0;
+  left: 0;
+  border-right: none;
+  border-top: none;
+  border-bottom-left-radius: 12px;
+}
+
+.photo-corner.is-br {
+  bottom: 0;
+  right: 0;
+  border-left: none;
+  border-top: none;
+  border-bottom-right-radius: 12px;
+}
+
+.photo-frame-label {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  background: var(--cc-glass, rgba(13, 26, 25, 0.7));
+  color: var(--cc-text-soft, #9bbcb2);
+}
+
+.photo-sticker-preview {
+  position: absolute;
+  bottom: 14px;
+  right: 16px;
+  font-family: var(--display, inherit);
+  font-weight: 800;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 12px;
+  border: 1.5px dashed var(--cc-amber, #ffd166);
+  background: rgba(255, 209, 102, 0.12);
+  color: var(--cc-amber, #ffd166);
+  transform: rotate(-4deg);
+}
+
+/* Bottom rails: frame picker, sticker picker, capture. */
+.photo-rails {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius, 14px);
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+  background: var(--cc-glass, rgba(13, 26, 25, 0.88));
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+.photo-rail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.photo-rail-title {
+  flex: 0 0 56px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cc-text-soft, #9bbcb2);
+}
+
+.photo-rail-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.photo-item {
+  cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 9px;
+  border: 1.5px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  background: var(--cc-glass-2, rgba(9, 18, 18, 0.62));
+  color: var(--cc-text, #eef7f2);
+  transition: border-color 0.1s ease;
+}
+
+.photo-item:hover:not(:disabled),
+.photo-item:focus-visible {
+  border-color: var(--cc-cyan, #5ef0e0);
+  outline: none;
+}
+
+.photo-item.is-active {
+  border-color: var(--cc-cyan, #5ef0e0);
+  background: rgba(94, 240, 224, 0.14);
+  color: var(--cc-cyan, #5ef0e0);
+}
+
+.photo-item.is-locked {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.photo-lock-hint {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cc-text-soft, #9bbcb2);
+}
+
+.photo-capture {
+  align-self: center;
+  cursor: pointer;
+  margin-top: 2px;
+  padding: 10px 30px;
+  font-family: var(--display, inherit);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  border: 2px solid var(--cc-lime, #b6ff5c);
+  background: rgba(182, 255, 92, 0.16);
+  color: var(--cc-lime, #b6ff5c);
+  box-shadow: 0 0 18px rgba(182, 255, 92, 0.25);
+  transition: transform 0.1s ease;
+}
+
+.photo-capture:hover,
+.photo-capture:focus-visible {
+  transform: scale(1.04);
+  outline: none;
+}

@@ -8,6 +8,7 @@ import {
 } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase, hasSupabaseConfig } from '../lib/supabaseClient'
+import { isShowcaseAccountEmail } from '../lib/showcaseAccess'
 
 type AuthStatus = 'loading' | 'authenticated' | 'guest' | 'signedOut'
 
@@ -15,6 +16,7 @@ type AuthContextValue = {
   status: AuthStatus
   user: User | null
   isGuest: boolean
+  isShowcaseAccount: boolean
   /** A stable id for the current identity: the uid, or "guest". */
   identityId: string | null
   displayName: string | null
@@ -141,6 +143,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       user,
       isGuest: status === 'guest',
+      isShowcaseAccount:
+        status === 'authenticated' && isShowcaseAccountEmail(user?.email),
       identityId: user ? user.id : status === 'guest' ? 'guest' : null,
       displayName: deriveName(user) ?? (status === 'guest' ? 'Guest' : null),
       hasBackend: hasSupabaseConfig,

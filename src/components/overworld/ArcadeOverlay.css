@@ -1,0 +1,261 @@
+/* Pattern Arcade overlay — Code City dark-glass HUD theme (inherits the
+   --cc-* palette from .over3d-page; fallbacks keep it presentable anywhere). */
+.arcade-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(4, 10, 10, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.arcade-card {
+  width: min(560px, 94vw);
+  padding: 22px 24px;
+  border-radius: var(--radius, 14px);
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+  background: var(--cc-glass, rgba(13, 26, 25, 0.92));
+  color: var(--cc-text, #eef7f2);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  animation: arcadeIn 0.16s ease-out both;
+}
+
+@keyframes arcadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.arcade-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.arcade-eyebrow {
+  display: inline-block;
+  font-family: var(--display, inherit);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cc-cyan, #5ef0e0);
+}
+
+.arcade-timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 14px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1.5px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  color: var(--cc-lime, #b6ff5c);
+}
+
+.arcade-timer.is-low {
+  color: #ff9d7a;
+  border-color: rgba(255, 157, 122, 0.5);
+}
+
+.arcade-dots {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0 4px;
+}
+
+.arcade-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+  background: transparent;
+}
+
+.arcade-dot.is-done {
+  background: var(--cc-cyan, #5ef0e0);
+  border-color: var(--cc-cyan, #5ef0e0);
+}
+
+.arcade-dot.is-now {
+  border-color: var(--cc-lime, #b6ff5c);
+  box-shadow: 0 0 8px rgba(182, 255, 92, 0.5);
+}
+
+.arcade-card h2 {
+  margin: 10px 0 14px;
+  font-family: var(--display, inherit);
+  font-size: 21px;
+  line-height: 1.35;
+}
+
+.arcade-q {
+  min-height: 56px;
+}
+
+.arcade-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.arcade-choice {
+  cursor: pointer;
+  padding: 11px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  border-radius: 10px;
+  border: 1.5px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  background: var(--cc-glass-2, rgba(9, 18, 18, 0.62));
+  color: var(--cc-text, #eef7f2);
+  transition: border-color 0.1s ease, transform 0.1s ease;
+}
+
+.arcade-choice:hover:not(:disabled),
+.arcade-choice:focus-visible {
+  border-color: var(--cc-cyan, #5ef0e0);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.arcade-choice.is-right {
+  border-color: var(--cc-lime, #b6ff5c);
+  background: rgba(182, 255, 92, 0.14);
+  color: var(--cc-lime, #b6ff5c);
+}
+
+.arcade-choice.is-wrong {
+  border-color: rgba(255, 122, 122, 0.6);
+  background: rgba(255, 122, 122, 0.12);
+  color: #ffb3b3;
+}
+
+.arcade-choice.is-dim {
+  opacity: 0.5;
+}
+
+.arcade-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.arcade-chip {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  background: var(--cc-glass-2, rgba(9, 18, 18, 0.62));
+  color: var(--cc-text-soft, #9bbcb2);
+}
+
+.arcade-chip-xp {
+  color: var(--cc-lime, #b6ff5c);
+  border-color: rgba(182, 255, 92, 0.35);
+}
+
+.arcade-feedback {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.arcade-feedback p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.arcade-feedback .is-right {
+  color: var(--cc-lime, #b6ff5c);
+}
+
+.arcade-feedback .is-wrong {
+  color: #ffb3a0;
+}
+
+.arcade-soft-copy {
+  margin: 6px 0 12px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--cc-text-soft, #9bbcb2);
+}
+
+.arcade-btn {
+  align-self: flex-start;
+  cursor: pointer;
+  padding: 9px 18px;
+  font-family: var(--display, inherit);
+  font-weight: 800;
+  font-size: 13px;
+  border-radius: 10px;
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+  background: rgba(94, 240, 224, 0.14);
+  color: var(--cc-cyan, #5ef0e0);
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.arcade-btn:hover,
+.arcade-btn:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--cc-cyan, #5ef0e0);
+  outline: none;
+}
+
+.arcade-due {
+  margin: 4px 0 12px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  background: var(--cc-glass-2, rgba(9, 18, 18, 0.62));
+}
+
+.arcade-due-title {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cc-text-soft, #9bbcb2);
+}
+
+.arcade-due-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.arcade-due-link {
+  cursor: pointer;
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+  border-radius: 8px;
+  border: 1px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  background: transparent;
+  color: var(--cc-text, #eef7f2);
+}
+
+.arcade-due-link:hover,
+.arcade-due-link:focus-visible {
+  border-color: var(--cc-cyan, #5ef0e0);
+  color: var(--cc-cyan, #5ef0e0);
+  outline: none;
+}

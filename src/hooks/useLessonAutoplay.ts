@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LessonStep } from '../types/lesson'
 
-/** Easing curve inspired by Flutter's standard decelerate curve. */
-export const LESSON_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
-
 export function slideAutoplayMs(step: LessonStep, isDemo: boolean): number {
   if (step.type === 'thinkCheck') return 6500
   if (isDemo) {

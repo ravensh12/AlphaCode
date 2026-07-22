@@ -1,10 +1,12 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
-import { useFrame, useLoader } from '@react-three/fiber'
+import { useFrame, useLoader, useThree } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import * as THREE from 'three'
 import { SIM } from './simulation'
 import { radialGlowTexture } from './proceduralTextures'
+import { configureAssetLoaders } from './decoderConfig'
+import { extendGltfLoader } from './assetLoaders'
 import {
   VARIANTS,
   VAR_NORMAL,
@@ -60,14 +62,46 @@ const RIG_DEFS = [
   },
 ] as const
 
-/** Which rig each breed renders with (index into RIG_DEFS): the smooth
+/** Realism rebuild — wave-2.1 ORGANIC Meshy zombie rigs (undead shambler +
+ *  undead brute hulk; the earlier android/secbot pair read as robots), baked
+ *  into the SAME bone-matrix bank format via scripts/bake-meshy-crowd.mjs.
+ *  The horde renders DECIMATED crowd copies (scripts/decimate-glb.mjs, ~10k
+ *  tris — the full 20k rigs at 90 instances × 4 passes were 44M verts/frame). */
+const MESHY_RIG_DEFS = [
+  {
+    model: '/assets/models/zombie-flesh-crowd.glb',
+    anim: '/assets/models/zombie-flesh.bin',
+    targetHeight: 1.68,
+  },
+  {
+    model: '/assets/models/zombie-hulk-crowd.glb',
+    anim: '/assets/models/zombie-hulk.bin',
+    targetHeight: 1.72, // × brute breed scale (1.55) ≈ a 2.65m monster
+  },
+] as const
+
+/** Which rig each breed renders with (index into the rig defs): the smooth
  *  shambler body for most breeds, the chunky armored hulk for brutes. */
 const VARIANT_RIG = [0, 0, 1, 0, 0, 0]
 
-for (const def of RIG_DEFS) useGLTF.preload(def.model)
+/** The organic Meshy rigs ARE the horde. The wave-1 RIG_DEFS above stay
+ *  solely as a manual fallback switch if the meshy banks ever have to be
+ *  pulled. */
+const USE_MESHY_HORDE = true
+const ACTIVE_RIG_DEFS = USE_MESHY_HORDE ? MESHY_RIG_DEFS : RIG_DEFS
+
+// Self-hosted decoder paths must be set before the first loader is created.
+// Only the wave-1 GLBs are preloaded — drei's preload builds a loader WITHOUT
+// the KTX2 transcoder, which would poison the cache for the Meshy rigs (their
+// component load attaches the transcoder itself).
+configureAssetLoaders()
+if (!USE_MESHY_HORDE) for (const def of RIG_DEFS) useGLTF.preload(def.model)
 
 /** Locomotion reference speeds: the ground speed (m/s) at which each cycle
- *  plays at 1× so the feet plant instead of skating. */
+ *  plays at 1× so the feet plant instead of skating. Clip-intrinsic (authored
+ *  stride speed) — deliberately NOT scaled with the global -12% pace pass:
+ *  rate = sim speed / REF already tracks the slower breeds 1:1, so feet stay
+ *  planted at the new velocities (scaling the refs would over-stride ~13%). */
 const WALK_REF = 1.5
 const RUN_REF = 4.4
 const RATE_MIN = 0.55
@@ -269,7 +303,7 @@ type AnimState = {
 // the painted texture carries the look, with just enough shift to read breed
 // identity at a glance. Per-body brightness jitter is layered on top.
 const TINTS = [
-  new THREE.Color(0.98, 1.03, 0.94), // shambler — as painted
+  new THREE.Color(0.8, 1.02, 0.78), // shambler — sickly necrotic green
   new THREE.Color(1.2, 1.12, 0.76), // runner — jaundiced, drained
   new THREE.Color(1.1, 0.62, 0.55), // brute — blood-flushed hulk
   new THREE.Color(0.74, 1.26, 0.72), // mutant — toxic saturation
@@ -296,17 +330,29 @@ export const ZombieHorde = memo(function ZombieHorde({
   zombies,
   paused,
   shadows = true,
+  nearShadowOnly = false,
 }: {
   zombies: ZombieSlot[]
   paused: boolean
   /** Real sun shadows for the crowd (two skinned depth passes) — HIGH tier
    *  only; weaker GPUs keep the cheap blob shadows. */
   shadows?: boolean
+  /** Overworld (cascaded sun): cast into the crisp near cascade ONLY — the
+   *  outer cascades skip the horde's skinned depth passes entirely. Arenas
+   *  (single shadow light) leave this off. */
+  nearShadowOnly?: boolean
 }) {
-  const gltfs = useGLTF(RIG_DEFS.map((d) => d.model))
+  const gl = useThree((s) => s.gl)
+  const gltfs = useGLTF(
+    ACTIVE_RIG_DEFS.map((d) => d.model),
+    true,
+    true,
+    // The Meshy rigs carry KTX2 textures; the wave-1 GLBs ignore the hook.
+    extendGltfLoader(gl),
+  )
   const animBufs = useLoader(
     THREE.FileLoader,
-    RIG_DEFS.map((d) => d.anim),
+    ACTIVE_RIG_DEFS.map((d) => d.anim),
     (l) => {
       ;(l as THREE.FileLoader).setResponseType('arraybuffer')
     },
@@ -315,7 +361,7 @@ export const ZombieHorde = memo(function ZombieHorde({
   const count = zombies.length
 
   const rigs = useMemo<Rig[]>(() => {
-    return RIG_DEFS.map((def, ri) => {
+    return ACTIVE_RIG_DEFS.map((def, ri) => {
       const bank = parseAnimBank(animBufs[ri])
       const geos: THREE.BufferGeometry[] = []
       let map: THREE.Texture | null = null
@@ -430,6 +476,10 @@ export const ZombieHorde = memo(function ZombieHorde({
     }
   }, [count, scratch, rigs])
 
+  // Highest live slot per rig (persisted across frames so a de-rezzing corpse
+  // in a high slot keeps its tail until it fully hides).
+  const liveTail = useRef<[number, number]>([-1, -1])
+
   useFrame((state, dtRaw) => {
     const sh = shadowMesh.current
     if (!sh) return
@@ -437,6 +487,8 @@ export const ZombieHorde = memo(function ZombieHorde({
     const now = state.clock.elapsedTime
     const dt = Math.min(dtRaw, 0.05)
     const { o, col, hidden } = scratch
+    liveTail.current[0] = -1
+    liveTail.current[1] = -1
 
     for (let i = 0; i < zombies.length; i++) {
       const z = zombies[i]
@@ -471,6 +523,7 @@ export const ZombieHorde = memo(function ZombieHorde({
       const rig = rigs[a.rig]
       const mesh = meshRefs.current[a.rig]!
       const { clips } = rig.bank
+      if (i > liveTail.current[a.rig]) liveTail.current[a.rig] = i
 
       // Measured ground speed (drives locomotion clip + rate, feet don't skate).
       if (!paused && dt > 0) {
@@ -625,8 +678,14 @@ export const ZombieHorde = memo(function ZombieHorde({
       rigs[ri].anim.needsUpdate = true
       rigs[ri].fx.needsUpdate = true
       if (m.instanceColor) m.instanceColor.needsUpdate = true
+      // Vertex-budget guard: scale-0 "hidden" instances still run the skinned
+      // vertex shader (13k verts each × camera + every shadow cascade). Trim
+      // the instanced draw to the live slot tail so an empty daytime horde
+      // costs ~zero and combat pays only for what's on the field.
+      m.count = liveTail.current[ri] + 1
     }
     sh.instanceMatrix.needsUpdate = true
+    sh.count = Math.max(liveTail.current[0], liveTail.current[1]) + 1
   })
 
   return (
@@ -638,6 +697,24 @@ export const ZombieHorde = memo(function ZombieHorde({
           key={ri}
           ref={(el) => {
             meshRefs.current[ri] = el
+            if (el && nearShadowOnly) {
+              // 90 skinned instances × every cascade's depth pass was the
+              // top vertex line item. Outer cascades (tagged by
+              // CascadedSunlight) skip the horde: zero-count draws are
+              // free, and the crisp near cascade still carries the shadows
+              // that actually read on screen.
+              el.onBeforeShadow = (_r, _s, _c, shadowCamera) => {
+                if (shadowCamera.userData.outerCascade) {
+                  el.userData.savedCount = el.count
+                  el.count = 0
+                }
+              }
+              el.onAfterShadow = (_r, _s, _c, shadowCamera) => {
+                if (shadowCamera.userData.outerCascade) {
+                  el.count = (el.userData.savedCount as number) ?? el.count
+                }
+              }
+            }
           }}
           args={[rig.geometry, rig.material, count]}
           customDepthMaterial={rig.depthMaterial}

@@ -1,6 +1,7 @@
 import {
   Component,
   Suspense,
+  lazy,
   memo,
   useEffect,
   useMemo,
@@ -13,8 +14,40 @@ import { useGLTF } from '@react-three/drei'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import * as THREE from 'three'
 import { applyRimLight, rimHandleOf } from './simulation'
+import { configureAssetLoaders } from './decoderConfig'
 
-export type AvatarAnim = 'idle' | 'walk' | 'run' | 'jump' | 'wave' | 'dance' | 'punch' | 'dash' | 'crouch'
+export type AvatarAnim =
+  | 'idle'
+  | 'walk'
+  | 'run'
+  | 'sprint'
+  | 'jump'
+  | 'crouch'
+  | 'dash'
+  | 'slash'
+  | 'shoot'
+  | 'hit'
+  | 'victory'
+  // Directional movement (phase-2 soldier-anims): lateral strafes, backpedal,
+  // and stationary turn-in-place leans (controller drives the actual yaw).
+  | 'strafeL'
+  | 'strafeR'
+  | 'back'
+  | 'turnL'
+  | 'turnR'
+  // Contextual vault over low obstacles (parked cars). PLACEHOLDER: rides the
+  // jump clip until the dedicated vault clip lands (see ANIM_CLIPS.vault).
+  | 'vault'
+  // Cinematic-only extras (kept for IntroCinematic / arenas).
+  | 'wave'
+  | 'dance'
+  | 'punch'
+  // Player death (presentation only — pages own the death/respawn logic and
+  // flip this state when hearts hit zero; see ThirdPersonController.deadRef).
+  // Meshy cyborg plays its native `death` clip; Soldier/Robot rigs run a
+  // procedural crumple + fall. The rig HOLDS the collapsed pose until the
+  // state leaves 'death' (respawn resets it).
+  | 'death'
 
 /** Must match DASH_TIME in ThirdPersonController so the swing fills the lunge. */
 const SLASH_TIME = 0.32
@@ -31,6 +64,12 @@ type AvatarProps = {
   animRef?: MutableRefObject<AvatarAnim>
   /** Clock time the most recent blade-dash slash started (drives the sword swing). */
   slashRef?: MutableRefObject<number>
+  /**
+   * Takeoff counter from the controller (bumped on every jump/vault launch).
+   * Chained hops keep `anim` at 'jump' with no state edge, so this is what
+   * re-arms the airborne one-shot for the second hop.
+   */
+  jumpSeqRef?: MutableRefObject<number>
 }
 
 /* ============================================================================
@@ -57,9 +96,66 @@ type AvatarProps = {
    ========================================================================== */
 
 const SOLDIER_URL = '/models/Soldier.glb'
-useGLTF.preload(SOLDIER_URL)
+// Retargeted expressive clips (Meshy hero-a → Soldier rig), baked bones-only by
+// scripts/bake-soldier-anims.mjs. Quaternion tracks bind onto the cloned
+// Soldier skeleton by bone name. See ANIM_CLIPS below for which states each
+// drives. This lets the restored Soldier play the hero's full moveset.
+const SOLDIER_ANIMS_URL = '/assets/models/soldier-anims.glb'
 
-// Reference speeds (m/s) at which each mocap cycle plays at 1×.
+/**
+ * Which retargeted clip drives each expressive state. Locomotion (idle/walk/
+ * run), sprint, crouch and shoot stay PROCEDURAL — the Soldier's own mocap +
+ * hand-authored bone layers fit this game's mechanics (run-and-gun aim, a
+ * forward stealth crouch, speed-blended stride) better than the cross-rig
+ * retarget, whose crouch in particular arches backward. Everything here is a
+ * clean, verified retarget (see artifacts rendered by view-model.mjs).
+ */
+const ANIM_CLIPS = {
+  // ONE airborne clip for standing AND moving jumps. The dedicated 'jump-run'
+  // retarget read as a head-down tumble in motion QA (before-frames
+  // runjump-16..21, e2e-shots/anim-qa) under both scrubbed and fixed-rate
+  // playback, so it was dropped rather than compensated for.
+  jump: 'jump',
+  // The explicit slash keeps the lunge-strike one-shot; the blade-dash BODY
+  // now rides the dash-burst LOOP (see COMBAT_LOOPS) — the sword arc +
+  // slash VFX still come from slashRef, so the dash reads as a bladed rush.
+  slash: 'slash',
+  hit: 'hit',
+  victory: 'victory',
+  // Turn-in-place one-shots: lean only — the controller owns the actual yaw.
+  turnL: 'turn-left',
+  turnR: 'turn-right',
+  // Phase 3: the real Unarmed Vault (0.90s hand-plant). Root motion is
+  // stripped by the bake — the controller's VAULT_DRIVE owns the carry.
+  vault: 'vault',
+} as const
+
+/** Directional / combat locomotion LOOPS (phase-2 soldier-anims set). These
+ *  join the idle/walk/run weight mix instead of the one-shot override path.
+ *  Reference speeds (m/s) at which each cycle plays at 1×. */
+const COMBAT_LOOPS = {
+  // Phase-3 pick: 'sprint-aim' (0.53s, from a real sprint source) over the
+  // jerkier 'sprint-shoot' — tried both in motion; the aim cycle + additive
+  // recoil kick reads visibly smoother. sprint-shoot stays in the bank.
+  sprintShoot: { clip: 'sprint-aim', ref: 6.0 },
+  strafeL: { clip: 'strafe-left', ref: 5.0 },
+  strafeR: { clip: 'strafe-right', ref: 5.0 },
+  back: { clip: 'shoot-back', ref: 3.0 },
+  // Blade-dash body: head-down burst charge, weighted like a locomotion
+  // override for the dash duration (DASH_SPEED 30 pegs the clamp).
+  dashBurst: { clip: 'dash-burst', ref: 17 },
+} as const
+type CombatLoop = keyof typeof COMBAT_LOOPS
+
+// Point every GLTFLoader at the self-hosted DRACO/KTX2 decoders BEFORE the
+// module-scope preload below creates the first loader.
+configureAssetLoaders()
+useGLTF.preload(SOLDIER_URL)
+useGLTF.preload(SOLDIER_ANIMS_URL)
+
+// Reference speeds (m/s) at which each mocap cycle plays at 1×. Clip-intrinsic
+// (authored stride speed): unchanged by the global -12% pace pass — the
+// speed-proportional timeScale below keeps feet planted at the new velocities.
 const WALK_REF = 1.55
 const RUN_REF = 5.0
 
@@ -83,8 +179,34 @@ function easeTo(v: number, target: number, dt: number, rate: number): number {
   return v + (target - v) * Math.min(1, dt * rate)
 }
 
-function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slashRef }: AvatarProps) {
+/* ---------------------------------------------------------------------------
+   ONE override slot: exactly one one-shot clip may own the body at a time,
+   picked by a strict priority ladder (hit > vault > jump > slash > victory >
+   turn). The previous per-state weights let one-shots stack (jump under hit,
+   turn under slash...) which read as pose glitches; the single slot makes
+   stacking impossible by construction.
+   ------------------------------------------------------------------------- */
+type OverrideName = 'hit' | 'vault' | 'jump' | 'slash' | 'victory' | 'turnL' | 'turnR'
+
+/** How each one-shot starts. Airborne clips play at a FIXED rate sized to the
+ *  typical ~0.6s hop (clampWhenFinished holds the last pose if the airtime
+ *  runs long; the landing crossfades out through the slot weight). The old
+ *  physics-scrub (timeScale 0 + per-frame time writes) pinned the standing
+ *  jump past its takeoff push and parked the plant exactly at touchdown, so
+ *  none of the clip's accents ever showed (QA: "elevator jump"). */
+const OVERRIDE_START: Record<OverrideName, { time: number; timeScale: number }> = {
+  hit: { time: 0, timeScale: 1.4 },
+  vault: { time: 0.06, timeScale: 1.25 },
+  jump: { time: 0.25, timeScale: 2.2 },
+  slash: { time: 0, timeScale: 1 }, // timeScale resolved from the clip below
+  victory: { time: 0, timeScale: 1 },
+  turnL: { time: 0, timeScale: 1.5 }, // the real yaw ease finishes faster
+  turnR: { time: 0, timeScale: 1.5 },
+}
+
+function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slashRef, jumpSeqRef }: AvatarProps) {
   const gltf = useGLTF(SOLDIER_URL)
+  const animsGltf = useGLTF(SOLDIER_ANIMS_URL)
   const root = useRef<THREE.Group>(null)
 
   // Instance-local skeleton + instance-local materials (rim color = district
@@ -127,17 +249,10 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
       crouchUpLegR: poseFrom(rest.upLegR, -0.9, 0, 0.14),
       crouchLegR: poseFrom(rest.legR, 1.15, 0, 0),
       crouchFootR: poseFrom(rest.footR, -0.35, 0, 0),
-      jumpUpLegL: poseFrom(rest.upLegL, -0.4, 0, 0),
-      jumpLegL: poseFrom(rest.legL, 0.7, 0, 0),
-      jumpUpLegR: poseFrom(rest.upLegR, -0.55, 0, 0),
-      jumpLegR: poseFrom(rest.legR, 0.85, 0, 0),
+      // Cinematic gestures (no retargeted clip — kept procedural).
       waveArmL: poseFrom(rest.armL, 0, 0, -1.9),
       punchArmR: poseFrom(rest.armR, 1.35, -0.15, 0),
       punchForeR: poseFrom(rest.foreR, 0.1, 0, 0),
-      slashWindR: poseFrom(rest.armR, 0.2, 0, 1.7),
-      slashFollowR: poseFrom(rest.armR, 1.35, 0, -0.45),
-      slashForeR: poseFrom(rest.foreR, 0.3, 0, 0),
-      slashArmL: poseFrom(rest.armL, -0.7, 0.3, 0),
     }
 
     // Weapon anchors ride the right hand. The armature lives in centimeters
@@ -186,8 +301,32 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
       run: mixer.clipAction(clip('Run')),
     }
 
-    return { scene, bones, pose, holder, mixer, actions, bodyMat, visorMat }
-  }, [gltf])
+    // Directional/combat loops from the retargeted bank — nullable so a
+    // missing clip simply falls back to the idle/walk/run mix.
+    const combat: Record<CombatLoop, THREE.AnimationAction | null> = {
+      sprintShoot: null,
+      strafeL: null,
+      strafeR: null,
+      back: null,
+      dashBurst: null,
+    }
+    for (const key of Object.keys(COMBAT_LOOPS) as CombatLoop[]) {
+      const src = THREE.AnimationClip.findByName(animsGltf.animations, COMBAT_LOOPS[key].clip)
+      combat[key] = src ? mixer.clipAction(src) : null
+    }
+
+    // Retargeted expressive clips (bound onto this cloned Soldier skeleton by
+    // bone name). Built once and keyed by clip NAME so several states can share
+    // one clip (dash + slash both use the lunge-strike). Missing clips resolve
+    // to null and that state simply falls back to its procedural layer below.
+    const overrides: Record<string, THREE.AnimationAction | null> = {}
+    for (const name of new Set(Object.values(ANIM_CLIPS))) {
+      const src = THREE.AnimationClip.findByName(animsGltf.animations, name)
+      overrides[name] = src ? mixer.clipAction(src) : null
+    }
+
+    return { scene, bones, pose, holder, mixer, actions, combat, overrides, bodyMat, visorMat }
+  }, [gltf, animsGltf])
 
   useEffect(() => {
     const { mixer, scene, actions } = rig
@@ -206,6 +345,25 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
       a.play()
     }
     actions.idle.setEffectiveWeight(1)
+    // Directional/combat loops run like the locomotion set: always playing,
+    // weight-eased in the frame loop.
+    for (const a of Object.values(rig.combat)) {
+      if (!a) continue
+      a.reset()
+      a.enabled = true
+      a.setEffectiveWeight(0)
+      a.play()
+    }
+    // Override clips are one-shots: armed (LoopOnce, hold the last frame) but
+    // NOT played until the state edge triggers them in the frame loop.
+    for (const a of Object.values(rig.overrides)) {
+      if (!a) continue
+      a.reset()
+      a.enabled = true
+      a.setEffectiveWeight(0)
+      a.setLoop(THREE.LoopOnce, 1)
+      a.clampWhenFinished = true
+    }
     return () => {
       // three.js frees NOTHING on React unmount. The Avatar mounts in the
       // overworld, every boss arena AND the intro, so a missed dispose here
@@ -263,7 +421,6 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
     () => ({
       prev: new THREE.Vector3(),
       cur: new THREE.Vector3(),
-      q: new THREE.Quaternion(),
       started: false,
     }),
     [],
@@ -271,11 +428,25 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
   const spd = useRef(0)
   const aimW = useRef(1)
   const crouchAmt = useRef(0)
-  const airW = useRef(0)
   const waveW = useRef(0)
+  const sprintW = useRef(0)
+  const deathW = useRef(0)
   const wIdle = useRef(1)
   const wWalk = useRef(0)
   const wRun = useRef(0)
+  // Directional/combat loop weights (strafes, backpedal, sprint-shoot).
+  const wCombat = useRef<Record<CombatLoop, number>>({
+    sprintShoot: 0,
+    strafeL: 0,
+    strafeR: 0,
+    back: 0,
+    dashBurst: 0,
+  })
+  // The single one-shot override slot (see OverrideName above).
+  const over = useRef<{ name: OverrideName | null; w: number }>({ name: null, w: 0 })
+  // Last seen takeoff counter — re-arms the jump/vault one-shot on chained
+  // hops (buffered jumps never leave the 'jump' anim state).
+  const lastJumpSeq = useRef(0)
 
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, 0.05)
@@ -300,23 +471,140 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
 
     const a = animRef ? animRef.current : anim
     const crouching = a === 'crouch'
-    const jumping = a === 'jump'
     const dashing = a === 'dash'
+    const sprinting = a === 'sprint'
+    const shooting = a === 'shoot'
+    const hitState = a === 'hit'
+    const victory = a === 'victory'
     const waving = a === 'wave'
     const dancing = a === 'dance'
     const punching = a === 'punch'
+    const dying = a === 'death'
+    // Held-trigger auto-fire keeps fireRef fresh (~gun cooldown apart), so a
+    // short window doubles as the "is firing" flag with no API change.
+    // 0.45s covers the slowest trigger cadence so a held burst never flaps
+    // the sprint<->sprint-shoot states (the flap read as glitchy arms).
+    const firing = fireRef ? fireRef.current > 0 && t - fireRef.current < 0.45 : false
 
-    const slashStart = slashRef ? slashRef.current : dashing ? t : -100
+    // Slash is driven by the shared slashRef (blade-dash) OR the explicit
+    // 'slash'/'dash' states; either way it fills one SLASH_TIME arc.
+    const slashState = a === 'slash'
+    const slashStart =
+      slashRef && slashRef.current > -50 ? slashRef.current : dashing || slashState ? t : -100
     const sp = THREE.MathUtils.clamp((t - slashStart) / SLASH_TIME, 0, 1)
-    const slashing = (sp > 0 && sp < 1) || dashing
+    const slashing = (sp > 0 && sp < 1) || dashing || slashState
 
-    // --- Locomotion mix: mocap idle/walk/run weights from measured speed ----
+    // --- THE override slot: one one-shot owns the body, ever. The ladder
+    //     below returns the highest-priority active state; a new name claims
+    //     the slot (outranking or replacing an ended one-shot), the slot
+    //     weight crossfades in ~100ms and fades out when the state ends.
+    const { overrides } = rig
+    // Turn-in-place one-shots (lean only; the controller owns the yaw).
+    // Suppressed while firing so the aim stays rock-steady under the reticle.
+    const turnLActive = a === 'turnL' && !firing
+    const turnRActive = a === 'turnR' && !firing
+    const desired: OverrideName | null = hitState
+      ? 'hit'
+      : a === 'vault'
+        ? 'vault'
+        : a === 'jump'
+          ? 'jump'
+          : slashState
+            ? 'slash'
+            : victory
+              ? 'victory'
+              : turnLActive
+                ? 'turnL'
+                : turnRActive
+                  ? 'turnR'
+                  : null
+    const slot = over.current
+    const jumpSeq = jumpSeqRef ? jumpSeqRef.current : 0
+    const retriggerHop =
+      desired !== null &&
+      desired === slot.name &&
+      (desired === 'jump' || desired === 'vault') &&
+      jumpSeq !== lastJumpSeq.current
+    if (desired !== null && (desired !== slot.name || retriggerHop)) {
+      // Hand the slot over: the outgoing one-shot stops contributing NOW and
+      // the incoming one inherits the eased weight (no stacking, no pop-in).
+      if (slot.name && slot.name !== desired) {
+        overrides[ANIM_CLIPS[slot.name]]?.setEffectiveWeight(0)
+      }
+      const act = overrides[ANIM_CLIPS[desired]]
+      if (act) {
+        const start = OVERRIDE_START[desired]
+        act.reset()
+        act.time = start.time
+        act.timeScale =
+          desired === 'slash'
+            ? Math.max(0.6, act.getClip().duration / 0.62)
+            : start.timeScale
+        act.play()
+      }
+      slot.name = desired
+    }
+    if (desired === 'jump' || desired === 'vault') lastJumpSeq.current = jumpSeq
+    // Crossfade in fast (~100ms), release a touch softer on the way out.
+    slot.w = easeTo(slot.w, desired !== null ? 1 : 0, dt, desired !== null ? 16 : 10)
+    if (desired === null && slot.w < 0.01 && slot.name) {
+      overrides[ANIM_CLIPS[slot.name]]?.setEffectiveWeight(0)
+      slot.name = null
+      slot.w = 0
+    }
+    if (slot.name) overrides[ANIM_CLIPS[slot.name]]?.setEffectiveWeight(slot.w)
+    const override = slot.name ? slot.w : 0
+
+    // --- Directional/combat loops: dedicated full-body cycles own their
+    //     exact states — strafes, backpedal (shoot-back), sprint-while-firing
+    //     and the dash burst. NO procedural aim is layered on any of them.
+    const loco = 1 - override
+    const combatState: CombatLoop | null =
+      dashing && rig.combat.dashBurst
+        ? 'dashBurst'
+        : a === 'strafeL' && rig.combat.strafeL
+          ? 'strafeL'
+          : a === 'strafeR' && rig.combat.strafeR
+            ? 'strafeR'
+            : a === 'back' && rig.combat.back
+              ? 'back'
+              : sprinting && firing && rig.combat.sprintShoot
+                ? 'sprintShoot'
+                : null
+    let combatW = 0
+    for (const key of Object.keys(COMBAT_LOOPS) as CombatLoop[]) {
+      const wRef = wCombat.current
+      // The dash lasts 0.32s — at the shared 11/s ease the burst clip never
+      // actually won the body and the dash read as a jog sliding at 30 m/s
+      // (QA before-frames dash-02..08). Burst in/out fast; everything else
+      // keeps the soft crossfade, easing out faster under a one-shot.
+      const target = combatState === key ? loco : 0
+      const rate =
+        key === 'dashBurst' ? 22 : target === 0 && override > 0.3 ? 18 : 11
+      wRef[key] = easeTo(wRef[key], target, dt, rate)
+      rig.combat[key]?.setEffectiveWeight(wRef[key])
+      combatW = Math.max(combatW, wRef[key])
+    }
+    if (combatState) {
+      const act = rig.combat[combatState]!
+      // Speed-scaling the 0.67s burst cycle to the 30 m/s lunge blurred it
+      // into the jog read above — the burst plays at a fixed dramatic rate.
+      act.timeScale =
+        combatState === 'dashBurst'
+          ? 1.2
+          : THREE.MathUtils.clamp(speed / COMBAT_LOOPS[combatState].ref, 0.7, 1.8)
+    }
+
+    // --- Locomotion mix: mocap idle/walk/run weights from measured speed,
+    //     scaled down by whatever override clip or combat loop is currently
+    //     playing so those read cleanly instead of fighting the stride.
+    const baseLoco = loco * (1 - combatW)
     const runT = THREE.MathUtils.smoothstep(speed, 3.2, 6.2)
     const walkT = THREE.MathUtils.smoothstep(speed, 0.35, 1.7) * (1 - runT)
     const idleT = Math.max(0, 1 - walkT - runT)
-    wIdle.current = easeTo(wIdle.current, idleT, dt, 9)
-    wWalk.current = easeTo(wWalk.current, walkT, dt, 9)
-    wRun.current = easeTo(wRun.current, runT, dt, 9)
+    wIdle.current = easeTo(wIdle.current, idleT * baseLoco, dt, 9)
+    wWalk.current = easeTo(wWalk.current, walkT * baseLoco, dt, 9)
+    wRun.current = easeTo(wRun.current, runT * baseLoco, dt, 9)
     actions.idle.setEffectiveWeight(wIdle.current)
     actions.walk.setEffectiveWeight(wWalk.current)
     actions.run.setEffectiveWeight(wRun.current)
@@ -331,21 +619,31 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
     // --- Procedural bone-space layers (applied over the playing clips) ------
     const kick = fireRef ? THREE.MathUtils.clamp(1 - (t - fireRef.current) / 0.14, 0, 1) : 0
 
-    // Weapon-ready arms: eased override so a hint of mocap sway bleeds through.
-    aimW.current = easeTo(aimW.current, slashing || waving || dancing ? 0 : 0.9, dt, 8)
-    const aw = aimW.current
-    if (aw > 0.01) {
-      bones.armR.quaternion.slerp(pose.aimArmR, aw)
-      bones.foreR.quaternion.slerp(pose.aimForeR, aw)
-      bones.armL.quaternion.slerp(pose.aimArmL, aw)
-      bones.foreL.quaternion.slerp(pose.aimForeL, aw)
-    }
-
-    // Recoil: muzzle climb + torso kick, sharp in, fast decay.
-    if (kick > 0.01) {
-      bones.foreR.rotateX(0.5 * kick)
-      bones.armR.rotateX(-0.12 * kick)
-      bones.spine2.rotateX(-0.09 * kick)
+    // Weapon-ready arms + recoil — PROCEDURAL run-and-gun aim, applied ONLY
+    // over the plain locomotion mix (idle/walk/run/sprint). Shoot locks the
+    // aim firm; sprint relaxes it so the Run clip's arm pump reads; wave/dance
+    // free the arms for the cinematic gestures below.
+    const aimTarget = shooting ? 1 : waving || dancing || dying ? 0 : sprinting ? 0.3 : 0.9
+    aimW.current = easeTo(aimW.current, aimTarget, dt, 8)
+    // EVERY combat loop owns its whole body: slerping the rest-pose-anchored
+    // aim targets over a playing full-body cycle double-posed the arms — on
+    // the strafes it read as the hero tipping backward with the gun flung
+    // skyward (QA before-frames strafefire-06..30). Full handoff, no halves;
+    // recoil stays additive below.
+    const aw = aimW.current * (1 - combatW)
+    if (override < 0.6) {
+      if (aw > 0.01) {
+        bones.armR.quaternion.slerp(pose.aimArmR, aw)
+        bones.foreR.quaternion.slerp(pose.aimForeR, aw)
+        bones.armL.quaternion.slerp(pose.aimArmL, aw)
+        bones.foreL.quaternion.slerp(pose.aimForeL, aw)
+      }
+      // Recoil: muzzle climb + torso kick, sharp in, fast decay.
+      if (kick > 0.01) {
+        bones.foreR.rotateX(0.5 * kick)
+        bones.armR.rotateX(-0.12 * kick)
+        bones.spine2.rotateX(-0.09 * kick)
+      }
     }
 
     // Crouch: fold the legs, drop the hips exactly enough to keep the feet
@@ -364,30 +662,19 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
       bones.head.rotateX(-0.26 * cr)
     }
 
-    // Airborne: tuck with a touch of asymmetry; off-hand flares for balance.
-    airW.current = easeTo(airW.current, jumping ? 1 : 0, dt, 10)
-    const air = airW.current
-    if (air > 0.01) {
-      bones.upLegL.quaternion.slerp(pose.jumpUpLegL, air)
-      bones.legL.quaternion.slerp(pose.jumpLegL, air)
-      bones.upLegR.quaternion.slerp(pose.jumpUpLegR, air)
-      bones.legR.quaternion.slerp(pose.jumpLegR, air)
-      bones.armL.rotateZ(-0.4 * air)
-      bones.spine2.rotateX(0.12 * air)
+    // Sprint: the Run clip already drives the legs/arms at full cadence; layer a
+    // forward drive-lean on the torso so an all-out sprint reads distinctly from
+    // a jog even though both ride the same mocap cycle.
+    sprintW.current = easeTo(sprintW.current, sprinting ? 1 : 0, dt, 8)
+    if (sprintW.current > 0.01) {
+      bones.spine.rotateX(0.2 * sprintW.current)
+      bones.spine2.rotateX(0.1 * sprintW.current)
+      bones.head.rotateX(-0.14 * sprintW.current) // keep the eyes up
     }
 
-    // Blade dash: torso twists through a big overhead-to-across arc.
-    if (slashing) {
-      const swing = Math.sin(sp * Math.PI)
-      scratch.q.slerpQuaternions(pose.slashWindR, pose.slashFollowR, sp)
-      bones.armR.quaternion.copy(scratch.q)
-      bones.foreR.quaternion.copy(pose.slashForeR)
-      bones.armL.quaternion.slerp(pose.slashArmL, swing)
-      bones.spine.rotateY(THREE.MathUtils.lerp(0.55, -0.75, sp))
-      bones.spine.rotateX(0.28 * swing)
-    } else if (dashing) {
-      bones.spine.rotateX(0.3)
-    }
+    // jump / dash+slash / hit / victory bodies are driven by the retargeted
+    // clips above (the one-shot mixer actions), so no procedural pose layer is
+    // applied for them here — only their weapon/VFX tells run below.
 
     // Cinematic extras.
     waveW.current = easeTo(waveW.current, waving ? 1 : 0, dt, 8)
@@ -408,7 +695,7 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
     }
 
     // Idle life: breathing chest + a slow head sway (fades out with speed).
-    const still = wIdle.current
+    const still = wIdle.current * (1 - deathW.current)
     if (still > 0.05) {
       const breathe = 1 + Math.sin(t * 1.9) * 0.012 * still
       bones.spine2.scale.setScalar(breathe)
@@ -416,6 +703,30 @@ function HumanAvatar({ anim = 'idle', accent = '#6d4afe', fireRef, animRef, slas
       bones.head.rotateY(Math.sin(t * 0.6) * 0.06 * still)
     } else {
       bones.spine2.scale.setScalar(1)
+    }
+
+    // Player death — the soldier bank carries no death clip, so this is a
+    // procedural collapse in two overlapping phases: the knees BUCKLE first
+    // (riding the validated crouch fold), then the whole body timbers forward
+    // over the planted feet with a slight roll. deathW holds at 1 (body stays
+    // down) until the state leaves 'death'; respawn eases it back upright.
+    deathW.current = easeTo(deathW.current, dying ? 1 : 0, dt, dying ? 3.4 : 9)
+    const dw = deathW.current
+    if (dw > 0.01) {
+      const buckle = Math.min(1, dw * 1.9)
+      bones.upLegL.quaternion.slerp(pose.crouchUpLegL, buckle)
+      bones.legL.quaternion.slerp(pose.crouchLegL, buckle)
+      bones.upLegR.quaternion.slerp(pose.crouchUpLegR, buckle)
+      bones.legR.quaternion.slerp(pose.crouchLegR, buckle)
+      bones.hips.position.z -= 30 * buckle // cm: hips sink onto the folding legs
+      bones.spine2.rotateX(0.6 * dw) // chest caves in
+      bones.head.rotateX(0.45 * dw) // head drops last
+      const fall = THREE.MathUtils.smoothstep(dw, 0.35, 1)
+      r.rotation.x = fall * 1.42 // timber forward over the feet
+      r.rotation.z = fall * 0.22 // a touch of roll — reads as a body, not a plank
+    } else if (r.rotation.x !== 0 || r.rotation.z !== 0) {
+      r.rotation.x = 0
+      r.rotation.z = 0
     }
 
     // Weapon swap + muzzle flash (same tells as the old robot).
@@ -533,8 +844,62 @@ class HeroBoundary extends Component<{ fallback: ReactNode; children: ReactNode 
   }
 }
 
+// Realism rebuild: the Meshy hero chunk stays lazy so LOW never even parses
+// it (and never fetches a byte of /assets/meshy/ — the e2e LOW gate).
+const MeshyHeroAvatar = lazy(() =>
+  import('./MeshyHero').then((m) => ({ default: m.MeshyHeroAvatar })),
+)
+
+/**
+ * PLAYER RIG SELECTOR (owner directive — revert).
+ *
+ * The player character is the three.js Soldier again. The realism-rebuild
+ * Meshy hero (`character-hero-a/b`) is kept in the tree but DORMANT: flip this
+ * one constant to 'meshy' to bring it back. The Meshy assets, manifest entries
+ * and <MeshyHeroAvatar> code path are all left untouched — only the default
+ * changes. Everything else about the rebuild (Meshy zombies/citizens/props,
+ * ULTRA-for-everyone, the invisible FPS governor) is unaffected.
+ *
+ * The Soldier now carries a FULL movement state machine (idle/walk/run/sprint/
+ * jump/crouch/dash/slash/shoot/hit/victory) — see HumanAvatar above.
+ */
+const PLAYER_RIG: 'soldier' | 'meshy' = 'meshy'
+
+function meshyHeroEnabled(): boolean {
+  return PLAYER_RIG === 'meshy'
+}
+
+function readHeroVariantSafe(): 'a' | 'b' | 'cyborg' {
+  // Production player = the Meshy cyborg driven by its own Meshy-native clip
+  // set (scripts/pipeline/meshy_reanimate.mjs) with the compact energy blaster
+  // seated in its hand.
+  // 'a'/'b' keep the original native-clip Meshy hero available for A/B via a
+  // localStorage override.
+  try {
+    const v = localStorage.getItem('alphacode.hero.variant')
+    if (v === 'a' || v === 'b' || v === 'cyborg') return v
+  } catch {
+    /* no localStorage — fall through to default */
+  }
+  return 'cyborg'
+}
+
 export const Avatar = memo(function Avatar(props: AvatarProps) {
   const fallback = <RobotAvatar {...props} />
+  // The Soldier chain is the fallback while the Meshy hero streams (and the
+  // permanent hero on LOW / when the Meshy rig ever fails to parse).
+  const soldier = (
+    <HeroBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>
+        <HumanAvatar {...props} />
+      </Suspense>
+    </HeroBoundary>
+  )
+  // Per-mount resolve (cheap + synchronous): tier gate + hero skin selector.
+  const meshyHero = useMemo(
+    () => (meshyHeroEnabled() ? readHeroVariantSafe() : null),
+    [],
+  )
   // M5 — muzzle light: gunfire actually kicks light into the world for a few
   // frames (walls/zombies flash with each shot). Lives OUTSIDE the toggled
   // flash/gun groups and idles at intensity 0, so the renderer's light count
@@ -551,11 +916,15 @@ export const Avatar = memo(function Avatar(props: AvatarProps) {
   })
   return (
     <>
-      <HeroBoundary fallback={fallback}>
-        <Suspense fallback={fallback}>
-          <HumanAvatar {...props} />
-        </Suspense>
-      </HeroBoundary>
+      {meshyHero ? (
+        <HeroBoundary fallback={soldier}>
+          <Suspense fallback={soldier}>
+            <MeshyHeroAvatar {...props} variant={meshyHero} />
+          </Suspense>
+        </HeroBoundary>
+      ) : (
+        soldier
+      )}
       <pointLight
         ref={flashLight}
         position={[0.2, 1.25, 0.9]}
@@ -598,6 +967,7 @@ export const RobotAvatar = memo(function RobotAvatar({
   const phase = useRef(0)
   const amp = useRef(0) // eased stride amplitude (0 idle .. 1 run)
   const crouchAmt = useRef(0) // eased lay-low crouch (0 standing .. 1 hunkered)
+  const deathAmt = useRef(0) // eased collapse (0 upright .. 1 down) — holds at 1
   const antennaVel = useRef(0)
   const antennaAng = useRef(0)
 
@@ -644,9 +1014,17 @@ export const RobotAvatar = memo(function RobotAvatar({
 
     const a = animRef ? animRef.current : anim
     const crouching = a === 'crouch'
-    const running = (a === 'run' || a === 'walk') && !crouching
-    const jumping = a === 'jump'
-    const dashing = a === 'dash'
+    // The robot has no directional cycles — strafes/backpedal ride its run.
+    const running =
+      (a === 'run' ||
+        a === 'walk' ||
+        a === 'sprint' ||
+        a === 'strafeL' ||
+        a === 'strafeR' ||
+        a === 'back') &&
+      !crouching
+    const jumping = a === 'jump' || a === 'vault'
+    const dashing = a === 'dash' || a === 'slash'
 
     // Ease the lay-low crouch in/out so it settles smoothly to the ground.
     crouchAmt.current += ((crouching ? 1 : 0) - crouchAmt.current) * Math.min(1, dt * 10)
@@ -786,6 +1164,34 @@ export const RobotAvatar = memo(function RobotAvatar({
         legR.current.rotation.z = 0
       }
       if (head.current) head.current.rotation.x = 0
+    }
+
+    // Player death: the legs give (compress like the crouch fake-bend), the
+    // arms drop limp and the whole chassis timbers forward over the feet.
+    // Overwrites the pose layers above while active; holds until respawn.
+    deathAmt.current +=
+      ((a === 'death' ? 1 : 0) - deathAmt.current) * Math.min(1, dt * (a === 'death' ? 3.4 : 9))
+    const dth = deathAmt.current
+    if (dth > 0.001) {
+      const buckle = Math.min(1, dth * 1.9)
+      const fall = THREE.MathUtils.smoothstep(dth, 0.35, 1)
+      if (legL.current && legR.current) {
+        legL.current.scale.y = 1 - buckle * 0.42
+        legR.current.scale.y = 1 - buckle * 0.42
+        legL.current.rotation.x = buckle * 0.3
+        legR.current.rotation.x = buckle * 0.22
+      }
+      if (armL.current && armR.current) {
+        armL.current.rotation.x *= 1 - dth // limp — drop the gun-ready reach
+        armR.current.rotation.x *= 1 - dth
+        armL.current.rotation.z = dth * 0.35
+        armR.current.rotation.z = -dth * 0.3
+      }
+      if (body.current) {
+        body.current.position.y -= 0.78 * buckle * 0.42
+        body.current.rotation.x = fall * 1.42
+        body.current.rotation.z = fall * 0.2
+      }
     }
 
     // Antenna follow-through: a damped spring chasing the body's motion.

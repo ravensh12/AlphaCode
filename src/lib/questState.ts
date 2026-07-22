@@ -1,6 +1,5 @@
 import type { LessonProgress } from '../types/progress'
 import { generateLesson } from '../content/lessons'
-import { MASTERY_UNLOCK_THRESHOLD } from '../content/catalog'
 import {
   hasEverMastered,
   hasPendingMissedReview,
@@ -75,31 +74,3 @@ export function getWorldState(
 }
 
 export type QuestStatus = WorldStatus
-
-export const QUEST_MASTERY_THRESHOLD = MASTERY_UNLOCK_THRESHOLD
-
-/** List-view label — in-progress levels must be played in the overworld first. */
-export function listViewStatusLabel(state: WorldState): string {
-  if (state.status === 'locked' || state.mastered) return worldStatusLabel(state)
-  return 'Play in Code City'
-}
-
-/** Short, human label for a world status (used on cards and the map). */
-export function worldStatusLabel(state: WorldState): string {
-  switch (state.status) {
-    case 'locked':
-      return 'Locked'
-    case 'new':
-      return 'Ready to explore'
-    case 'training':
-      return 'Training…'
-    case 'bossReady':
-      return 'Boss waiting'
-    case 'bossFight':
-      return `Boss at ${state.mastery}%`
-    case 'review':
-      return `Rematch — ${state.mastery}%`
-    case 'cleared':
-      return 'Cleared!'
-  }
-}

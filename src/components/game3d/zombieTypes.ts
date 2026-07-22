@@ -15,6 +15,11 @@ export type ZombieSlot = {
   dieHow: 'shot' | 'contact' | 'dash'
   /** Time of the last non-fatal arrow hit, for a stagger + pop. */
   hitAt: number
+  /** Remaining knockback velocity (m/s, XZ) — a hit adds an impulse here and
+   *  the sim integrates + decays it (KNOCKBACK_DAMP) so shoves read as a
+   *  smooth rock-back instead of a per-hit position teleport. */
+  kbX: number
+  kbZ: number
   /** Time the zombie spawned, for a rise-from-the-ground entrance. */
   bornAt: number
   seed: number
@@ -25,6 +30,14 @@ export type ZombieSlot = {
   /** >0 while winding up a telegraphed attack (acid charge or brute slam); the
    *  attack resolves at `castAt + windup`. 0 = not casting. */
   castAt: number
+  /** Member of a scripted encounter (bounty elite / rescue ring): exempt from
+   *  distance despawn so the fight can't be "won" by walking away. */
+  encMember?: boolean
+  /** Rescue-ring anchor (the trapped citizen). While the player is far, ring
+   *  members menace this point — lunging in and out at the citizen — instead
+   *  of beelining across the map (pure theater; the citizen has no HP). */
+  encAnchorX?: number
+  encAnchorZ?: number
 }
 
 export const VAR_NORMAL = 0 // green shambler — the baseline
@@ -62,6 +75,12 @@ export const VARIANTS: VariantDef[] = [
 /* Timings shared by the sim (gameplay) and the renderer (animation mapping). */
 export const DIE_DURATION = 1.1
 export const STAGGER_TIME = 0.22 // brief freeze after an arrow connects
+/** Exponential decay rate (per second) for a slot's knockback velocity: an
+ *  impulse of v m/s slides the body ~v/DAMP metres over ~0.3s, shared by both
+ *  combat sims so shoves feel identical everywhere. */
+export const KNOCKBACK_DAMP = 9
+/** Knockback speed cap — rapid overlapping hits stack pressure, not physics. */
+export const KNOCKBACK_MAX = 12
 export const SPAWN_RISE = 0.5 // seconds to rise out of the ground
 /** Seconds the corpse's Death clip plays before the de-rez dissolve starts. */
 export const DEATH_FALL = 0.72

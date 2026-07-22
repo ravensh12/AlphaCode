@@ -1,6 +1,7 @@
 import type { LessonStep, VariableValue } from './lesson'
 import type { BadgeCounts } from '../content/badges'
 import type { LearnerModel } from '../lib/learnerModel'
+import type { AcademyProgressState } from './academy'
 
 export type LessonStatus = 'notStarted' | 'inProgress' | 'completed'
 
@@ -81,6 +82,11 @@ export type ProgressState = {
   lessons: Record<string, LessonProgress>
   /** Total times each badge type has been earned. */
   badgeCounts: BadgeCounts
+  /**
+   * Durable NeetCode 150 academy completion evidence. Optional so progress
+   * written before the academy schema continues to load without migration.
+   */
+  academyProgress?: AcademyProgressState
   /**
    * "The Threshold" zone cleared — the gate between beating the Level-6 boss and
    * unlocking the Final Gauntlet. Optional so older saved state stays valid.

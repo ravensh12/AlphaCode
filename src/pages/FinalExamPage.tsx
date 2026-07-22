@@ -1,668 +1,631 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
-import { ReviewTutor } from '../components/ReviewTutor'
-import { useProgress } from '../context/ProgressContext'
+import { Loader } from '../components/Loader'
+import { ReviewTutor, type ReviewTutorItem } from '../components/ReviewTutor'
+import { IconArrowRight, IconCheck, IconX } from '../components/icons'
+import { useAuth } from '../context/AuthContext'
 import { useGauntlet } from '../context/GauntletContext'
-import { FINAL_EXAM } from '../content/finalExam'
-import { gradeFor, isConceptMastered, EXAM_PASS_PERCENT } from '../lib/gauntletProgress'
-import type { ExamQuestion } from '../types/finalGauntlet'
-import { IconCheck, IconX, IconArrowRight, IconArrowLeft } from '../components/icons'
+import { useProgress } from '../context/ProgressContext'
+import type {
+  CertificationAssessment,
+  CertificationOutcome,
+  CertificationStepMetadata,
+} from '../content/curricula/neetcode150/certificationAssessment'
+import type { LessonResult, StepReview } from '../hooks/useLessonEngine'
+import { resolveFinalGauntletAccessWithShowcase } from '../lib/showcaseOverride'
+import {
+  createGauntletEventId,
+  EXAM_PASS_PERCENT,
+  gradeFor,
+} from '../lib/gauntletProgress'
+import { LessonRunner } from './LessonPage'
 import './FinalExamPage.css'
 
-/* ------------------------------------------------------------- helpers */
-
-function shuffle<T>(arr: readonly T[]): T[] {
-  const a = arr.slice()
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
-
-/** Reorder questions so no two adjacent share a concept (keeps interleaving strong). */
-function interleave(questions: ExamQuestion[]): ExamQuestion[] {
-  const pool = shuffle(questions)
-  const out: ExamQuestion[] = []
-  while (pool.length) {
-    const last = out[out.length - 1]
-    let idx = pool.findIndex((q) => !last || q.concept !== last.concept)
-    if (idx === -1) idx = 0
-    out.push(pool.splice(idx, 1)[0])
-  }
-  return out
-}
-
-function normalize(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
-type AnswerValue =
-  | { kind: 'none' }
-  | { kind: 'choice'; value: number }
-  | { kind: 'text'; value: string }
-  | { kind: 'order'; value: string[] }
-
-function checkAnswer(q: ExamQuestion, answer: AnswerValue): boolean {
-  switch (q.type) {
-    case 'mcq':
-      return answer.kind === 'choice' && answer.value === q.answerIndex
-    case 'recall':
-    case 'predict': {
-      if (answer.kind !== 'text') return false
-      const got = normalize(answer.value)
-      if (!got) return false
-      if (q.inputMode === 'numeric') {
-        const n = Number(got.replace(/[^0-9.+-]/g, ''))
-        return q.accept.some((a) => Number(a) === n)
-      }
-      return q.accept.some((a) => normalize(a) === got)
-    }
-    case 'order':
-      return (
-        answer.kind === 'order' &&
-        answer.value.length === q.steps.length &&
-        answer.value.every((stepText, i) => stepText === q.steps[i])
-      )
-  }
-}
-
-type Prepared = {
-  choices?: { text: string; originalIndex: number }[]
-  shuffledSteps?: string[]
-}
-
-function buildPrepared(questions: ExamQuestion[]): Record<string, Prepared> {
-  const out: Record<string, Prepared> = {}
-  for (const q of questions) {
-    if (q.type === 'mcq') {
-      out[q.id] = { choices: shuffle(q.choices.map((text, originalIndex) => ({ text, originalIndex }))) }
-    } else if (q.type === 'order') {
-      out[q.id] = { shuffledSteps: shuffle(q.steps) }
-    } else {
-      out[q.id] = {}
-    }
-  }
-  return out
-}
-
-const TOTAL = FINAL_EXAM.length
-
-/* ------------------------------------------------------------- page */
+type CertificationModule = typeof import(
+  '../content/curricula/neetcode150/certificationAssessment'
+)
 
 export function FinalExamPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const reviewMode = searchParams.get('mode') === 'review'
-  const { allLessonsComplete, readyForFinalGauntlet } = useProgress()
-  const { recordOutcome, completeExam } = useGauntlet()
+  const { isShowcaseAccount } = useAuth()
+  const {
+    ready,
+    academyCampaignComplete,
+    readyForFinalGauntlet,
+    logAttempt,
+    streak,
+  } = useProgress()
+  const {
+    ready: gauntletReady,
+    state: gauntlet,
+    completeExam,
+  } = useGauntlet()
+  const access = resolveFinalGauntletAccessWithShowcase(
+    isShowcaseAccount,
+    ready && gauntletReady,
+    academyCampaignComplete,
+    readyForFinalGauntlet,
+  )
+  const certificationModule = useRef<CertificationModule | null>(null)
 
-  // A fresh attempt re-shuffles question + choice order.
+  const [assessment, setAssessment] =
+    useState<CertificationAssessment | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const order = useMemo(() => interleave([...FINAL_EXAM]), [attempt])
-  const prepared = useMemo(() => buildPrepared(order), [order])
+  const [certificationAttemptId, setCertificationAttemptId] = useState(() =>
+    createGauntletEventId('certification'),
+  )
+  const [result, setResult] = useState<LessonResult | null>(null)
+  const [outcome, setOutcome] = useState<CertificationOutcome | null>(null)
 
-  const [index, setIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, AnswerValue>>({})
-  const [hintForId, setHintForId] = useState<string | null>(null)
-  const [phase, setPhase] = useState<'taking' | 'review'>('taking')
-  const usedHelp = useRef<Set<string>>(new Set())
-  const committed = useRef(false)
-
-  // Score the whole attempt (only meaningful once submitted).
-  const results = useMemo(() => {
-    const detail = order.map((q) => {
-      const given = answers[q.id] ?? ({ kind: 'none' } as AnswerValue)
-      return { q, given, correct: checkAnswer(q, given) }
-    })
-    const correctCount = detail.filter((d) => d.correct).length
-    const percent = order.length > 0 ? Math.round((correctCount / order.length) * 100) : 0
-    return { detail, correctCount, percent, passed: percent >= EXAM_PASS_PERCENT }
-  }, [order, answers])
-
-  // Commit results once when the learner submits (delayed: nothing recorded mid-test).
   useEffect(() => {
-    if (phase !== 'review' || committed.current) return
-    committed.current = true
-    for (const d of results.detail) {
-      recordOutcome({
-        questionId: d.q.id,
-        concept: d.q.concept,
-        firstTryCorrect: d.correct,
-        attempts: 1,
-        usedHint: usedHelp.current.has(d.q.id),
-      })
-    }
-    completeExam(results.percent)
-  }, [phase, results, recordOutcome, completeExam])
+    if (access.status !== 'allowed') return
+    let cancelled = false
+    setLoadError(null)
 
-  // Gate the Mastery Trial behind both Code City and The Threshold. Worlds not
-  // done -> back to the quest; worlds done but Threshold not -> The Threshold.
-  if (!readyForFinalGauntlet) {
-    return <Navigate to={allLessonsComplete ? '/threshold' : '/quest'} replace />
+    void import(
+      '../content/curricula/neetcode150/certificationAssessment'
+    )
+      .then((module) => {
+        if (cancelled) return
+        certificationModule.current = module
+        setAssessment(module.buildCertificationAssessment())
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : 'The certification trial could not be built.',
+        )
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [access.status])
+
+  const finishCertification = useCallback(
+    async (nextResult?: LessonResult) => {
+      const module = certificationModule.current
+      if (!assessment || !module || !nextResult) {
+        setLoadError('The certification result could not be verified.')
+        return
+      }
+
+      const nextOutcome = module.certificationAssessmentOutcome(
+        nextResult,
+        assessment,
+      )
+      try {
+        await completeExam(
+          certificationAttemptId,
+          nextOutcome.score,
+          nextOutcome.requirementsPassed,
+        )
+        setResult(nextResult)
+        setOutcome(nextOutcome)
+      } catch (error) {
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : 'Certification progress could not be saved locally.',
+        )
+      }
+    },
+    [assessment, certificationAttemptId, completeExam],
+  )
+
+  const retry = useCallback(() => {
+    setResult(null)
+    setOutcome(null)
+    setCertificationAttemptId(createGauntletEventId('certification'))
+    setAttempt((value) => value + 1)
+  }, [])
+
+  if (access.status === 'loading') {
+    return <Loader label="Restoring certification progress" night />
+  }
+  if (access.status === 'redirect') {
+    return <Navigate to={access.to} replace />
   }
 
-  /* ---------------- read-only study review (from the levels gauntlet) ------ */
+  if (loadError) {
+    return (
+      <div className="page fx-page">
+        <AppHeader />
+        <main className="fx-cert-message" role="alert">
+          <span className="fx-grade fx-grade-bronze">
+            Certification unavailable
+          </span>
+          <h1>The trial could not open</h1>
+          <p>{loadError}</p>
+          <button
+            type="button"
+            className="fx-btn fx-btn-primary"
+            onClick={() => window.location.reload()}
+          >
+            Try loading again
+          </button>
+        </main>
+      </div>
+    )
+  }
+
+  if (!assessment) {
+    return (
+      <div className="page fx-page">
+        <AppHeader />
+        <Loader label="Building the 18-track certification" night />
+      </div>
+    )
+  }
+
   if (reviewMode) {
     return (
-      <div className="page fx-page">
-        <AppHeader />
-        <div className="fx-shell fx-shell--review">
-          <div className="fx-results">
-            <span className="fx-grade fx-grade-gold">Study Review</span>
-            <h1>Mastery Trial — answers &amp; explanations</h1>
-            <p className="fx-results-sub">
-              Every question with the correct answer and the why behind it. No score here — just study,
-              then retake when you&rsquo;re ready.
-            </p>
-            <div className="fx-results-actions">
-              <Link className="fx-btn fx-btn-primary fx-btn-lg" to="/final/exam">
-                Retake the trial <IconArrowRight size={18} />
-              </Link>
-              <Link className="fx-btn fx-btn-ghost" to="/final/boss">
-                Final boss <IconArrowRight size={16} />
-              </Link>
-              <Link className="fx-btn fx-btn-ghost" to="/quest/list">
-                Back to levels
-              </Link>
-            </div>
-          </div>
-
-          <h2 className="fx-review-title">All questions</h2>
-          <div className="review-grid">
-          <ol className="fx-review-list">
-            {FINAL_EXAM.map((q, i) => (
-              <li key={q.id} className="fx-review-item is-correct">
-                <div className="fx-review-head">
-                  <span className="fx-review-num">{i + 1}</span>
-                  <span className="fx-concept">{q.conceptLabel}</span>
-                  <span className="fx-type">{labelForType(q.type)}</span>
-                </div>
-                <p className="fx-review-prompt">{q.prompt}</p>
-                {q.code && q.code.length > 0 && (
-                  <pre className="fx-code">
-                    {q.code.map((line, j) => (
-                      <code key={j}>{line || ' '}</code>
-                    ))}
-                  </pre>
-                )}
-                <div className="fx-review-answers">
-                  <p className="fx-review-correct">
-                    <span>Correct:</span> {renderCorrect(q)}
-                  </p>
-                </div>
-                <p className="fx-review-explain">{q.explanation}</p>
-              </li>
-            ))}
-          </ol>
-
-          <ReviewTutor
-            items={FINAL_EXAM.map((q, i) => ({
-              label: `Q${i + 1} · ${conceptShort(q.concept)}`,
-              context: {
-                prompt: q.prompt,
-                code: q.code,
-                concept: q.conceptLabel,
-                hint: q.hint,
-                answered: true,
-              },
-            }))}
-            heading="Ask Bit about any question"
-          />
-          </div>
-
-          <div className="fx-results-actions fx-results-actions--bottom">
-            <Link className="fx-btn fx-btn-primary fx-btn-lg" to="/final/exam">
-              Retake the trial <IconArrowRight size={18} />
-            </Link>
-            <Link className="fx-btn fx-btn-ghost" to="/quest/list">
-              Back to levels
-            </Link>
-          </div>
-        </div>
-      </div>
+      <StudyReview
+        assessment={assessment}
+        certificationPassed={gauntlet.examPassed}
+      />
     )
   }
 
-  /* ---------------- review screen ---------------- */
-  if (phase === 'review') {
+  if (result && outcome) {
     return (
-      <div className="page fx-page">
-        <AppHeader />
-        <FinalExamReview
-          detail={results.detail}
-          percent={results.percent}
-          passed={results.passed}
-          prepared={prepared}
-          onRetry={() => {
-            committed.current = false
-            usedHelp.current = new Set()
-            setAnswers({})
-            setIndex(0)
-            setHintForId(null)
-            setPhase('taking')
-            setAttempt((a) => a + 1)
-          }}
-          onBoss={() => navigate('/final/boss')}
-        />
-      </div>
+      <CertificationResult
+        assessment={assessment}
+        result={result}
+        outcome={outcome}
+        onRetry={retry}
+        onBoss={() => navigate('/final/boss')}
+      />
     )
-  }
-
-  /* ---------------- taking screen ---------------- */
-  const current = order[index]
-  const answer = answers[current.id] ?? (current.type === 'order' ? { kind: 'order', value: [] } : { kind: 'none' })
-  const answeredCount = order.filter((q) => hasAnswer(answers[q.id] ?? { kind: 'none' }, q)).length
-  const isLast = index === order.length - 1
-  const canAdvance = hasAnswer(answer, current)
-  const hintUnlocked = current.difficulty <= 2 // scaffolding fades on the hardest items
-  const showHint = hintForId === current.id
-
-  function setCurrentAnswer(a: AnswerValue) {
-    setAnswers((prev) => ({ ...prev, [current.id]: a }))
   }
 
   return (
     <div className="page fx-page">
       <AppHeader />
-
-      <div className="fx-shell fx-shell--solo">
-        <main className="fx-main">
-          <header className="fx-progress">
-            <div className="fx-progress-bar">
-              <span style={{ width: `${Math.round((answeredCount / TOTAL) * 100)}%` }} />
-            </div>
-            <span className="fx-progress-label">
-              Question {index + 1} of {TOTAL}
-            </span>
-            {import.meta.env.DEV && (
-              <button
-                type="button"
-                className="fx-skip-test"
-                title="Testing shortcut (dev only): mark the trial passed and jump to the boss"
-                onClick={() => {
-                  completeExam(100)
-                  navigate('/final/boss')
-                }}
-              >
-                Skip test → Boss
-              </button>
-            )}
-          </header>
-
-          <p className="fx-no-feedback-note">
-            Answer everything first — your results and full explanations come at the end.
+      <div className="fx-cert-runner">
+        <header className="fx-cert-runner-head">
+          <span>NeetCode 150 · Certification</span>
+          <strong>
+            {assessment.lesson.steps.length} typed checks and coding problems
+            across all 18 topics
+          </strong>
+          <p>
+            Score at least {EXAM_PASS_PERCENT}%, represent every topic, and pass
+            every required transfer prompt without a miss. The trial ends with
+            real Python problems graded by the code judge.
           </p>
-
-          <div className="fx-card">
-            <div className="fx-card-top">
-              <span className="fx-concept">{current.conceptLabel}</span>
-              <span className={`fx-diff fx-diff-${current.difficulty}`}>
-                {['', 'Warm-up', 'Challenge', 'Hard'][current.difficulty]}
-              </span>
-              <span className="fx-type">{labelForType(current.type)}</span>
-            </div>
-
-            <h2 className="fx-prompt">{current.prompt}</h2>
-
-            {current.code && current.code.length > 0 && (
-              <pre className="fx-code">
-                {current.code.map((line, i) => (
-                  <code key={i}>{line || ' '}</code>
-                ))}
-              </pre>
-            )}
-
-            <AnswerArea
-              question={current}
-              prepared={prepared[current.id]}
-              answer={answer}
-              setAnswer={setCurrentAnswer}
-              answered={false}
-            />
-
-            {hintUnlocked ? (
-              <div className="fx-hint-row">
-                {showHint ? (
-                  <p className="fx-hint">{current.hint}</p>
-                ) : (
-                  <button
-                    type="button"
-                    className="fx-hint-btn"
-                    onClick={() => {
-                      setHintForId(current.id)
-                      usedHelp.current.add(current.id)
-                    }}
-                  >
-                    Need a hint?
-                  </button>
-                )}
-              </div>
-            ) : (
-              <p className="fx-hint-locked">
-                No hint on this one — give it your best. Ask Bit if you&rsquo;re truly stuck.
-              </p>
-            )}
-
-            <div className="fx-actions">
-              <button
-                type="button"
-                className="fx-btn fx-btn-ghost"
-                onClick={() => setIndex((i) => Math.max(0, i - 1))}
-                disabled={index === 0}
-              >
-                <IconArrowLeft size={16} /> Back
-              </button>
-              {!isLast ? (
-                <button
-                  type="button"
-                  className="fx-btn fx-btn-primary"
-                  onClick={() => setIndex((i) => Math.min(order.length - 1, i + 1))}
-                  disabled={!canAdvance}
-                >
-                  Next <IconArrowRight size={16} />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="fx-btn fx-btn-primary"
-                  onClick={() => setPhase('review')}
-                  disabled={answeredCount < TOTAL}
-                  title={answeredCount < TOTAL ? 'Answer every question first' : 'See your results'}
-                >
-                  Finish &amp; see results <IconArrowRight size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="fx-dots" aria-hidden="true">
-            {order.map((q, i) => (
-              <span
-                key={q.id}
-                className={`fx-dot ${i === index ? 'is-current' : ''} ${hasAnswer(answers[q.id] ?? { kind: 'none' }, q) ? 'is-answered' : ''}`}
-              />
-            ))}
-          </div>
-        </main>
+        </header>
+        <LessonRunner
+          key={`certification-${attempt}`}
+          lessonId={assessment.lesson.id}
+          lessonOverride={assessment.lesson}
+          section="quiz"
+          initial={undefined}
+          onSave={() => {}}
+          onAttempt={logAttempt}
+          streakCurrent={streak.current}
+          nextLessonTitle={null}
+          isLastLesson
+          onTakeQuiz={() => {}}
+          onExit={() => navigate('/quest')}
+          onQuizComplete={finishCertification}
+          examMode
+          embedded
+        />
       </div>
     </div>
   )
 }
 
-/* ------------------------------------------------------------- subviews */
-
-function labelForType(t: ExamQuestion['type']): string {
-  return t === 'mcq'
-    ? 'Choose one'
-    : t === 'recall'
-      ? 'Recall'
-      : t === 'predict'
-        ? 'Predict output'
-        : 'Order the steps'
-}
-
-function hasAnswer(a: AnswerValue, q: ExamQuestion): boolean {
-  if (a.kind === 'choice') return true
-  if (a.kind === 'text') return a.value.trim().length > 0
-  if (a.kind === 'order' && q.type === 'order') return a.value.length === q.steps.length
-  return false
-}
-
-function AnswerArea({
-  question,
-  prepared,
-  answer,
-  setAnswer,
-  answered,
+function StudyReview({
+  assessment,
+  certificationPassed,
 }: {
-  question: ExamQuestion
-  prepared: Prepared
-  answer: AnswerValue
-  setAnswer: (a: AnswerValue) => void
-  answered: boolean
+  assessment: CertificationAssessment
+  certificationPassed: boolean
 }) {
-  if (question.type === 'mcq') {
-    return (
-      <div className="fx-choices">
-        {prepared.choices?.map((c) => {
-          const selected = answer.kind === 'choice' && answer.value === c.originalIndex
-          const cls = answered ? '' : selected ? 'is-selected' : ''
-          return (
-            <button
-              key={c.originalIndex}
-              type="button"
-              className={`fx-choice ${cls}`}
-              disabled={answered}
-              onClick={() => setAnswer({ kind: 'choice', value: c.originalIndex })}
-            >
-              {c.text}
-            </button>
-          )
-        })}
-      </div>
-    )
-  }
+  const tutorItems = useMemo<ReviewTutorItem[]>(
+    () =>
+      assessment.stepMetadata.map((metadata, index) => ({
+        label: `Q${index + 1} · ${metadata.trackTitle}`,
+        context: {
+          prompt: metadata.prompt,
+          code:
+            assessment.lesson.steps.find(
+              ({ id }) => id === metadata.stepId,
+            )?.code ?? [],
+          concept: metadata.trackTitle,
+          hint: metadata.hint,
+          answered: true,
+        },
+      })),
+    [assessment],
+  )
 
-  if (question.type === 'recall' || question.type === 'predict') {
-    return (
-      <div className="fx-input-wrap">
-        <input
-          className="fx-input"
-          type="text"
-          inputMode={question.inputMode === 'numeric' ? 'numeric' : 'text'}
-          placeholder={question.placeholder ?? (question.inputMode === 'numeric' ? 'Type the number' : 'Type your answer')}
-          value={answer.kind === 'text' ? answer.value : ''}
-          disabled={answered}
-          onChange={(e) => setAnswer({ kind: 'text', value: e.target.value })}
-        />
-      </div>
-    )
-  }
-
-  // order
-  const chosen = answer.kind === 'order' ? answer.value : []
-  const remaining = (prepared.shuffledSteps ?? question.steps).filter((s) => !chosen.includes(s))
   return (
-    <div className="fx-order">
-      <ol className="fx-order-slots">
-        {chosen.map((step, i) => (
-          <li key={step} className="fx-order-slot">
-            <span className="fx-order-num">{i + 1}</span>
-            {step}
-            <button
-              type="button"
-              className="fx-order-x"
-              aria-label="Remove"
-              onClick={() => setAnswer({ kind: 'order', value: chosen.filter((s) => s !== step) })}
-            >
-              <IconX size={13} />
-            </button>
-          </li>
-        ))}
-        {chosen.length === 0 && <li className="fx-order-empty">Tap steps below in order…</li>}
-      </ol>
-      {remaining.length > 0 && (
-        <div className="fx-order-bank">
-          {remaining.map((step) => (
-            <button
-              key={step}
-              type="button"
-              className="fx-order-chip"
-              onClick={() => setAnswer({ kind: 'order', value: [...chosen, step] })}
-            >
-              {step}
-            </button>
-          ))}
+    <div className="page fx-page">
+      <AppHeader />
+      <main className="fx-shell fx-shell--review">
+        <div className="fx-results">
+          <span className="fx-grade fx-grade-gold">Study review</span>
+          <h1>NeetCode 150 Certification Trial</h1>
+          <p className="fx-results-sub">
+            Review the original recognition and transfer checks from all 18
+            academy topics. This page does not record a score.
+          </p>
+          <div className="fx-results-actions">
+            <Link className="fx-btn fx-btn-primary fx-btn-lg" to="/final/exam">
+              Take the trial <IconArrowRight size={18} />
+            </Link>
+            {certificationPassed && (
+              <Link className="fx-btn fx-btn-ghost" to="/final/boss">
+                Final boss <IconArrowRight size={16} />
+              </Link>
+            )}
+            <Link className="fx-btn fx-btn-ghost" to="/quest">
+              Back to academy
+            </Link>
+          </div>
         </div>
+
+        <h2 className="fx-review-title">
+          All {assessment.stepMetadata.length} certification items
+        </h2>
+        <div className="review-grid">
+          <ol className="fx-review-list">
+            {assessment.stepMetadata.map((metadata, index) => {
+              const step = assessment.lesson.steps.find(
+                ({ id }) => id === metadata.stepId,
+              )
+              return (
+                <li
+                  className="fx-review-item is-correct"
+                  key={metadata.stepId}
+                >
+                  <ReviewHeading
+                    index={index}
+                    metadata={metadata}
+                    status="study"
+                  />
+                  <p className="fx-review-prompt">{metadata.prompt}</p>
+                  <CodeBlock code={step?.code ?? []} />
+                  <p className="fx-review-correct">
+                    <span>Answer:</span> {metadata.answerLabel}
+                  </p>
+                  <p className="fx-review-explain">
+                    {metadata.explanation}
+                  </p>
+                </li>
+              )
+            })}
+          </ol>
+          <ReviewTutor
+            items={tutorItems}
+            heading="Ask Bit about any certification item"
+          />
+        </div>
+      </main>
+    </div>
+  )
+}
+
+function CertificationResult({
+  assessment,
+  result,
+  outcome,
+  onRetry,
+  onBoss,
+}: {
+  assessment: CertificationAssessment
+  result: LessonResult
+  outcome: CertificationOutcome
+  onRetry: () => void
+  onBoss: () => void
+}) {
+  const grade = gradeFor(outcome.score)
+  const reviewById = useMemo(
+    () => new Map(result.stepReviews.map((review) => [review.id, review])),
+    [result.stepReviews],
+  )
+  const tutorItems = useMemo<ReviewTutorItem[]>(
+    () =>
+      assessment.stepMetadata
+        .map((metadata) => ({
+          metadata,
+          review: reviewById.get(metadata.stepId),
+        }))
+        .sort(
+          (a, b) =>
+            Number(a.review?.missed ?? true) -
+            Number(b.review?.missed ?? true),
+        )
+        .reverse()
+        .map(({ metadata, review }, index) => ({
+          label: `Q${index + 1} · ${metadata.trackTitle}${
+            review?.missed ? ' · missed' : ''
+          }`,
+          context: {
+            prompt: metadata.prompt,
+            code:
+              assessment.lesson.steps.find(
+                ({ id }) => id === metadata.stepId,
+              )?.code ?? [],
+            concept: metadata.trackTitle,
+            hint: metadata.hint,
+            answered: true,
+          },
+        })),
+    [assessment, reviewById],
+  )
+
+  return (
+    <div className="page fx-page">
+      <AppHeader />
+      <main className="fx-shell fx-shell--review">
+        <div className="fx-results">
+          <span
+            className={`fx-grade fx-grade-${
+              outcome.passed ? grade.tier : 'bronze'
+            }`}
+          >
+            {outcome.passed
+              ? grade.label
+              : 'Certification not yet earned'}
+          </span>
+          <h1>
+            {outcome.passed
+              ? 'NeetCode 150 certification earned!'
+              : 'Review your certification trial'}
+          </h1>
+          <p className="fx-results-sub">
+            You scored <strong>{outcome.score}%</strong>.{' '}
+            {outcome.passed
+              ? 'Every topic was represented and every required transfer was clean. The final boss is unlocked.'
+              : certificationFailureMessage(outcome)}
+          </p>
+
+          <div className="fx-requirement-row">
+            <RequirementPill
+              passed={outcome.scorePassed}
+              label={`${EXAM_PASS_PERCENT}% overall`}
+            />
+            <RequirementPill
+              passed={outcome.trackCoveragePassed}
+              label="18 topics represented"
+            />
+            <RequirementPill
+              passed={outcome.openEndedTransferPassed}
+              label="All transfers clean"
+            />
+          </div>
+
+          <div className="fx-results-actions">
+            {outcome.passed && (
+              <button
+                type="button"
+                className="fx-btn fx-btn-primary fx-btn-lg"
+                onClick={onBoss}
+              >
+                Face the final boss <IconArrowRight size={18} />
+              </button>
+            )}
+            <button
+              type="button"
+              className={`fx-btn ${
+                outcome.passed ? 'fx-btn-ghost' : 'fx-btn-primary fx-btn-lg'
+              }`}
+              onClick={onRetry}
+            >
+              Retry the trial
+            </button>
+            <Link className="fx-btn fx-btn-ghost" to="/quest">
+              Leave
+            </Link>
+          </div>
+        </div>
+
+        <section aria-labelledby="track-summary-title">
+          <h2 className="fx-review-title" id="track-summary-title">
+            Results by topic
+          </h2>
+          <div className="fx-track-grid">
+            {outcome.trackResults.map((track) => {
+              const trackClean =
+                track.represented && track.openEndedTransferPassed
+              return (
+                <article
+                  className={`fx-track-result ${
+                    trackClean ? 'is-clean' : 'is-missed'
+                  }`}
+                  key={track.trackId}
+                >
+                  <span aria-hidden="true">
+                    {trackClean ? (
+                      <IconCheck size={15} />
+                    ) : (
+                      <IconX size={15} />
+                    )}
+                  </span>
+                  <strong>{track.trackTitle}</strong>
+                  <small>
+                    {track.cleanFirstTryCount}/{track.itemCount} clean ·{' '}
+                    {track.openEndedTransferPassed
+                      ? 'transfer passed'
+                      : 'transfer retry needed'}
+                  </small>
+                </article>
+              )
+            })}
+          </div>
+        </section>
+
+        <h2 className="fx-review-title">Review every answer</h2>
+        <div className="review-grid">
+          <ol className="fx-review-list">
+            {assessment.stepMetadata.map((metadata, index) => {
+              const review = reviewById.get(metadata.stepId)
+              const clean = review?.missed === false
+              const step = assessment.lesson.steps.find(
+                ({ id }) => id === metadata.stepId,
+              )
+              return (
+                <li
+                  className={`fx-review-item ${
+                    clean ? 'is-correct' : 'is-wrong'
+                  }`}
+                  key={metadata.stepId}
+                >
+                  <ReviewHeading
+                    index={index}
+                    metadata={metadata}
+                    status={clean ? 'clean' : 'missed'}
+                  />
+                  <p className="fx-review-prompt">{metadata.prompt}</p>
+                  <CodeBlock code={step?.code ?? []} />
+                  <ReviewAnswer
+                    metadata={metadata}
+                    review={review}
+                  />
+                  <p className="fx-review-explain">
+                    {metadata.explanation}
+                  </p>
+                </li>
+              )
+            })}
+          </ol>
+          <ReviewTutor
+            items={tutorItems}
+            heading="Ask Bit about your certification"
+          />
+        </div>
+
+        <div className="fx-results-actions fx-results-actions--bottom">
+          {outcome.passed && (
+            <button
+              type="button"
+              className="fx-btn fx-btn-primary fx-btn-lg"
+              onClick={onBoss}
+            >
+              Face the final boss <IconArrowRight size={18} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="fx-btn fx-btn-ghost"
+            onClick={onRetry}
+          >
+            Retry the trial
+          </button>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+function RequirementPill({
+  passed,
+  label,
+}: {
+  passed: boolean
+  label: string
+}) {
+  return (
+    <span className={`fx-requirement ${passed ? 'is-passed' : 'is-missed'}`}>
+      {passed ? <IconCheck size={14} /> : <IconX size={14} />}
+      {label}
+    </span>
+  )
+}
+
+function ReviewHeading({
+  index,
+  metadata,
+  status,
+}: {
+  index: number
+  metadata: CertificationStepMetadata
+  status: 'study' | 'clean' | 'missed'
+}) {
+  return (
+    <div className="fx-review-head">
+      <span className="fx-review-num">{index + 1}</span>
+      <span className="fx-concept">{metadata.trackTitle}</span>
+      <span className="fx-type">
+        {metadata.itemKind === 'pattern-recognition'
+          ? 'Pattern recognition'
+          : metadata.itemKind === 'code-transfer'
+            ? 'Coding challenge'
+            : 'Required transfer'}
+      </span>
+      {status !== 'study' && (
+        <span
+          className={`fx-review-mark ${
+            status === 'clean' ? 'is-correct' : 'is-wrong'
+          }`}
+        >
+          {status === 'clean' ? (
+            <>
+              <IconCheck size={14} /> Clean
+            </>
+          ) : (
+            <>
+              <IconX size={14} /> Missed
+            </>
+          )}
+        </span>
       )}
     </div>
   )
 }
 
-type ReviewItem = { q: ExamQuestion; given: AnswerValue; correct: boolean }
-
-function FinalExamReview({
-  detail,
-  percent,
-  passed,
-  prepared,
-  onRetry,
-  onBoss,
-}: {
-  detail: ReviewItem[]
-  percent: number
-  passed: boolean
-  prepared: Record<string, Prepared>
-  onRetry: () => void
-  onBoss: () => void
-}) {
-  const { state } = useGauntlet()
-  const grade = gradeFor(percent)
-  const concepts = useMemo(
-    () =>
-      Object.values(state.concepts)
-        .map((c) => ({ concept: c.concept, mastered: isConceptMastered(c), seen: c.seen }))
-        .filter((c) => c.seen > 0),
-    [state.concepts],
-  )
-
+function CodeBlock({ code }: { code: readonly string[] }) {
+  if (code.length === 0) return null
   return (
-    <div className="fx-shell fx-shell--review">
-      <div className="fx-results">
-        <span className={`fx-grade fx-grade-${passed ? grade.tier : 'bronze'}`}>
-          {passed ? grade.label : 'Not yet — keep training'}
-        </span>
-        <h1>{passed ? 'Mastery Trial passed!' : 'Mastery Trial — review & retry'}</h1>
-        <p className="fx-results-sub">
-          You scored <strong>{percent}%</strong>. {passed
-            ? `You cleared the ${EXAM_PASS_PERCENT}% mastery bar — the final boss awaits.`
-            : `You need ${EXAM_PASS_PERCENT}% to advance. Review the explanations below, then retry.`}
-        </p>
+    <pre className="fx-code">
+      {code.map((line, index) => (
+        <code key={`${index}:${line}`}>{line || ' '}</code>
+      ))}
+    </pre>
+  )
+}
 
-        <div className="fx-results-concepts">
-          {concepts.map((c) => (
-            <span key={c.concept} className={`fx-concept-pip ${c.mastered ? 'is-mastered' : ''}`}>
-              {c.mastered ? <IconCheck size={13} /> : null}
-              {conceptShort(c.concept)}
-            </span>
-          ))}
-        </div>
-
-        <div className="fx-results-actions">
-          {passed ? (
-            <button type="button" className="fx-btn fx-btn-primary fx-btn-lg" onClick={onBoss}>
-              Face the Final Boss <IconArrowRight size={18} />
-            </button>
-          ) : (
-            <button type="button" className="fx-btn fx-btn-primary fx-btn-lg" onClick={onRetry}>
-              Retry the trial <IconArrowRight size={18} />
-            </button>
-          )}
-          <Link className="fx-btn fx-btn-ghost" to="/quest">Leave</Link>
-        </div>
-      </div>
-
-      <h2 className="fx-review-title">Review — every question explained</h2>
-      <div className="review-grid">
-      <ol className="fx-review-list">
-        {detail.map(({ q, given, correct }, i) => (
-          <li key={q.id} className={`fx-review-item ${correct ? 'is-correct' : 'is-wrong'}`}>
-            <div className="fx-review-head">
-              <span className="fx-review-num">{i + 1}</span>
-              <span className="fx-concept">{q.conceptLabel}</span>
-              <span className={`fx-review-mark ${correct ? 'is-correct' : 'is-wrong'}`}>
-                {correct ? <><IconCheck size={14} /> Correct</> : <><IconX size={14} /> Missed</>}
-              </span>
-            </div>
-            <p className="fx-review-prompt">{q.prompt}</p>
-            {q.code && q.code.length > 0 && (
-              <pre className="fx-code">
-                {q.code.map((line, j) => (
-                  <code key={j}>{line || ' '}</code>
-                ))}
-              </pre>
-            )}
-            <div className="fx-review-answers">
-              {!correct && (
-                <p className="fx-review-yours">
-                  <span>Your answer:</span> {renderAnswer(q, given, prepared[q.id]) || <em>blank</em>}
-                </p>
-              )}
-              <p className="fx-review-correct">
-                <span>Correct:</span> {renderCorrect(q)}
-              </p>
-            </div>
-            <p className="fx-review-explain">{q.explanation}</p>
-          </li>
-        ))}
-      </ol>
-
-      <ReviewTutor
-        items={[...detail]
-          .sort((a, b) => Number(a.correct) - Number(b.correct))
-          .map(({ q }, i) => ({
-            label: `Q${i + 1} · ${conceptShort(q.concept)}`,
-            context: {
-              prompt: q.prompt,
-              code: q.code,
-              concept: q.conceptLabel,
-              hint: q.hint,
-              answered: true,
-            },
-          }))}
-        heading="Ask Bit about your answers"
-      />
-      </div>
-
-      <div className="fx-results-actions fx-results-actions--bottom">
-        {passed ? (
-          <button type="button" className="fx-btn fx-btn-primary fx-btn-lg" onClick={onBoss}>
-            Face the Final Boss <IconArrowRight size={18} />
-          </button>
-        ) : (
-          <button type="button" className="fx-btn fx-btn-primary fx-btn-lg" onClick={onRetry}>
-            Retry the trial <IconArrowRight size={18} />
-          </button>
-        )}
-      </div>
+function ReviewAnswer({
+  metadata,
+  review,
+}: {
+  metadata: CertificationStepMetadata
+  review: StepReview | undefined
+}) {
+  return (
+    <div className="fx-review-answers">
+      <p className="fx-review-correct">
+        <span>Expected:</span>{' '}
+        {review?.assessmentAnswerLabel ?? metadata.answerLabel}
+      </p>
     </div>
   )
 }
 
-function renderAnswer(q: ExamQuestion, given: AnswerValue, prep: Prepared): string {
-  if (q.type === 'mcq') {
-    if (given.kind !== 'choice') return ''
-    const found = prep.choices?.find((c) => c.originalIndex === given.value)
-    return found?.text ?? q.choices[given.value] ?? ''
+function certificationFailureMessage(outcome: CertificationOutcome): string {
+  if (!outcome.scorePassed) {
+    return `Reach ${EXAM_PASS_PERCENT}% overall, then prove the certification requirements in that same attempt.`
   }
-  if (q.type === 'recall' || q.type === 'predict') {
-    return given.kind === 'text' ? given.value : ''
+  if (!outcome.trackCoveragePassed) {
+    return `The result is missing ${outcome.missingTrackIds.length} required topic${
+      outcome.missingTrackIds.length === 1 ? '' : 's'
+    }.`
   }
-  if (q.type === 'order') {
-    return given.kind === 'order' ? given.value.join(' → ') : ''
-  }
-  return ''
-}
-
-function renderCorrect(q: ExamQuestion): string {
-  if (q.type === 'mcq') return q.choices[q.answerIndex]
-  if (q.type === 'recall' || q.type === 'predict') return q.accept[0]
-  if (q.type === 'order') return q.steps.join(' → ')
-  return ''
-}
-
-function conceptShort(c: string): string {
-  const map: Record<string, string> = {
-    arrays: 'Arrays',
-    loops: 'Loops',
-    strings: 'Strings',
-    hashMaps: 'Hash Maps',
-    twoPointers: 'Two Pointers',
-    stacks: 'Stacks',
-    binarySearch: 'Binary Search',
-    variables: 'Variables',
-  }
-  return map[c] ?? c
+  return 'At least one required open transfer was missed. Retry and pass every transfer on the first try.'
 }

@@ -70,7 +70,7 @@ export function CompletionView({
   const headline = reviewCleared
     ? 'Review complete!'
     : courseComplete
-      ? 'Course complete!'
+      ? 'Primer complete!'
       : band === 'strong'
         ? 'Great job!'
         : 'Quiz complete!'
@@ -169,9 +169,9 @@ export function CompletionView({
           </p>
         ) : courseComplete ? (
           <p>
-            <strong>You finished all 6 core patterns.</strong> You&apos;re ready
-            to start NeetCode 150 — AlphaCode taught you the thinking; NeetCode
-            gives you the reps.
+            <strong>You finished the historical six-lesson primer.</strong> The
+            durable Academy campaign contains 150 missions across 18 topics and
+            6 realms.
           </p>
         ) : unlocked ? (
           <p>
@@ -196,32 +196,32 @@ export function CompletionView({
                 <IconArrowRight size={18} />
               </Link>
             )}
-            <button className="btn ghost lg" onClick={onReplay}>
+            <button type="button" className="btn ghost lg" onClick={onReplay}>
               Restart quiz
             </button>
-            <button className="btn ghost lg" onClick={onReturn}>
+            <button type="button" className="btn ghost lg" onClick={onReturn}>
               Back to course
             </button>
           </>
         ) : canAdvance ? (
           <>
-            <button className="btn lg lime" onClick={onNext}>
+            <button type="button" className="btn lg lime" onClick={onNext}>
               Next lesson
               <IconArrowRight size={18} />
             </button>
-            <button className="btn ghost lg" onClick={onReplay}>
+            <button type="button" className="btn ghost lg" onClick={onReplay}>
               Restart quiz
             </button>
-            <button className="btn ghost lg" onClick={onReturn}>
+            <button type="button" className="btn ghost lg" onClick={onReturn}>
               Back to course
             </button>
           </>
         ) : (
           <>
-            <button className="btn ghost lg" onClick={onReplay}>
+            <button type="button" className="btn ghost lg" onClick={onReplay}>
               Restart quiz
             </button>
-            <button className="btn ghost lg" onClick={onReturn}>
+            <button type="button" className="btn ghost lg" onClick={onReturn}>
               Back to course
             </button>
           </>

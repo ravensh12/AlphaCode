@@ -4,20 +4,36 @@ import * as THREE from 'three'
 import { Avatar, type AvatarAnim } from './Avatar'
 import { useKeys } from './useKeys'
 import { playShot } from '../../lib/soundFx'
-import { GROUND_HALF, START_3D, collidersNear } from './layout'
+import { GROUND_HALF, START_3D, VAULT_CLEAR_TOP, collidersNear } from './layout'
 import { radialGlowTexture } from './proceduralTextures'
 import type { World } from '../../content/adventure'
+import type { CityTargetKind } from './city/interactables'
+import {
+  hoverboardTargetSpeed,
+  stepHoverboardSpeed,
+  type HoverboardPose,
+} from './city/hoverboardCore'
 
+/**
+ * The city interactables registry emits a structural superset of this shape
+ * (`CityTarget`), so `buildCityInteractables(...).map(i => i.target)` feeds
+ * straight in. Legacy 'lesson'/'boss' targets keep working: without a radius
+ * they use ENTER_RADIUS, without a priority they tie-break by distance alone.
+ */
 export type Target = {
   key: string
   world: World
-  kind: 'lesson' | 'boss'
+  kind: CityTargetKind
   x: number
   z: number
   locked: boolean
   cleared: boolean
-  /** For split lessons: which checkpoint part (0-based) this gate opens. */
+  /** For split lessons / dojo gates: which checkpoint part (0-based). */
   part?: number
+  /** Interaction radius in metres (defaults to ENTER_RADIUS). */
+  radius?: number
+  /** Higher wins when several targets overlap; ties go to the nearest. */
+  priority?: number
 }
 
 /**
@@ -43,16 +59,74 @@ export type DashState = {
  *  the stick deflection 0..1 — pushed to the edge = sprint. */
 export type TouchMoveState = { fwd: number; str: number; mag: number }
 
-const RUN_SPEED = 8
-const SPRINT_SPEED = 15
-const HEADING_LERP = 0.3 // how fast the hero turns to face the aim direction
+// GLOBAL PACE PASS (owner directive): every ground speed below is the old
+// value × 0.88 — a uniform ~12% slowdown. The zombie sim (CombatSystem
+// ZOMBIE_SPEED + its tier/intensity ramp) is scaled by the SAME factor so
+// every chase matchup (shambler vs walk, runner vs run, night horde vs
+// sprint) keeps its exact relative speed.
+const RUN_SPEED = 7.04 // was 8
+const SPRINT_SPEED = 13.2 // was 15
+// Turn / follow easing expressed as CONTINUOUS rates (per second), applied via
+// 1 - exp(-rate·dt) so the ease covers the same ground in real time whether the
+// frame rate is 30 or 120. Fixed per-frame factors (the old 0.3 / 0.12) made the
+// hero snap-turn and the camera lag/jerk exactly when the frame rate wobbled.
+const HEADING_RATE = 21 // hero turns to face the aim direction (~0.3 @ 60fps)
+const LEAN_RATE = 8 // run-lean settle (~0.12 @ 60fps)
+const CAM_FOLLOW_RATE = 7.7 // camera chases the follow point (~0.12 @ 60fps)
 const TURN_RATE = 2.5 // rad/s when turning with the arrow keys
 const CAM_DIST = 5.2
 const CAM_HEIGHT = 2.7
 const AIM_AHEAD = 14 // look far ahead so the view is near-level and bullets carry
 const AIM_HEIGHT = 1.7 // aim-point height; keeps the hero low in frame
-const JUMP_V = 7
-const GRAVITY = -21
+// Jump arc: asymmetric gravity (floatier rise, heavy fall) — the classic
+// action-game curve. Old symmetric -21 read as "moon jump": too slow up, too
+// slow down, and the body hung at the apex. Rise 7.8/24 ≈ 0.33s to a 1.27m
+// apex, fall √(2·1.27/40) ≈ 0.25s — ~0.6s total airtime with real weight.
+const JUMP_V = 7.8
+const GRAVITY_RISE = -24
+const GRAVITY_FALL = -40
+// Console-feel garnish on that curve:
+// - a brief low-gravity window right at the apex (the "hang" every platformer
+//   fakes) so the top of the arc breathes instead of ticking over,
+// - releasing Space early trims the rise for a short hop (variable height),
+// - a press in the last ~0.12s of a fall is BUFFERED and fires on touchdown
+//   instead of being swallowed — chained jumps come out the frame you land.
+const APEX_SPEED = 1.6 // |velY| below this counts as the apex hang window
+const APEX_GRAVITY_MUL = 0.55
+const JUMP_CUT_MUL = 0.45 // early release keeps 45% of the remaining rise
+// Floor on the trimmed rise. A quick TAP releases Space before the takeoff
+// frame even runs, so the cut used to land on the same frame as the launch and
+// squashed the whole jump to a ~0.26m blip — "Space does nothing". Never trim
+// below ~0.56m of apex: taps read as a real hop, holds still get full height.
+const JUMP_CUT_MIN_V = 5.2
+const JUMP_BUFFER = 0.12 // seconds a mid-air Space press waits for the ground
+// Contextual PARKOUR HURDLE (the headline maneuver): Space while facing a LOW
+// obstacle (a parked car, bench, planter — small collider footprint) turns
+// the jump into a committed speed-vault that carries the hero over it. The
+// rig plays the Meshy Parkour Vault 2 clip (lateral speed-vault); the
+// controller OWNS the whole carry:
+//   - the probe reaches further the faster you run (sprint catches the car
+//     earlier, so the plant lines up with the bumper instead of the roof),
+//   - while airborne the vault direction + speed are LOCKED (launch speed +
+//     VAULT_DRIVE) — no mid-air steering into the car's side, no jump-cut,
+//   - collision pushout is skipped for the airtime, and the locked carry
+//     guarantees the far edge clears before touchdown (no clipping).
+const VAULT_PROBE_BASE = 1.3 // metres ahead the probe starts looking
+// 0.13 → 0.15 with the pace pass: the slower sprint (13.2) must still probe
+// ~3.25m ahead so the plant keeps lining up with the bumper, not the roof.
+const VAULT_PROBE_PER_MS = 0.15 // extra probe metres per m/s of ground speed
+const VAULT_MAX_HALF = 3 // collider half-extent ceiling that counts as "low"
+// 4.5 → 4.0 keeps the TOTAL vault carry (launch speed + drive) at exactly
+// 0.88× its old reach across the whole launch-speed band — the arc still
+// clears a car's far edge (airtime is unchanged; VAULT_V untouched).
+const VAULT_DRIVE = 4.0 // forward m/s added on top of the locked launch speed
+// The hurdle launches HIGHER than a plain jump (apex ~2.0m vs 1.27m): the
+// body must visibly sail ABOVE a car/van roof — at plain jump height the feet
+// pass through the sheet metal — and the longer airtime (~0.8s) gives the
+// speed-vault clip room to play its plant → sail → running-recovery phases.
+const VAULT_V = 9.8
+const SQUASH_RATE = 9 // landing squash recovers in ~0.11s (was ~0.25s)
+const LOOK_Y_RATE = 9 // vertical camera/look smoothing through the arc
 const BOUND = GROUND_HALF - 8
 const ENTER_RADIUS = 7.5
 const BODY_R = 0.7 // hero collision radius vs. building footprints
@@ -60,10 +134,17 @@ const BODY_R = 0.7 // hero collision radius vs. building footprints
 // --- Blade dash: a precise dodge-lunge that cuts what you pass THROUGH ------
 // Tuned as a skill tool, not a panic button: a real cooldown means you must time
 // it to dodge a slam/acid or carve an escape lane — not spam it to nuke packs.
-const DASH_SPEED = 30 // m/s burst while dashing
+const DASH_SPEED = 26.4 // m/s burst while dashing (was 30 — global pace pass)
 const DASH_TIME = 0.32 // seconds the lunge + i-frames last
 const DASH_CD = 2.4 // meaningful cooldown — the dash is a committed decision
 const DASH_RADIUS = 2.8 // tighter sweep — cuts what you dash through, not the whole field
+
+// --- Hoverboard ride -------------------------------------------------------
+// While mounted the hero stands on the board deck; speeds come from
+// hoverboardCore (cruise 15 → boost 24 m/s with asymmetric accel/brake), and
+// jump / dash / crouch are parked — the board is pure traversal.
+const RIDE_DECK_HEIGHT = 0.42 // hero foot height on the deck (m)
+const RIDE_GLIDE_EPSILON = 0.05 // below this ground speed the board is "still"
 
 // --- M5 game feel (camera-only; movement/controls tuning untouched) --------
 const SPRINT_FOV_ADD = 5 // sprint widens the lens a touch — speed reads on screen
@@ -151,7 +232,16 @@ function FootDust({
     // Footfall cadence: a puff every stride-length of actual ground covered.
     const grounded = p.y < 0.02
     const a = animRef.current
-    if (grounded && (a === 'run' || a === 'walk' || a === 'dash')) {
+    if (
+      grounded &&
+      (a === 'run' ||
+        a === 'walk' ||
+        a === 'sprint' ||
+        a === 'dash' ||
+        a === 'strafeL' ||
+        a === 'strafeR' ||
+        a === 'back')
+    ) {
       distAcc.current += Math.hypot(p.x - prev.x, p.z - prev.z)
       const stride = a === 'dash' ? 1.6 : DUST_STRIDE
       if (distAcc.current >= stride) {
@@ -205,13 +295,27 @@ function FootDust({
   return <instancedMesh ref={mesh} args={[geo, mat, DUST_POOL]} frustumCulled={false} />
 }
 
-/** Slide the hero out of any building/car footprint (circle vs. AABB). */
-function resolveCollisions(p: THREE.Vector3) {
+/** Slide the hero out of any building/car footprint (circle vs. AABB).
+ *  `tallOnly` runs during vault airtime: hurdle-height colliders are skipped
+ *  (the pushout would shove the hero off the locked arc), but anything
+ *  taller than the arc stays a WALL — without this, a vault triggered off a
+ *  low prop carried the hero clean through the kiosk/shelter behind it. */
+function resolveCollisions(p: THREE.Vector3, tallOnly = false) {
   // Only the colliders bucketed into the hero's grid cell can possibly overlap,
   // so this is a handful of tests per frame instead of the full ~2.8k scan.
   const near = collidersNear(p.x, p.z)
   for (let i = 0; i < near.length; i++) {
     const c = near[i]
+    // Mid-vault wall test: explicit tall props by height; height-less
+    // colliders (buildings, quest boxes, landmarks) by footprint — anything
+    // too big to be a hurdle target is a wall.
+    if (tallOnly) {
+      const wall =
+        c.top !== undefined
+          ? c.top > VAULT_CLEAR_TOP
+          : Math.max(c.hw, c.hd) > VAULT_MAX_HALF
+      if (!wall) continue
+    }
     const dx = p.x - c.x
     const dz = p.z - c.z
     // Broad reject.
@@ -258,6 +362,9 @@ function ThirdPersonControllerImpl({
   shakeRef,
   hitstopRef,
   touchMoveRef,
+  rideRef,
+  hoverboardPoseRef,
+  deadRef,
 }: {
   playerPosRef: MutableRefObject<THREE.Vector3>
   headingRef?: MutableRefObject<number>
@@ -284,6 +391,15 @@ function ThirdPersonControllerImpl({
   hitstopRef?: MutableRefObject<number>
   /** Virtual joystick (touch devices) — read every frame alongside the keys. */
   touchMoveRef?: MutableRefObject<TouchMoveState>
+  /** Hoverboard mount flag — the page toggles it, this controller reads it. */
+  rideRef?: MutableRefObject<{ mounted: boolean }>
+  /** While mounted, the board pose is written here every frame (never state). */
+  hoverboardPoseRef?: MutableRefObject<HoverboardPose>
+  /** PRESENTATION-ONLY death flag: while true, the rig plays its collapse and
+   *  holds the body on the ground. The page owns the actual death/respawn
+   *  logic (hearts, overlay, `paused`) — this only routes the visual. Pages
+   *  wire it as `deadRef={deadRef}` alongside their existing pause-on-death. */
+  deadRef?: MutableRefObject<boolean>
 }) {
   const { camera, gl } = useThree()
   const enabledRef = useRef(true)
@@ -319,7 +435,20 @@ function ThirdPersonControllerImpl({
   const velY = useRef(0)
   const grounded = useRef(true)
   const jumpReq = useRef(false)
+  const jumpCutReq = useRef(false) // Space released → trim the rise (short hop)
+  const jumpBufUntil = useRef(-10) // clock time a buffered mid-air press expires
   const squash = useRef(0) // landing squash timer
+  const vaulting = useRef(false) // mid-vault: locked carry + collision skip
+  const vaultDir = useRef(new THREE.Vector3(0, 0, 1))
+  const vaultSpeed = useRef(0) // locked ground speed carried through the vault
+  // Ground speed measured last frame (m/s) — sizes the vault probe + carry.
+  const prevXZ = useRef(new THREE.Vector3())
+  const groundSpd = useRef(0)
+  // Takeoff counter (same ref pattern as fireRef/slashRef): bumped on every
+  // launch so the Avatar re-arms its airborne one-shot even on buffered
+  // chained hops, where the anim state never leaves 'jump'.
+  const jumpSeqRef = useRef(0)
+  const lookY = useRef(AIM_HEIGHT) // smoothed vertical look point through the arc
   const lastNearby = useRef<string | null>(null)
 
   // Crouch / lay-low (stealth): held key. While down the hero moves slowly and
@@ -327,12 +456,22 @@ function ThirdPersonControllerImpl({
   const crouchHeld = useRef(false)
   const stealthOn = useRef(false)
 
+  // Turn-in-place state (0 = not turning, 1 = left, -1 = right) with
+  // hysteresis so a stationary aim drag plays the lean without flickering.
+  const turnDir = useRef(0)
+
   // Blade dash.
   const dashReq = useRef(false)
   const dashUntil = useRef(-10) // clock time the lunge ends
   const dashCdUntil = useRef(-10) // clock time the dash is ready again
   const dashDir = useRef(new THREE.Vector3(0, 0, 1))
   const slashRef = useRef(-10) // clock time the most recent slash started (drives the sword)
+
+  // Hoverboard ride state: integrated ground speed, the glide direction the
+  // board keeps between inputs, and an edge detector for mount/dismount.
+  const boardSpeed = useRef(0)
+  const boardDir = useRef(new THREE.Vector3(0, 0, 1))
+  const wasRiding = useRef(false)
 
   const tmpForward = useRef(new THREE.Vector3())
   const tmpRight = useRef(new THREE.Vector3())
@@ -372,13 +511,22 @@ function ThirdPersonControllerImpl({
       dragging = false
       holdFire.current = false
     }
+    // Losing focus mid-drag (alt-tab, OS switcher) never delivers a pointerup,
+    // so the hero used to keep orbiting + auto-firing after you came back.
+    // Mirror useKeys' blur reset so held pointer state can't get stuck.
+    function blur() {
+      dragging = false
+      holdFire.current = false
+    }
     el.addEventListener('pointerdown', down)
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+    window.addEventListener('blur', blur)
     return () => {
       el.removeEventListener('pointerdown', down)
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      window.removeEventListener('blur', blur)
     }
   }, [gl])
 
@@ -390,24 +538,39 @@ function ThirdPersonControllerImpl({
     function onUp(e: KeyboardEvent) {
       if (e.key === 'f' || e.key === 'F') holdFire.current = false
     }
+    // Alt-tab / OS switch while holding F never delivers a keyup — clear the
+    // held trigger on blur so the hero doesn't auto-fire forever on return.
+    function blur() {
+      holdFire.current = false
+    }
+    window.addEventListener('keydown', onDown)
+    window.addEventListener('keyup', onUp)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('keydown', onDown)
+      window.removeEventListener('keyup', onUp)
+      window.removeEventListener('blur', blur)
+    }
+  }, [])
+
+  // Jump key (space) — separate so it doesn't repeat-fire. Release trims the
+  // rise (variable-height short hop, resolved in the frame loop).
+  useEffect(() => {
+    function onDown(e: KeyboardEvent) {
+      if (e.code === 'Space' && !e.repeat && !paused) {
+        jumpReq.current = true
+        e.preventDefault()
+      }
+    }
+    function onUp(e: KeyboardEvent) {
+      if (e.code === 'Space') jumpCutReq.current = true
+    }
     window.addEventListener('keydown', onDown)
     window.addEventListener('keyup', onUp)
     return () => {
       window.removeEventListener('keydown', onDown)
       window.removeEventListener('keyup', onUp)
     }
-  }, [])
-
-  // Jump key (space) — separate so it doesn't repeat-fire.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.code === 'Space' && !paused) {
-        jumpReq.current = true
-        e.preventDefault()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
   }, [paused])
 
   // Blade dash key (Q). One-shot per press; the cooldown is enforced in-frame.
@@ -431,11 +594,18 @@ function ThirdPersonControllerImpl({
     function onUp(e: KeyboardEvent) {
       if (e.key === 'c' || e.key === 'C') crouchHeld.current = false
     }
+    // Held-crouch would otherwise stick "on" after an alt-tab (no keyup fires
+    // when the window is unfocused) — the hero stayed slow + in stealth forever.
+    function blur() {
+      crouchHeld.current = false
+    }
     window.addEventListener('keydown', onDown)
     window.addEventListener('keyup', onUp)
+    window.addEventListener('blur', blur)
     return () => {
       window.removeEventListener('keydown', onDown)
       window.removeEventListener('keyup', onUp)
+      window.removeEventListener('blur', blur)
     }
   }, [])
 
@@ -467,6 +637,22 @@ function ThirdPersonControllerImpl({
     const dt = Math.min(dtRaw, 0.05) * (slowed ? 0.18 : 1)
     const k = paused ? {} : keys.current
 
+    // Hoverboard mount state (page-owned flag, read every frame). Mount and
+    // dismount edges reset the speed curve and snap the hero on/off the deck.
+    const riding = rideRef?.current.mounted === true
+    if (riding !== wasRiding.current) {
+      wasRiding.current = riding
+      boardSpeed.current = 0
+      if (riding) {
+        boardDir.current.set(Math.sin(heading.current), 0, Math.cos(heading.current))
+        pos.current.y = RIDE_DECK_HEIGHT
+        velY.current = 0
+        grounded.current = true
+      } else {
+        pos.current.y = 0
+      }
+    }
+
     // Left/right arrows turn the hero (so the game is fully playable on arrows
     // alone); mouse-drag also turns. Up/down move forward/back.
     const turn = (k['arrowright'] ? 1 : 0) - (k['arrowleft'] ? 1 : 0)
@@ -477,12 +663,21 @@ function ThirdPersonControllerImpl({
     tmpForward.current.set(Math.sin(camYaw.current), 0, Math.cos(camYaw.current))
     tmpRight.current.set(-tmpForward.current.z, 0, tmpForward.current.x)
 
+    // Aim the next shot along THIS frame's facing (tmpForward is already unit
+    // length + horizontal). Publishing shootDir at frame END lagged every shot
+    // by one frame — the fire block below runs earlier in the same frame, so it
+    // used to read the PREVIOUS frame's aim and bullets trailed the crosshair
+    // during a fast aim drag. Set it up-front so click/hold fires exactly where
+    // the reticle points, with the muzzle origin (also tmpForward) in agreement.
+    shootDir.current.copy(tmpForward.current)
+
     // --- Blade dash: a fast forward lunge with i-frames that slices the horde.
+    // Parked while riding — the board is traversal, the sword stays sheathed.
     const now = state.clock.elapsedTime
     let dashing = now < dashUntil.current
     if (dashReq.current) {
       dashReq.current = false
-      if (!dashing && now >= dashCdUntil.current && !paused) {
+      if (!dashing && now >= dashCdUntil.current && !paused && !riding) {
         dashDir.current.copy(tmpForward.current)
         dashDir.current.y = 0
         if (dashDir.current.lengthSq() < 1e-4) {
@@ -497,7 +692,8 @@ function ThirdPersonControllerImpl({
     }
 
     // Crouch / lay-low: slow, quiet movement that breaks the horde's lock.
-    const crouching = crouchHeld.current && !dashing && !paused
+    // Not available on the board — you can't lay low at 15 m/s.
+    const crouching = crouchHeld.current && !dashing && !paused && !riding
 
     // Move along the aim direction: W/↑ forward, S/↓ backward (no spinning),
     // A/D strafe. The virtual joystick adds its analog vector on top, and
@@ -515,6 +711,34 @@ function ThirdPersonControllerImpl({
       pos.current.x += dashDir.current.x * ds
       pos.current.z += dashDir.current.z * ds
       moving = true
+    } else if (vaulting.current && !grounded.current) {
+      // Committed parkour hurdle: the locked launch speed + drive carries the
+      // hero over the obstacle. Input steering is parked for the airtime so
+      // the arc can't be bent into the obstacle's side mid-vault.
+      const vs = (vaultSpeed.current + VAULT_DRIVE) * dt
+      pos.current.x += vaultDir.current.x * vs
+      pos.current.z += vaultDir.current.z * vs
+      moving = true
+    } else if (riding) {
+      // Hoverboard traversal: integrate the core's speed curve (cruise 15,
+      // boost 24 via the sprint key, exponential accel/brake) and glide along
+      // the last commanded direction — releasing the stick coasts to a stop.
+      tmpMove.current.set(0, 0, 0)
+      tmpMove.current.addScaledVector(tmpForward.current, fwd)
+      tmpMove.current.addScaledVector(tmpRight.current, str)
+      const steering = tmpMove.current.lengthSq() > 0.001
+      if (steering) boardDir.current.copy(tmpMove.current).normalize()
+      const target = paused
+        ? 0
+        : hoverboardTargetSpeed({ moving: steering, boosting: sprintHeld })
+      boardSpeed.current = stepHoverboardSpeed(boardSpeed.current, target, dt)
+      moving = boardSpeed.current > RIDE_GLIDE_EPSILON
+      if (moving) {
+        const step = boardSpeed.current * dt
+        pos.current.x += boardDir.current.x * step
+        pos.current.z += boardDir.current.z * step
+      }
+      pos.current.y = RIDE_DECK_HEIGHT
     } else {
       tmpMove.current.set(0, 0, 0)
       tmpMove.current.addScaledVector(tmpForward.current, fwd)
@@ -533,18 +757,34 @@ function ThirdPersonControllerImpl({
       }
     }
 
-    // Facing: snap to the lunge direction while dashing, otherwise ease toward
-    // the camera aim (a smooth Disney arc).
+    // Facing: snap to the lunge direction while dashing, LOCK to the vault
+    // direction for the hurdle's airtime (a camera drag mid-vault must not
+    // twist the planted body), otherwise ease toward the camera aim.
     if (dashing) {
       heading.current = Math.atan2(dashDir.current.x, dashDir.current.z)
+    } else if (vaulting.current && !grounded.current) {
+      heading.current = Math.atan2(vaultDir.current.x, vaultDir.current.z)
     } else {
       let hd = camYaw.current - heading.current
       hd = Math.atan2(Math.sin(hd), Math.cos(hd))
-      heading.current += hd * HEADING_LERP
+      heading.current += hd * (1 - Math.exp(-HEADING_RATE * dt))
     }
 
-    // Block movement through buildings / cars.
-    if (moving) resolveCollisions(pos.current)
+    // Measured ground speed (m/s, eased) — sizes the vault probe + carry so a
+    // sprint hurdle reaches further than a standing one.
+    if (dt > 0) {
+      const gs = Math.min(
+        SPRINT_SPEED,
+        Math.hypot(pos.current.x - prevXZ.current.x, pos.current.z - prevXZ.current.z) / dt,
+      )
+      groundSpd.current += (gs - groundSpd.current) * Math.min(1, dt * 12)
+    }
+    prevXZ.current.copy(pos.current)
+
+    // Block movement through buildings / cars. A vault sails OVER its car —
+    // the pushout would otherwise shove the hero off the arc mid-air — but
+    // wall-height obstacles keep blocking even mid-vault.
+    if (moving) resolveCollisions(pos.current, vaulting.current)
 
     // Clamp to map.
     const r = Math.hypot(pos.current.x, pos.current.z)
@@ -553,34 +793,129 @@ function ThirdPersonControllerImpl({
       pos.current.z *= BOUND / r
     }
 
-    // Jump + gravity.
+    // Jump + gravity. The board hovers at a fixed deck height — jump requests
+    // are swallowed while riding (dismount first, then jump).
     if (jumpReq.current) {
       jumpReq.current = false
-      if (grounded.current) {
+      if (grounded.current && !riding) {
         velY.current = JUMP_V
         grounded.current = false
+        squash.current = 0 // takeoff cancels any leftover landing squash
+        jumpSeqRef.current++
+        // Contextual parkour hurdle: a LOW obstacle (car-sized collider)
+        // ahead turns this jump into a vault over it. The probe reaches
+        // further with speed and samples two points along the facing so a
+        // sprint at a car's corner still catches.
+        const fx = Math.sin(heading.current)
+        const fz = Math.cos(heading.current)
+        const probeDist = VAULT_PROBE_BASE + groundSpd.current * VAULT_PROBE_PER_MS
+        outer: for (const frac of [0.55, 1]) {
+          const probeX = pos.current.x + fx * probeDist * frac
+          const probeZ = pos.current.z + fz * probeDist * frac
+          for (const c of collidersNear(probeX, probeZ)) {
+            if (c.hw > VAULT_MAX_HALF || c.hd > VAULT_MAX_HALF) continue
+            // Streamed props declare their height: anything taller than the
+            // vault arc (kiosks, shelters, metro entrances, scaffolds…) is a
+            // WALL, not a hurdle — without this the committed vault carry
+            // (pushout disabled mid-air) no-clips straight through them.
+            if (c.top !== undefined && c.top > VAULT_CLEAR_TOP) continue
+            if (Math.abs(probeX - c.x) <= c.hw + 0.4 && Math.abs(probeZ - c.z) <= c.hd + 0.4) {
+              vaulting.current = true
+              vaultDir.current.set(fx, 0, fz)
+              velY.current = VAULT_V // higher, longer arc than a plain jump
+              // Lock the carry: at least a solid run, at most the sprint,
+              // whatever the feet were actually doing at the plant.
+              vaultSpeed.current = THREE.MathUtils.clamp(
+                groundSpd.current,
+                RUN_SPEED * 0.9,
+                SPRINT_SPEED,
+              )
+              break outer
+            }
+          }
+        }
+      } else if (!riding) {
+        // Airborne press: buffer it so a jump queued just before touchdown
+        // fires the frame the feet hit instead of being eaten.
+        jumpBufUntil.current = now + JUMP_BUFFER
       }
     }
     if (!grounded.current) {
-      velY.current += GRAVITY * dt
+      // Short hop: releasing Space during the rise trims the remaining lift
+      // (floored so a same-frame tap still launches a visible hop). A vault
+      // is COMMITTED — no jump-cut, or a quick tap would drop the hero onto
+      // the car roof mid-plant.
+      if (jumpCutReq.current && velY.current > JUMP_CUT_MIN_V && !vaulting.current) {
+        velY.current = Math.max(velY.current * JUMP_CUT_MUL, JUMP_CUT_MIN_V)
+      }
+      // Apex hang: gravity relaxes for the beat where velY crosses zero, so
+      // the top of the arc floats for a few frames before the heavy fall.
+      const baseG = velY.current > 0 ? GRAVITY_RISE : GRAVITY_FALL
+      const g = Math.abs(velY.current) < APEX_SPEED ? baseG * APEX_GRAVITY_MUL : baseG
+      velY.current += g * dt
       pos.current.y += velY.current * dt
+      // (The vault's forward carry lives in the movement block above — the
+      // whole ground velocity is locked to the vault, not layered on input.)
       if (pos.current.y <= 0) {
         pos.current.y = 0
         grounded.current = true
         velY.current = 0
+        vaulting.current = false
         squash.current = 1 // trigger landing squash
         // Touchdown micro-shake (shared channel — the decay below handles it).
         if (shakeRef) shakeRef.current = Math.max(shakeRef.current, LAND_SHAKE)
+        // Fire a buffered jump the same frame — chained hops feel instant.
+        if (now < jumpBufUntil.current && !riding) {
+          jumpBufUntil.current = -10
+          velY.current = JUMP_V
+          grounded.current = false
+          squash.current = 0
+          jumpSeqRef.current++
+        }
       }
     }
-    if (squash.current > 0) squash.current = Math.max(0, squash.current - dt * 4)
+    jumpCutReq.current = false
+    if (squash.current > 0) squash.current = Math.max(0, squash.current - dt * SQUASH_RATE)
 
-    // Animation state.
-    if (dashing) want('dash')
-    else if (!grounded.current) want('jump')
+    // Animation state. Riding reads as a calm stand — the board sells the
+    // motion (tilt/trail/dust) so the rig stays planted on the deck.
+    // Grounded movement picks the DIRECTIONAL cycle: backpedal and lateral
+    // strafes get their own clips (phase-2 soldier-anims set) so the feet
+    // agree with the travel direction instead of jogging forward everywhere.
+    if (riding) want('idle')
+    else if (dashing) want('dash')
+    else if (!grounded.current) want(vaulting.current ? 'vault' : 'jump')
     else if (crouching) want('crouch')
-    else if (moving) want('run')
-    else want('idle')
+    else if (moving) {
+      turnDir.current = 0
+      if (fwd < -0.25 && Math.abs(fwd) >= Math.abs(str)) want('back')
+      else if (Math.abs(str) > Math.abs(fwd) + 0.05) want(str > 0 ? 'strafeR' : 'strafeL')
+      else want(sprintHeld ? 'sprint' : 'run')
+    } else {
+      // Stationary: if the aim yaw is still swinging to catch the camera,
+      // play the turn-in-place lean. The CLIPS carry lean only — the actual
+      // yaw is driven by the heading ease above, exactly as before.
+      let herr = camYaw.current - heading.current
+      herr = Math.atan2(Math.sin(herr), Math.cos(herr))
+      if (turnDir.current === 0) {
+        if (Math.abs(herr) > 0.55) turnDir.current = herr > 0 ? 1 : -1
+      } else if (Math.abs(herr) < 0.15) {
+        turnDir.current = 0
+      }
+      if (turnDir.current !== 0) want(turnDir.current > 0 ? 'turnL' : 'turnR')
+      else want('idle')
+    }
+    // Death presentation outranks everything: the page pauses input on death
+    // already, so movement is parked — this pins the rig on its collapse
+    // instead of the idle breathe the pause used to leave it in.
+    // Dev-only QA seam (window.__qaDead): scripted probes flip it to review
+    // the collapse without staging a real death. Guarded by DEV — never prod.
+    if (
+      deadRef?.current ||
+      (import.meta.env.DEV && (window as unknown as { __qaDead?: boolean }).__qaDead === true)
+    ) {
+      want('death')
+    }
 
     // Apply transform with Disney secondary motion.
     const g = group.current
@@ -589,10 +924,18 @@ function ThirdPersonControllerImpl({
       g.rotation.y = heading.current
       // Lean into a forward run a touch (anticipation/secondary action).
       const targetLean = fwd > 0 && grounded.current ? 0.1 : 0
-      g.rotation.x += (targetLean - g.rotation.x) * 0.12
-      // Squash & stretch on landing: wider + shorter, then settle.
+      g.rotation.x += (targetLean - g.rotation.x) * (1 - Math.exp(-LEAN_RATE * dt))
+      // Squash & stretch: landing squashes wide + short; in the air the body
+      // stretches with vertical speed (taller on the rise, settling at apex).
       const amt = squash.current
-      g.scale.set(1 + amt * 0.25, 1 - amt * 0.22, 1 + amt * 0.25)
+      const stretch = grounded.current
+        ? 0
+        : THREE.MathUtils.clamp(velY.current * 0.012, -0.05, 0.08)
+      g.scale.set(
+        1 + amt * 0.25 - stretch * 0.5,
+        1 - amt * 0.22 + stretch,
+        1 + amt * 0.25 - stretch * 0.5,
+      )
     }
 
     // Held trigger → keep requesting shots; the gun cooldown paces the rate.
@@ -623,6 +966,17 @@ function ThirdPersonControllerImpl({
     playerPosRef.current.copy(pos.current)
     if (headingRef) headingRef.current = heading.current
 
+    // Publish the hoverboard pose while mounted (the board visual reads it —
+    // pose.y is the ground line, the deck offset lives in the component).
+    if (riding && hoverboardPoseRef) {
+      const pose = hoverboardPoseRef.current
+      pose.x = pos.current.x
+      pose.y = 0
+      pose.z = pos.current.z
+      pose.yaw = heading.current
+      pose.speed = boardSpeed.current
+    }
+
     // Publish dash state for the combat sweep + the HUD cooldown readout.
     if (dashRef) {
       const dsr = dashRef.current
@@ -649,7 +1003,7 @@ function ThirdPersonControllerImpl({
       pos.current.y + CAM_HEIGHT,
       pos.current.z - tmpForward.current.z * CAM_DIST,
     )
-    camera.position.lerp(camTarget.current, 0.12)
+    camera.position.lerp(camTarget.current, 1 - Math.exp(-CAM_FOLLOW_RATE * dt))
 
     // Running head-bob: a tiny vertical tick synced to the stride, position
     // only, applied before lookAt so the aim stays rock-solid on target.
@@ -662,14 +1016,19 @@ function ThirdPersonControllerImpl({
             ? SPRINT_SPEED
             : RUN_SPEED
         : 0
-    const bobTarget = moving && grounded.current && !dashing ? 1 : 0
+    // No stride bob while hovering — the board glides, it doesn't step.
+    const bobTarget = moving && grounded.current && !dashing && !riding ? 1 : 0
     bobAmp.current += (bobTarget - bobAmp.current) * Math.min(1, dt * 8)
     bobPhase.current += dt * Math.min(16, groundSpeed * 1.3)
     camera.position.y += Math.sin(bobPhase.current) * BOB_AMP * bobAmp.current
 
+    // Vertical look point is EASED, not snapped to the hero's y: during a jump
+    // the raw value ticks with every integration step, which pitched the whole
+    // frame rigidly up and down the arc. The horizontal aim stays exact.
+    lookY.current += (pos.current.y + AIM_HEIGHT - lookY.current) * (1 - Math.exp(-LOOK_Y_RATE * dt))
     lookTarget.current.set(
       pos.current.x + tmpForward.current.x * AIM_AHEAD,
-      pos.current.y + AIM_HEIGHT,
+      lookY.current,
       pos.current.z + tmpForward.current.z * AIM_AHEAD,
     )
     camera.lookAt(lookTarget.current)
@@ -707,18 +1066,23 @@ function ThirdPersonControllerImpl({
       if (shakeRef.current < 0.004) shakeRef.current = 0
     }
 
-    // The shot travels horizontally along the hero's facing (muzzle and zombies sit
-    // at ~1.2m, so a level shot reaches the horde at any range).
-    shootDir.current.copy(tmpForward.current)
+    // (shootDir is published up-front, right after the aim basis is built, so a
+    // shot fired this frame follows the current-frame reticle — see above.)
 
-    // Proximity.
+    // Proximity — the city tie-break contract (interactables.ts): inside the
+    // target's own radius, highest priority wins, nearest breaks ties. Legacy
+    // targets (no radius/priority) behave exactly as before.
     let nearest: Target | null = null
-    let nd = ENTER_RADIUS
+    let bestPriority = -Infinity
+    let bestDist = Infinity
     for (const t of targets) {
       const d = Math.hypot(t.x - pos.current.x, t.z - pos.current.z)
-      if (d < nd) {
-        nd = d
+      if (d > (t.radius ?? ENTER_RADIUS)) continue
+      const priority = t.priority ?? 0
+      if (priority > bestPriority || (priority === bestPriority && d < bestDist)) {
         nearest = t
+        bestPriority = priority
+        bestDist = d
       }
     }
     const id = nearest?.key ?? null
@@ -731,7 +1095,7 @@ function ThirdPersonControllerImpl({
   return (
     <>
       <group ref={group}>
-        <Avatar animRef={animRef} accent={accent} fireRef={fireRef} slashRef={slashRef} />
+        <Avatar animRef={animRef} accent={accent} fireRef={fireRef} slashRef={slashRef} jumpSeqRef={jumpSeqRef} />
       </group>
       {/* world-space dust: footfalls + landings kick up pooled instanced puffs */}
       <FootDust playerPosRef={playerPosRef} animRef={animRef} />

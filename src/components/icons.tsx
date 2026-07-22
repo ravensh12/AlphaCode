@@ -72,6 +72,14 @@ export function IconX({ size = 22, className }: IconProps) {
   )
 }
 
+export function IconPlay({ size = 22, className }: IconProps) {
+  return (
+    <svg {...base(size, className)}>
+      <path d="M8 5.5v13l10-6.5-10-6.5Z" />
+    </svg>
+  )
+}
+
 export function IconArrowRight({ size = 22, className }: IconProps) {
   return (
     <svg {...base(size, className)}>
@@ -103,16 +111,6 @@ export function IconCap({ size = 22, className }: IconProps) {
       <path d="M2 9l10-4 10 4-10 4L2 9Z" />
       <path d="M6 11v4c0 1.5 2.7 3 6 3s6-1.5 6-3v-4" />
       <path d="M22 9v5" />
-    </svg>
-  )
-}
-
-export function IconSprout({ size = 22, className }: IconProps) {
-  return (
-    <svg {...base(size, className)}>
-      <path d="M12 20v-7" />
-      <path d="M12 13C12 9 9 7 4 7c0 4 3 6 8 6Z" />
-      <path d="M12 11c0-3 2.5-5 7-5 0 3.5-2.5 5-7 5Z" />
     </svg>
   )
 }
@@ -159,15 +157,6 @@ export function IconSpeakerOff({ size = 22, className }: IconProps) {
     <svg {...base(size, className)}>
       <path d="M4 9v6h3l5 4V5L7 9H4Z" />
       <path d="M16 9.5l5 5M21 9.5l-5 5" />
-    </svg>
-  )
-}
-
-export function IconSettings({ size = 22, className }: IconProps) {
-  return (
-    <svg {...base(size, className)}>
-      <circle cx="12" cy="12" r="3.2" />
-      <path d="M12 2.5v2.6M12 18.9v2.6M21.5 12h-2.6M5.1 12H2.5M18.7 5.3l-1.8 1.8M7.1 16.9l-1.8 1.8M18.7 18.7l-1.8-1.8M7.1 7.1 5.3 5.3" />
     </svg>
   )
 }

@@ -12,7 +12,7 @@ export type BossIntro = {
   subtitle: string
   /** Spoken before the fight. */
   taunt: string
-  /** One line telling the player this is pure skill — no quiz. */
+  /** One line bridging the realm assessment into the skill fight. */
   hint: string
 }
 
@@ -21,7 +21,7 @@ export const VEX_INTRO: BossIntro = {
   subtitle: 'The Null Herald',
   taunt:
     "So the little bot climbed all the way to the peak. How quaint. I am VEX, the hand of the Null Sovereign — and I unmake everything you think you've learned. Your search ends here, at the top of the world.",
-  hint: 'First, prove your knowledge in the Level 6 quiz. Then it is pure skill: keep moving, dash through his beams, and PARRY his glowing overhead to crack his armor. Then punish.',
+  hint: 'First, prove your knowledge in the Realm 6 academy assessment. Then it is pure skill: keep moving, dash through his beams, and PARRY his glowing overhead to crack his armor. Then punish.',
 }
 
 /** One line per phase transition. Index 0 = phase 1->2, 1 = phase 2->3. */
@@ -81,7 +81,7 @@ export const ARCHITECT_INTRO: BossIntro = {
   subtitle: 'Mastermind of the Null',
   taunt:
     "You crossed my Threshold. You broke my Herald. And now you stand on the roof of everything I built. I am the Architect — I wrote this world, line by line, and I can rewrite YOU just as easily. Let's see what you've really learned.",
-  hint: 'This is everything at once. Read his tells, dash his strikes, and PARRY the glowing overhead to break him. Survive all four phases — and finish it.',
+  hint: 'This is everything at once. Read his tells, dash his strikes, and break his phase wards to punish him. Survive all four phases — and finish it.',
 }
 
 /** One line per phase transition: p1->2, p2->3, p3->4. */
@@ -89,13 +89,6 @@ export const ARCHITECT_PHASE_TAUNTS: string[] = [
   'Adequate. Let me raise the difficulty.',
   'You force my hand. The city answers to ME.',
   'NO MORE GAMES. I will delete you from existence!',
-]
-
-export const ARCHITECT_PARRY_LINES: string[] = [
-  'You read me?!',
-  'Impossible.',
-  'Clever bot.',
-  'Recompiling...',
 ]
 
 export const ARCHITECT_HIT_LINES: string[] = [

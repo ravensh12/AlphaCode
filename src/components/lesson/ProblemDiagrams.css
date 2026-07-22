@@ -1,0 +1,496 @@
+.problem-diagram {
+  --pd-bg: var(--surface);
+  --pd-panel: var(--surface-2);
+  --pd-ink: var(--ink);
+  --pd-soft: var(--ink-soft);
+  --pd-faint: var(--ink-faint);
+  --pd-line: color-mix(in srgb, var(--ink) 58%, transparent);
+  --pd-highlight: var(--yellow-soft);
+  --pd-highlight-strong: var(--yellow);
+  --pd-focus: var(--cyan);
+  --pd-focus-soft: var(--cyan-soft);
+  --pd-success: var(--lime);
+  --pd-success-soft: var(--lime-soft);
+
+  width: 100%;
+  min-width: 0;
+  padding: 16px;
+  overflow: hidden;
+  border: var(--bd) solid var(--pd-ink);
+  border-radius: var(--radius);
+  background: var(--pd-bg);
+  box-shadow: var(--shadow-sm);
+  color: var(--pd-ink);
+}
+
+.problem-diagram,
+.problem-diagram * {
+  box-sizing: border-box;
+}
+
+.problem-diagram__caption {
+  margin: 0 0 12px;
+  color: var(--pd-soft);
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.problem-diagram__scroller {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.problem-diagram__svg {
+  display: block;
+  width: 100%;
+  min-width: 540px;
+  height: auto;
+  overflow: visible;
+}
+
+.problem-diagram__edge > line,
+.problem-diagram__edge > path {
+  fill: none;
+  stroke: var(--pd-line);
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.problem-diagram__edge.is-dashed > line,
+.problem-diagram__edge.is-dashed > path {
+  stroke: var(--primary);
+  stroke-dasharray: 7 5;
+}
+
+.problem-diagram__edge.is-highlighted > line,
+.problem-diagram__edge.is-highlighted > path {
+  stroke: var(--pd-highlight-strong);
+  stroke-width: 5;
+}
+
+.problem-diagram__arrow {
+  fill: var(--pd-line);
+  stroke: none;
+}
+
+.problem-diagram__edge.is-dashed .problem-diagram__arrow {
+  fill: var(--primary);
+}
+
+.problem-diagram__edge.is-highlighted .problem-diagram__arrow {
+  fill: var(--pd-highlight-strong);
+}
+
+.problem-diagram__edge-label {
+  fill: var(--pd-soft);
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: var(--pd-bg);
+  stroke-linejoin: round;
+  stroke-width: 5px;
+}
+
+.problem-diagram__node > circle {
+  fill: var(--pd-panel);
+  stroke: var(--pd-ink);
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.problem-diagram__node.is-root > circle {
+  stroke: var(--primary);
+  stroke-width: 4;
+}
+
+.problem-diagram__node.is-highlighted > circle {
+  fill: var(--pd-highlight);
+  stroke: var(--pd-highlight-strong);
+  stroke-width: 4;
+}
+
+.problem-diagram__node > .problem-diagram__terminal-ring {
+  fill: none;
+  stroke: var(--pd-success);
+  stroke-width: 2;
+}
+
+.problem-diagram__node-label {
+  fill: var(--pd-ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.problem-diagram__node-sub-label,
+.problem-diagram__node-metadata {
+  fill: var(--pd-soft);
+  font-family: var(--display);
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.problem-diagram__node-metadata {
+  fill: var(--pd-faint);
+  font-size: 9px;
+}
+
+.problem-diagram__node-pointer rect {
+  fill: var(--pd-focus-soft);
+  stroke: var(--pd-focus);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.problem-diagram__node-pointer text {
+  fill: var(--pd-ink);
+  font-family: var(--display);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.problem-diagram__empty {
+  display: grid;
+  min-height: 96px;
+  margin: 0;
+  place-items: center;
+  border: 2px dashed var(--pd-line);
+  border-radius: var(--radius-sm);
+  color: var(--pd-soft);
+  font-family: var(--mono);
+  font-size: 13px;
+  text-align: center;
+}
+
+.problem-diagram__omitted,
+.problem-diagram__null-pointers {
+  margin: 10px 0 0;
+  color: var(--pd-faint);
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.problem-diagram__null-pointers {
+  display: table;
+  margin-inline: auto;
+  padding: 4px 9px;
+  border: 1px solid var(--pd-line);
+  border-radius: 999px;
+  background: var(--pd-panel);
+  color: var(--pd-soft);
+}
+
+.problem-diagram__grid,
+.problem-diagram__bits {
+  width: max-content;
+  min-width: 100%;
+  border: 0;
+  border-collapse: separate;
+  border-spacing: 5px;
+  color: var(--pd-ink);
+  table-layout: fixed;
+}
+
+.problem-diagram__grid th,
+.problem-diagram__bits th {
+  min-width: 36px;
+  padding: 4px 7px;
+  color: var(--pd-soft);
+  font-family: var(--display);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.problem-diagram__grid tbody th,
+.problem-diagram__bits tbody th {
+  max-width: 120px;
+  overflow: hidden;
+  text-align: end;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem-diagram__grid td {
+  position: relative;
+  min-width: 48px;
+  height: 48px;
+  padding: 8px 6px;
+  border: 2px solid var(--pd-line);
+  border-radius: 9px;
+  background: var(--pd-panel);
+  font-family: var(--mono);
+  text-align: center;
+}
+
+.problem-diagram__grid td.is-dependency {
+  border-color: var(--pd-success);
+  background: var(--pd-success-soft);
+}
+
+.problem-diagram__grid td.is-highlighted {
+  border-color: var(--pd-highlight-strong);
+  background: var(--pd-highlight);
+  box-shadow: inset 0 0 0 1px var(--pd-highlight-strong);
+}
+
+.problem-diagram__grid td.is-pointed {
+  outline: 2px solid var(--pd-focus);
+  outline-offset: 1px;
+}
+
+.problem-diagram__cell-value {
+  display: block;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.problem-diagram__cell-label {
+  display: block;
+  max-width: 80px;
+  margin: 3px auto 0;
+  overflow: hidden;
+  color: var(--pd-soft);
+  font-family: var(--display);
+  font-size: 8px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem-diagram__cell-pointer {
+  position: absolute;
+  z-index: 1;
+  top: -11px;
+  left: 50%;
+  max-width: 90px;
+  padding: 2px 6px;
+  overflow: hidden;
+  transform: translateX(-50%);
+  border: 1px solid var(--pd-focus);
+  border-radius: 999px;
+  background: var(--pd-focus-soft);
+  color: var(--pd-ink);
+  font-family: var(--display);
+  font-size: 8px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem-diagram__interval-axis {
+  stroke: var(--pd-line);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.problem-diagram__axis-label,
+.problem-diagram__interval-label {
+  fill: var(--pd-soft);
+  font-family: var(--display);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.problem-diagram__interval rect {
+  fill: var(--pd-focus-soft);
+  stroke: var(--pd-focus);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.problem-diagram__interval.is-highlighted rect {
+  fill: var(--pd-highlight);
+  stroke: var(--pd-highlight-strong);
+  stroke-width: 4;
+}
+
+.problem-diagram__interval.is-highlighted .problem-diagram__interval-label {
+  fill: var(--pd-ink);
+  font-weight: 900;
+}
+
+.problem-diagram__interval-cursor line {
+  stroke: var(--primary);
+  stroke-dasharray: 5 4;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.problem-diagram__interval-cursor text {
+  fill: var(--primary);
+  font-family: var(--display);
+  font-size: 10px;
+  font-weight: 900;
+  paint-order: stroke;
+  stroke: var(--pd-bg);
+  stroke-width: 4px;
+}
+
+.problem-diagram__frames {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.problem-diagram__frame {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 2px solid var(--pd-line);
+  border-radius: var(--radius-sm);
+  background: var(--pd-panel);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.problem-diagram__frame.is-active {
+  border-color: var(--pd-focus);
+  background: var(--pd-focus-soft);
+  box-shadow: inset 4px 0 0 var(--pd-focus);
+}
+
+.problem-diagram__frame.is-returned {
+  border-color: var(--pd-success);
+  background: var(--pd-success-soft);
+}
+
+.problem-diagram__frame-state {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--pd-bg);
+  color: var(--pd-soft);
+  font-family: var(--display);
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.problem-diagram__frame-arguments {
+  grid-column: 2 / -1;
+  overflow-wrap: anywhere;
+  color: var(--pd-soft);
+  font-size: 10px;
+}
+
+.problem-diagram__frame-result {
+  color: var(--pd-success);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.problem-diagram__operation {
+  display: table;
+  margin: 0 auto 8px;
+  padding: 4px 12px;
+  border: 2px solid var(--primary);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 16%, var(--pd-bg));
+  color: var(--pd-ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.problem-diagram__bits {
+  border-spacing: 4px;
+}
+
+.problem-diagram__bits td {
+  min-width: 30px;
+  height: 34px;
+  padding: 4px;
+  border: 2px solid var(--pd-line);
+  border-radius: 7px;
+  background: var(--pd-panel);
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.problem-diagram__bits td.is-highlighted {
+  border-color: var(--pd-highlight-strong);
+  background: var(--pd-highlight);
+}
+
+.lp .problem-diagram {
+  --pd-bg: var(--cc-glass);
+  --pd-panel: var(--cc-glass-2, rgba(20, 39, 37, 0.82));
+  --pd-ink: var(--cc-text);
+  --pd-soft: var(--cc-text-soft);
+  --pd-faint: var(--cc-text-faint);
+  --pd-line: var(--cc-line-strong);
+  --pd-highlight: var(--cc-amber-soft);
+  --pd-highlight-strong: var(--cc-window);
+  --pd-focus: var(--cc-cyan);
+  --pd-focus-soft: var(--cc-cyan-soft);
+  --pd-success: var(--cc-lime);
+  --pd-success-soft: var(--cc-lime-soft);
+
+  border-color: var(--cc-line-strong);
+  background: var(--cc-glass);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+.lp .problem-diagram__edge.is-dashed > line,
+.lp .problem-diagram__edge.is-dashed > path {
+  stroke: var(--cc-violet);
+}
+
+.lp .problem-diagram__edge.is-dashed .problem-diagram__arrow {
+  fill: var(--cc-violet);
+}
+
+.lp .problem-diagram__node.is-root > circle,
+.lp .problem-diagram__interval-cursor line {
+  stroke: var(--cc-violet);
+}
+
+.lp .problem-diagram__interval-cursor text {
+  fill: var(--cc-violet);
+}
+
+@media (max-width: 520px) {
+  .problem-diagram {
+    padding: 12px;
+  }
+
+  .problem-diagram__svg {
+    min-width: 500px;
+  }
+
+  .problem-diagram__frame {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .problem-diagram__frame-result {
+    grid-column: 2;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .problem-diagram__edge > line,
+  .problem-diagram__edge > path,
+  .problem-diagram__interval-axis {
+    stroke-width: 3.5;
+  }
+}

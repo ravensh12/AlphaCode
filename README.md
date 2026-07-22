@@ -69,6 +69,44 @@ npm run lint       # oxlint
 npm run build      # type check + production build
 ```
 
+## Browser Python judge
+
+Python code assessments load the self-hosted Pyodide runtime lazily in a module
+worker. Only the assessment test plan and submitted source cross the worker
+boundary; authentication and progress data do not.
+
+Example cases may be shown as learner feedback. Hidden cases are educational,
+non-displayed checks, but they are still downloaded to the browser and can be
+inspected or modified by a determined user. Browser-judge results are therefore
+not tamper-proof certification or proctoring evidence. Execution and output
+limits are enforced by terminating the worker, while the content-authored
+memory limit is advisory because WebAssembly does not provide a reliable
+per-run memory quota here.
+
+## AI tutor (local setup)
+
+Mission pages include a collapsible AI tutor drawer (Socratic hints; it never
+dumps solutions unless the learner insists after a hint). It talks to any
+OpenAI-compatible chat-completions endpoint, configured via env vars:
+
+- `VITE_TUTOR_BASE_URL` — default `https://gateway.truefoundry.ai`
+- `VITE_TUTOR_MODEL` — default `openai-group/gpt-5.4-mini`
+- `VITE_TUTOR_API_KEY` — no default; without it the tutor shows a friendly
+  "not plugged in" note behind a subtle button.
+
+Put the key in `.env.local` (git-ignored — never commit it):
+
+```bash
+# .env.local
+VITE_TUTOR_API_KEY=tfy_...
+```
+
+> ⚠️ **Deploy safety:** `VITE_` vars are **baked into the client bundle** at
+> build time. This wiring is for LOCAL/personal use only. A public deployment
+> must keep the key server-side behind a proxy (same pattern as the phonics
+> project's Vercel proxy) and point `VITE_TUTOR_BASE_URL` at that proxy with
+> no `VITE_TUTOR_API_KEY` in the build.
+
 ## Deploy
 
 The app is a static SPA, so any static host works. Both options below include a

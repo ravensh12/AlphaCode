@@ -44,6 +44,9 @@ export interface VexBoss3DProps {
   staggerRef: MutableRefObject<number>
   /** Bumped on a phase transition -> sheds armor shards. */
   armorBreakRef: MutableRefObject<number>
+  /** Bumped once a real (Meshy) rig has mounted — arenas hold the entrance
+   *  beat on it. The procedural rig ignores it (it is always resident). */
+  readyRef?: MutableRefObject<number>
   dead: boolean
 }
 

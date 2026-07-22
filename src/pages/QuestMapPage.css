@@ -1,755 +1,920 @@
-/* ============================================================ Quest list view
-   Dark, cinematic "Code City at night" theme. ALL dark theming is scoped to the
-   `.quest-page` container (which IS the page root) so the global light "paper"
-   theme stays intact for every other route. The opaque `.app-header` keeps its
-   own light look and is unaffected. Layout, structure, copy and
-   responsive/reduced-motion behavior are untouched — only colors change. */
-/* Final Gauntlet banner — only shows once all six levels are cleared. */
-.quest-page .quest-gauntlet-banner {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin: 0 0 22px;
-  padding: 18px 22px;
-  border-radius: 18px;
-  text-decoration: none;
-  color: #f3eaff;
-  background: linear-gradient(120deg, rgba(106, 60, 255, 0.4), rgba(160, 92, 255, 0.28));
-  border: 1.5px solid rgba(190, 150, 255, 0.55);
-  box-shadow: 0 0 30px rgba(150, 110, 255, 0.35), 0 14px 34px rgba(0, 0, 0, 0.45);
-  transition: transform 0.12s ease, box-shadow 0.16s ease;
-  animation: questGauntletGlow 2.6s ease-in-out infinite;
-}
-.quest-page .quest-gauntlet-banner:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0 40px rgba(180, 130, 255, 0.6), 0 16px 40px rgba(0, 0, 0, 0.5);
-}
-.quest-page .quest-gauntlet-banner.is-conquered {
-  background: linear-gradient(120deg, rgba(255, 200, 90, 0.3), rgba(255, 150, 70, 0.22));
-  border-color: rgba(255, 200, 110, 0.6);
-  animation: none;
-}
-@keyframes questGauntletGlow {
-  0%, 100% { box-shadow: 0 0 26px rgba(150, 110, 255, 0.3), 0 14px 34px rgba(0, 0, 0, 0.45); }
-  50% { box-shadow: 0 0 40px rgba(185, 135, 255, 0.6), 0 14px 34px rgba(0, 0, 0, 0.45); }
-}
-.quest-page .quest-gauntlet-icon {
-  flex: 0 0 auto;
-  width: 46px; height: 46px;
-  display: grid; place-items: center;
-  border-radius: 13px;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-}
-.quest-page .quest-gauntlet-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-.quest-page .quest-gauntlet-copy strong {
-  font-family: var(--display, inherit);
-  font-size: 17px;
-  font-weight: 900;
-  letter-spacing: -0.01em;
-}
-.quest-page .quest-gauntlet-copy span {
-  font-size: 13.5px;
-  color: rgba(235, 225, 255, 0.85);
-  line-height: 1.4;
-}
-.quest-page .quest-gauntlet-go { flex: 0 0 auto; margin-left: auto; opacity: 0.9; }
-
-/* Final Gauntlet options panel — shown once the Mastery Trial is passed:
-   review the test, retake it, or go fight the final boss. */
-.quest-page .quest-gauntlet-panel {
-  margin: 0 0 22px;
-  padding: 18px 22px;
-  border-radius: 18px;
-  color: #f3eaff;
-  background: linear-gradient(120deg, rgba(106, 60, 255, 0.4), rgba(160, 92, 255, 0.28));
-  border: 1.5px solid rgba(190, 150, 255, 0.55);
-  box-shadow: 0 0 30px rgba(150, 110, 255, 0.35), 0 14px 34px rgba(0, 0, 0, 0.45);
-}
-.quest-page .quest-gauntlet-panel.is-conquered {
-  background: linear-gradient(120deg, rgba(255, 200, 90, 0.3), rgba(255, 150, 70, 0.22));
-  border-color: rgba(255, 200, 110, 0.6);
-}
-.quest-page .quest-gauntlet-panel-head {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-.quest-page .quest-gauntlet-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.quest-page .quest-gauntlet-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 18px;
-  border-radius: 12px;
-  font-weight: 800;
-  font-size: 14px;
-  text-decoration: none;
-  color: #f3eaff;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  transition: transform 0.12s ease, box-shadow 0.16s ease, background 0.16s ease;
-}
-.quest-page .quest-gauntlet-action:hover {
-  transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.16);
-}
-.quest-page .quest-gauntlet-action.is-primary {
-  margin-left: auto;
-  color: #1a0f33;
-  background: linear-gradient(120deg, #d9c2ff, #b486ff);
-  border-color: rgba(255, 255, 255, 0.6);
-  box-shadow: 0 0 26px rgba(185, 135, 255, 0.55);
-}
-.quest-page .quest-gauntlet-action.is-primary:hover {
-  box-shadow: 0 0 40px rgba(200, 150, 255, 0.75);
-}
-.quest-page .quest-gauntlet-panel.is-conquered .quest-gauntlet-action.is-primary {
-  background: linear-gradient(120deg, #ffe2a6, #ff9e57);
-  box-shadow: 0 0 26px rgba(255, 180, 90, 0.55);
-}
-@media (max-width: 560px) {
-  .quest-page .quest-gauntlet-action,
-  .quest-page .quest-gauntlet-action.is-primary { margin-left: 0; flex: 1 1 100%; justify-content: center; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .quest-page .quest-gauntlet-action { transition: none; }
-  .quest-page .quest-gauntlet-action:hover { transform: none; }
-}
+/* ============================================================ Levels / realms
+   Redesigned realm-select. Dark, premium, minimal: hero status strip, a
+   glowing journey line through six realm nodes, and a single drill-in panel.
+   All theming is scoped to `.quest-page` so the global light theme is
+   untouched on every other route. */
 
 .quest-page {
-  /* ---- Scoped Code City night palette (new vars; globals untouched) ---- */
-  --cc-bg-0: #070a10;
-  --cc-bg-1: #0a0f12;
-  --cc-tower: #0c1416;
-  --cc-tower-2: #10181c;
-  --cc-window: #e8b84a;
-  --cc-cyan: #5ef0e0;
-  --cc-lime: #b6ff5c;
-  --cc-violet: #6d4afe;
-  --cc-coral: #ff6b6b;
-  --cc-text: #eef7f2;
-  --cc-text-soft: #9bbcb2;
-  --cc-text-faint: #6f8b83;
-  --cc-glass: rgba(13, 26, 25, 0.66);
-  --cc-glass-2: rgba(9, 18, 18, 0.55);
-  --cc-line: rgba(120, 220, 200, 0.16);
-  --cc-line-strong: rgba(120, 220, 200, 0.34);
-  --cc-cyan-soft: rgba(94, 240, 224, 0.16);
-  --cc-lime-soft: rgba(182, 255, 92, 0.16);
-  --cc-amber-soft: rgba(232, 184, 74, 0.16);
-  --cc-violet-soft: rgba(109, 74, 254, 0.2);
+  --qp-bg-0: #06080e;
+  --qp-bg-1: #0a0e18;
+  --qp-cyan: #5ef0e0;
+  --qp-violet: #8f6bff;
+  --qp-lime: #b6ff5c;
+  --qp-amber: #e8b84a;
+  --qp-text: #eaf2f1;
+  --qp-text-soft: #93a6b4;
+  --qp-text-faint: #5d6f7d;
+  --qp-glass: rgba(13, 19, 30, 0.66);
+  --qp-glass-2: rgba(10, 15, 24, 0.5);
+  --qp-line: rgba(140, 180, 220, 0.12);
+  --qp-line-strong: rgba(140, 180, 220, 0.26);
 
   position: relative;
   isolation: isolate;
-  color: var(--cc-text);
-  background:
-    radial-gradient(130% 78% at 50% 102%, rgba(27, 58, 50, 0.6) 0%, transparent 55%),
-    radial-gradient(150% 95% at 72% 92%, rgba(21, 48, 42, 0.5) 0%, transparent 52%),
-    linear-gradient(180deg, #070a10 0%, #080c11 44%, #0a0f12 100%);
+  color: var(--qp-text);
+  background: linear-gradient(175deg, var(--qp-bg-0) 0%, var(--qp-bg-1) 60%, #0a1016 100%);
 }
 
-/* Faint amber-lit window glow drifting up out of the fog. */
-.quest-page::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 42vh;
+.quest-page h1,
+.quest-page h2,
+.quest-page h3 {
+  color: var(--qp-text);
+}
+.quest-page p {
+  color: var(--qp-text);
+}
+
+/* ------------------------------------------------ Animated background layer.
+   Fixed, behind everything: a faint drifting grid + two slow blurred orbs.
+   Pure CSS, GPU-friendly (transform/opacity only), off under reduced motion. */
+.quest-bg {
+  position: fixed;
+  inset: 0;
   z-index: -1;
+  overflow: hidden;
   pointer-events: none;
-  background-image: radial-gradient(circle, rgba(232, 184, 74, 0.5) 0 1px, transparent 2.4px);
-  background-size: 30px 40px;
-  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
-  mask: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
-  opacity: 0.28;
 }
 
-/* Distant tower silhouettes along the horizon, fading into the haze. */
-.quest-page::after {
-  content: '';
+.quest-bg-grid {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 44vh;
-  z-index: -2;
-  pointer-events: none;
-  background-repeat: no-repeat;
+  inset: -60px;
   background-image:
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2)),
-    linear-gradient(var(--cc-tower), var(--cc-tower)),
-    linear-gradient(var(--cc-tower-2), var(--cc-tower-2));
-  background-size:
-    70px 200px, 54px 300px, 92px 150px, 62px 360px, 112px 220px,
-    72px 300px, 120px 170px, 66px 330px, 104px 230px, 82px 280px;
-  background-position:
-    3% bottom, 12% bottom, 20% bottom, 29% bottom, 38% bottom,
-    51% bottom, 61% bottom, 73% bottom, 83% bottom, 93% bottom;
-  -webkit-mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
-  mask: linear-gradient(180deg, transparent 0%, #000 38%, #000 100%);
-  opacity: 0.5;
+    linear-gradient(rgba(140, 190, 230, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(140, 190, 230, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 78%);
+  mask: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 78%);
+}
+
+.quest-bg-orb {
+  position: absolute;
+  width: 52vw;
+  height: 52vw;
+  max-width: 760px;
+  max-height: 760px;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.14;
+}
+.quest-bg-orb--a {
+  top: -18%;
+  left: -12%;
+  background: radial-gradient(circle, var(--qp-cyan), transparent 65%);
+}
+.quest-bg-orb--b {
+  bottom: -24%;
+  right: -14%;
+  background: radial-gradient(circle, var(--qp-violet), transparent 65%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .quest-bg-grid {
+    animation: qpGridDrift 90s linear infinite;
+  }
+  .quest-bg-orb--a {
+    animation: qpOrbA 46s ease-in-out infinite alternate;
+  }
+  .quest-bg-orb--b {
+    animation: qpOrbB 58s ease-in-out infinite alternate;
+  }
+}
+@keyframes qpGridDrift {
+  to { transform: translate3d(56px, 56px, 0); }
+}
+@keyframes qpOrbA {
+  to { transform: translate3d(9vw, 6vh, 0) scale(1.12); }
+}
+@keyframes qpOrbB {
+  to { transform: translate3d(-7vw, -8vh, 0) scale(1.08); }
 }
 
 .quest-main {
-  padding: 28px 20px 64px;
+  position: relative;
+  z-index: 1;
+  padding: 30px 20px 72px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 26px;
 }
 
-/* Hero */
+.quest-route-notice {
+  padding: 12px 16px;
+  border: 1px solid var(--qp-line-strong);
+  border-radius: 12px;
+  background: rgba(232, 184, 74, 0.1);
+  color: var(--qp-text);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ------------------------------------------------------------ Hero strip. */
 .quest-hero {
   display: flex;
-  gap: 22px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.quest-hero-bot {
-  flex-shrink: 0;
-}
-
-.quest-hero-copy {
-  flex: 1;
-  min-width: 280px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.quest-hero-bubble {
-  max-width: 540px;
-}
-
-.quest-hero-bubble p {
-  margin: 0;
-}
-
-.quest-stats {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.quest-stat {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--surface);
-  border: var(--bd) solid var(--ink);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-  padding: 10px 14px;
-}
-
-.quest-stat-icon {
-  width: 34px;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: var(--bd) solid var(--ink);
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-}
-
-.quest-stat-icon.tone-violet {
-  background: var(--primary);
-  color: #fff;
-}
-.quest-stat-icon.tone-yellow {
-  background: var(--yellow);
-}
-.quest-stat-icon.tone-lime {
-  background: var(--lime);
-}
-
-.quest-stat-body {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.1;
-}
-
-.quest-stat-value {
-  font-family: var(--display);
-  font-weight: 700;
-  font-size: 20px;
-}
-
-.quest-stat-label {
-  font-size: 12px;
-}
-
-/* Checkpoint list */
-.quest-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.quest-list-head {
-  display: flex;
-  align-items: baseline;
+  align-items: stretch;
   justify-content: space-between;
-  gap: 12px;
+  gap: 28px;
+  padding: 26px 30px;
+  border-radius: 20px;
+  background: var(--qp-glass);
+  border: 1px solid var(--qp-line);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
 }
 
-.quest-list-title {
-  font-family: var(--display);
-  font-size: 22px;
-  margin: 0;
-}
-
-.quest-list-progress {
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--ink-soft);
-}
-
-.quest-list-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.quest-restart {
-  font-weight: 700;
-}
-
-.quest-cards {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
-}
-
-.quest-card {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  background: var(--surface);
-  border: var(--bd) solid var(--ink);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  padding: 14px 16px;
-  overflow: hidden;
-}
-
-/* accent stripe down the left edge */
-.quest-card::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  background: var(--world-accent, var(--primary));
-}
-
-.quest-card-link {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  text-decoration: none;
-  color: inherit;
-  width: 100%;
-  transition: transform 0.12s ease;
-}
-
-.quest-card-link:hover {
-  transform: translateX(3px);
-}
-
-.quest-card.is-active {
-  border-color: var(--world-accent, var(--primary));
-  box-shadow: 4px 4px 0 var(--world-accent, var(--primary));
-}
-
-.quest-card--locked {
-  opacity: 0.7;
-}
-
-.quest-card.is-game-locked {
-  opacity: 0.92;
-}
-
-.quest-card.is-game-locked .quest-card-link:hover {
-  transform: translateX(3px);
-}
-
-.quest-card--locked .quest-card-medallion {
-  background: var(--surface-2);
-}
-
-.quest-card-flag {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: #fff;
-  background: var(--world-accent, var(--primary));
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  padding: 1px 8px;
-}
-
-.quest-card-flag.is-clear {
-  background: var(--lime);
-  color: var(--ink);
-}
-
-.quest-card-medallion {
-  flex-shrink: 0;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  border: var(--bd) solid var(--ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--shadow-sm);
-}
-
-.quest-card-number {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 24px;
-  color: var(--ink);
-}
-
-.quest-card-body {
+.quest-hero-main {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 12px;
   min-width: 0;
 }
 
-.quest-card-name {
-  font-family: var(--display);
-  font-weight: 800;
-  font-size: 16px;
-  line-height: 1.1;
-  /* Leave room for the corner "Cleared"/"Current" badge so it never overlaps. */
-  padding-right: 74px;
-}
-
-/* The real coding topic this level teaches (e.g. "Binary Search"). */
-.quest-card-topic {
-  align-self: flex-start;
+.quest-hero-eyebrow {
   font-family: var(--mono);
-  font-weight: 700;
   font-size: 11.5px;
-  letter-spacing: 0.01em;
-  color: var(--world-accent-ink, var(--ink));
-  background: var(--surface-2);
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  padding: 2px 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--qp-cyan);
 }
 
-.quest-card-blurb {
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-
-.quest-card-pills {
+.quest-hero-title {
+  font-family: var(--display);
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
   display: flex;
-  gap: 6px;
-  margin-top: 2px;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
-.quest-pill {
+.quest-hero-level {
+  color: var(--qp-cyan);
+  text-shadow: 0 0 26px rgba(94, 240, 224, 0.35);
+}
+
+.quest-hero-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--qp-line-strong);
+}
+
+.quest-hero-next {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 15px;
+  color: var(--qp-text-soft);
+  max-width: 520px;
+}
+.quest-hero-next strong {
+  color: var(--qp-text);
+  font-weight: 700;
+  font-size: 16.5px;
+}
+.quest-hero-next-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--qp-text-faint);
+}
+.quest-hero-next-detail {
+  font-size: 13px;
+  color: var(--qp-text-soft);
+}
+
+.quest-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.quest-continue {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 9px;
+  padding: 12px 22px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 14.5px;
+  text-decoration: none;
+  color: #08130f;
+  background: linear-gradient(115deg, var(--qp-cyan), #8ef0c9);
+  box-shadow: 0 0 26px rgba(94, 240, 224, 0.3);
+  transition: transform 0.14s ease, box-shadow 0.18s ease;
+}
+.quest-continue:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 38px rgba(94, 240, 224, 0.5);
+}
+
+.quest-restart {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--qp-text-faint);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.14s ease;
+}
+.quest-restart:hover {
+  color: var(--qp-text-soft);
+}
+
+/* Overall-progress meter (right side of hero). */
+.quest-hero-meter {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding-left: 28px;
+  border-left: 1px solid var(--qp-line);
+}
+
+.quest-meter-pct {
+  font-family: var(--display);
+  font-size: 46px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--qp-text);
+}
+.quest-meter-pct-sign {
+  font-size: 24px;
+  color: var(--qp-text-soft);
+  margin-left: 2px;
+}
+
+.quest-meter-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(140, 180, 220, 0.14);
+  overflow: hidden;
+}
+.quest-meter-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--qp-cyan), var(--qp-violet));
+  transition: width 0.6s ease;
+}
+
+.quest-meter-facts {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--qp-text-soft);
+}
+
+/* ------------------------------------------------------- The journey path. */
+.quest-journey {
+  padding: 6px 0 0;
+}
+
+.quest-journey-frame {
+  position: relative;
+  aspect-ratio: 1200 / 300;
+  margin-bottom: 74px; /* room for labels under the lowest nodes */
+}
+
+.quest-journey-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.qj-base {
+  fill: none;
+  stroke: rgba(140, 180, 220, 0.16);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 0.2 1.1; /* dotted "unexplored" trail (pathLength=100) */
+}
+
+.qj-fill,
+.qj-glow {
+  fill: none;
+  stroke: url(#qj-progress);
+  stroke-linecap: round;
+}
+.qj-fill {
+  stroke-width: 3.5;
+}
+.qj-glow {
+  stroke-width: 10;
+  opacity: 0.28;
+  filter: blur(6px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .qj-fill,
+  .qj-glow {
+    stroke-dashoffset: 0;
+    animation: qjDraw 1.3s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+  }
+}
+@keyframes qjDraw {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+
+.quest-journey-nodes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.qj-node {
+  position: absolute;
+  left: var(--qj-x);
+  top: var(--qj-y);
+  transform: translate(-50%, 0);
+}
+
+.qj-node-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+  /* dot center sits exactly on the path point */
+  transform: translateY(-23px);
+  transition: transform 0.16s ease;
+}
+.qj-node-btn:hover {
+  transform: translateY(-26px);
+}
+
+.qj-dot {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--qp-text-soft);
+  background: #0c121d;
+  border: 1.5px solid var(--qp-line-strong);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.qj-node--done .qj-dot {
+  color: #06110d;
+  background: linear-gradient(135deg, var(--qp-cyan), #79e8c4);
+  border-color: transparent;
+  box-shadow: 0 0 18px rgba(94, 240, 224, 0.35);
+}
+
+.qj-node--current .qj-dot {
+  color: var(--qp-text);
+  border-color: var(--qp-violet);
+  box-shadow: 0 0 0 5px rgba(143, 107, 255, 0.16), 0 0 24px rgba(143, 107, 255, 0.45);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .qj-node--current .qj-dot {
+    animation: qjPulse 2.4s ease-in-out infinite;
+  }
+}
+@keyframes qjPulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(143, 107, 255, 0.12), 0 0 18px rgba(143, 107, 255, 0.35); }
+  50% { box-shadow: 0 0 0 8px rgba(143, 107, 255, 0.2), 0 0 32px rgba(143, 107, 255, 0.6); }
+}
+
+.qj-node--locked .qj-dot {
+  color: var(--qp-text-faint);
+  border-color: var(--qp-line);
+  background: rgba(12, 18, 29, 0.7);
+}
+.qj-node--locked .qj-label {
+  opacity: 0.55;
+}
+
+.qj-node.is-open .qj-dot {
+  border-color: var(--qp-cyan);
+}
+
+.qj-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 150px;
+  text-align: center;
+}
+.qj-label-level {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--qp-text-faint);
+}
+.qj-label-name {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--qp-text);
+}
+.qj-label-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--qp-text-soft);
+}
+.qj-node--done .qj-label-count {
+  color: var(--qp-cyan);
+}
+
+/* ------------------------------------------------------ Drill-in panel. */
+.quest-panel {
+  border-radius: 20px;
+  background: var(--qp-glass);
+  border: 1px solid var(--qp-line);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .quest-panel {
+    animation: qpPanelIn 0.28s ease both;
+  }
+}
+@keyframes qpPanelIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.quest-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.quest-panel-eyebrow {
+  font-family: var(--mono);
   font-size: 11px;
   font-weight: 700;
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  padding: 1px 9px;
-}
-
-.quest-pill.is-done {
-  background: var(--lime);
-  color: var(--ink);
-}
-
-.quest-pill.is-todo {
-  background: var(--surface);
-  color: var(--ink);
-}
-
-.quest-pill.is-locked {
-  background: var(--surface-2);
-  color: var(--ink-faint);
-  border-color: var(--ink-faint);
-}
-
-.quest-card-status {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--ink-soft);
-  margin-top: 2px;
-}
-
-.quest-skip-btn {
-  align-self: flex-start;
-  margin-top: 8px;
-  padding: 4px 12px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--world-accent, var(--primary));
-  background: var(--surface);
-  border: 2px solid var(--world-accent, var(--primary));
+  color: var(--qp-cyan);
+}
+.quest-panel-title h2 {
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-top: 4px;
+}
+
+.quest-panel-status {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 5px 12px;
   border-radius: 999px;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  border: 1px solid var(--qp-line-strong);
+  color: var(--qp-text-soft);
+}
+.quest-panel-status.is-current {
+  color: var(--qp-violet);
+  border-color: rgba(143, 107, 255, 0.5);
+}
+.quest-panel-status.is-passed,
+.quest-panel-status.is-mastered {
+  color: var(--qp-cyan);
+  border-color: rgba(94, 240, 224, 0.4);
+}
+.quest-panel-status.is-locked {
+  color: var(--qp-text-faint);
+  border-color: var(--qp-line);
 }
 
-.quest-skip-btn:hover {
-  background: var(--world-accent, var(--primary));
-  color: #fff;
+.quest-panel-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.quest-card-go {
+.quest-track {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 13px;
+  background: var(--qp-glass-2);
+  border: 1px solid var(--qp-line);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+a.quest-track:hover {
+  border-color: rgba(94, 240, 224, 0.4);
+  transform: translateX(3px);
+}
+.quest-track.is-locked-row {
+  opacity: 0.6;
+}
+
+.quest-track-leg {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--qp-text-soft);
+  border: 1px solid var(--qp-line-strong);
+}
+.quest-track.is-done .quest-track-leg {
+  color: #06110d;
+  background: var(--qp-cyan);
+  border-color: transparent;
+}
+
+.quest-track-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.quest-track-name {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--qp-text);
+}
+.quest-track-preview {
+  font-size: 12px;
+  color: var(--qp-text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quest-track-count {
   margin-left: auto;
   flex-shrink: 0;
-  color: var(--world-accent, var(--primary));
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--qp-text-soft);
+}
+.quest-track.is-done .quest-track-count {
+  color: var(--qp-cyan);
 }
 
-@media (max-width: 560px) {
-  .quest-cards {
-    grid-template-columns: 1fr;
-  }
-  .quest-hero {
-    justify-content: center;
-    text-align: center;
-  }
+/* Boss fight — the fourth leg of the realm list, amber-accented. */
+.quest-track--boss {
+  border-color: rgba(232, 184, 74, 0.22);
+}
+a.quest-track--boss:hover {
+  border-color: rgba(232, 184, 74, 0.55);
+}
+.quest-boss-leg {
+  color: var(--qp-amber);
+  border-color: rgba(232, 184, 74, 0.45);
+}
+.quest-track--boss.is-done .quest-boss-leg {
+  color: #06110d;
+  background: var(--qp-cyan);
+  border-color: transparent;
+}
+.quest-track--boss.is-done {
+  border-color: var(--qp-line);
+}
+.quest-boss-action {
+  color: var(--qp-amber);
+}
+.quest-track--boss.is-done .quest-boss-action {
+  color: var(--qp-cyan);
+}
+.quest-track--boss.is-locked-row .quest-boss-leg,
+.quest-track--boss.is-locked-row .quest-boss-action {
+  color: var(--qp-text-faint);
+  border-color: var(--qp-line-strong);
 }
 
-/* ============================================================ Dark re-skin
-   Color-only overrides scoped under `.quest-page`. */
-.quest-page h1,
-.quest-page h2,
-.quest-page h3,
-.quest-page h4 {
-  color: var(--cc-text);
+.quest-panel-gates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.quest-page p {
-  color: var(--cc-text);
+.quest-gate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--qp-text-soft);
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--qp-line);
+  background: var(--qp-glass-2);
 }
-.quest-page .muted {
-  color: var(--cc-text-soft);
-}
-.quest-page .eyebrow {
-  color: var(--cc-cyan);
-  text-shadow: 0 0 16px rgba(94, 240, 224, 0.35);
-}
-
-/* CodeBot speech bubble → dark glass (scoped; CodeBot's own CSS untouched). */
-.quest-page .codebot-bubble {
-  background: var(--cc-glass);
-  border-color: var(--cc-line-strong);
-  color: var(--cc-text);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
-}
-.quest-page .codebot-bubble::after {
-  background: var(--cc-glass);
-  border-left-color: var(--cc-line-strong);
-  border-bottom-color: var(--cc-line-strong);
-}
-.quest-page .codebot-bubble-name {
-  color: var(--cc-cyan);
+.quest-gate.is-done {
+  color: var(--qp-cyan);
+  border-color: rgba(94, 240, 224, 0.35);
 }
 
-/* Stat chips */
-.quest-page .quest-stat {
-  background: var(--cc-glass);
-  border-color: var(--cc-line-strong);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(6px);
+.quest-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding-top: 4px;
 }
-.quest-page .quest-stat-icon {
-  border-color: var(--cc-line-strong);
-  color: var(--cc-text);
-  background: var(--cc-glass-2);
+
+.quest-panel-skip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 11px;
+  font-size: 13.5px;
+  font-weight: 800;
+  cursor: pointer;
+  color: var(--qp-violet);
+  background: rgba(143, 107, 255, 0.08);
+  border: 1px solid rgba(143, 107, 255, 0.45);
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
-.quest-page .quest-stat-icon.tone-violet {
-  background: var(--cc-violet);
+.quest-panel-skip:hover {
   color: #fff;
-  border-color: rgba(160, 140, 255, 0.6);
-}
-.quest-page .quest-stat-icon.tone-yellow {
-  background: var(--cc-window);
-  color: #1c1402;
-  border-color: rgba(240, 196, 85, 0.6);
-}
-.quest-page .quest-stat-icon.tone-lime {
-  background: var(--cc-lime);
-  color: #0a1a06;
-  border-color: rgba(182, 255, 92, 0.6);
-}
-.quest-page .quest-stat-value {
-  color: var(--cc-text);
+  background: var(--qp-violet);
+  box-shadow: 0 0 24px rgba(143, 107, 255, 0.4);
 }
 
-.quest-page .quest-list-progress {
-  color: var(--cc-text-soft);
+.quest-panel-locknote {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--qp-text-faint);
 }
 
-/* Level cards */
-.quest-page .quest-card {
-  background: var(--cc-glass);
-  border-color: var(--cc-line-strong);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(6px);
-}
-.quest-page .quest-card.is-active {
-  border-color: var(--world-accent, var(--cc-violet));
-  box-shadow: 0 0 0 1px var(--world-accent, var(--cc-violet)),
-    0 0 26px rgba(109, 74, 254, 0.35), 0 14px 34px rgba(0, 0, 0, 0.45);
-}
-.quest-page .quest-card--locked .quest-card-medallion {
-  background: var(--cc-glass-2);
-}
-.quest-page .quest-card-flag {
-  color: #fff;
-  border-color: rgba(0, 0, 0, 0.4);
-}
-.quest-page .quest-card-flag.is-clear {
-  background: var(--cc-lime);
-  color: #0a1a06;
-}
-.quest-page .quest-card-medallion {
-  border-color: var(--cc-line-strong);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.4);
-}
-.quest-page .quest-card-number {
-  color: var(--cc-text);
-}
-.quest-page .quest-card-name {
-  color: var(--cc-text);
-}
-.quest-page .quest-card-topic {
-  color: var(--cc-cyan);
-  background: var(--cc-cyan-soft);
-  border-color: var(--cc-line-strong);
-}
-.quest-page .quest-card-blurb {
-  color: var(--cc-text-soft);
-}
-.quest-page .quest-card-status {
-  color: var(--cc-text-soft);
+.quest-panel.is-locked {
+  opacity: 0.85;
 }
 
-/* Pills */
-.quest-page .quest-pill {
-  border-color: var(--cc-line-strong);
-  color: var(--cc-text);
+/* ------------------------------------- Post-campaign banners and modes. */
+.quest-gauntlet-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  text-decoration: none;
+  color: var(--qp-text);
+  background: linear-gradient(120deg, rgba(106, 60, 255, 0.28), rgba(143, 107, 255, 0.16));
+  border: 1px solid rgba(170, 135, 255, 0.4);
+  box-shadow: 0 0 26px rgba(143, 107, 255, 0.22);
+  transition: transform 0.14s ease, box-shadow 0.18s ease;
 }
-.quest-page .quest-pill.is-done {
-  background: var(--cc-lime);
-  color: #0a1a06;
-  border-color: rgba(182, 255, 92, 0.6);
-}
-.quest-page .quest-pill.is-todo {
-  background: var(--cc-glass-2);
-  color: var(--cc-text);
-}
-.quest-page .quest-pill.is-locked {
-  background: var(--cc-glass-2);
-  color: var(--cc-text-faint);
-  border-color: var(--cc-line);
-}
-
-/* Skip button */
-.quest-page .quest-skip-btn {
-  color: var(--world-accent, var(--cc-violet));
-  background: var(--cc-glass-2);
-  border-color: var(--world-accent, var(--cc-violet));
-}
-.quest-page .quest-skip-btn:hover {
-  background: var(--world-accent, var(--cc-violet));
-  color: #fff;
+.quest-gauntlet-banner:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 36px rgba(160, 125, 255, 0.4);
 }
 
-/* ---- Scoped button repaint (global .btn untouched) ---- */
-.quest-page .btn {
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+.quest-gauntlet-icon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: var(--qp-text);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
 }
-.quest-page .btn:hover {
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+.quest-gauntlet-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
-.quest-page .btn:active {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-}
-.quest-page .btn:not(.ghost):not(.subtle):not(.lime) {
-  --btn-bg: var(--cc-violet);
-  --btn-fg: #fff;
-  border-color: rgba(160, 140, 255, 0.55);
-  box-shadow: 0 0 24px rgba(109, 74, 254, 0.45), 0 8px 22px rgba(0, 0, 0, 0.45);
-}
-.quest-page .btn:not(.ghost):not(.subtle):not(.lime):hover {
-  box-shadow: 0 0 32px rgba(109, 74, 254, 0.6), 0 12px 28px rgba(0, 0, 0, 0.5);
-}
-.quest-page .btn.ghost {
-  --btn-bg: var(--cc-glass);
-  --btn-fg: var(--cc-text);
-  border-color: var(--cc-line-strong);
-  backdrop-filter: blur(6px);
-}
-.quest-page .btn.ghost:hover {
-  --btn-bg: rgba(20, 38, 36, 0.78);
-  border-color: var(--cc-cyan);
-}
-.quest-page .quest-restart {
-  color: var(--cc-text-soft);
+.quest-gauntlet-copy strong {
+  font-family: var(--display);
+  font-size: 15.5px;
   font-weight: 700;
 }
-.quest-page .quest-restart:hover {
-  color: var(--cc-cyan);
+.quest-gauntlet-copy span {
+  font-size: 13px;
+  color: var(--qp-text-soft);
+  line-height: 1.4;
 }
-.quest-page .btn.lime {
-  --btn-bg: var(--cc-lime);
-  --btn-fg: #0a1a06;
-  border-color: rgba(182, 255, 92, 0.6);
+.quest-gauntlet-go {
+  flex: 0 0 auto;
+  margin-left: auto;
+  opacity: 0.8;
 }
-.quest-page .btn:disabled {
-  background: rgba(20, 32, 31, 0.6);
-  color: var(--cc-text-faint);
-  border-color: var(--cc-line);
-  box-shadow: none;
+
+.quest-gauntlet-panel {
+  padding: 16px 20px;
+  border-radius: 16px;
+  color: var(--qp-text);
+  background: linear-gradient(120deg, rgba(106, 60, 255, 0.28), rgba(143, 107, 255, 0.16));
+  border: 1px solid rgba(170, 135, 255, 0.4);
+}
+.quest-gauntlet-panel.is-conquered {
+  background: linear-gradient(120deg, rgba(232, 184, 74, 0.2), rgba(255, 150, 70, 0.12));
+  border-color: rgba(240, 200, 120, 0.42);
+}
+.quest-gauntlet-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.quest-gauntlet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.quest-gauntlet-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 11px;
+  font-weight: 700;
+  font-size: 13.5px;
+  text-decoration: none;
+  color: var(--qp-text);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: transform 0.14s ease, background 0.16s ease;
+}
+.quest-gauntlet-action:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.13);
+}
+.quest-gauntlet-action.is-primary {
+  margin-left: auto;
+  color: #170f30;
+  background: linear-gradient(120deg, #d9c2ff, #b486ff);
+  border-color: transparent;
+  box-shadow: 0 0 22px rgba(180, 134, 255, 0.4);
+}
+.quest-gauntlet-panel.is-conquered .quest-gauntlet-action.is-primary {
+  background: linear-gradient(120deg, #ffe2a6, #ff9e57);
+  box-shadow: 0 0 22px rgba(255, 180, 90, 0.4);
+}
+
+.quest-postgame {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.quest-postgame-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  text-decoration: none;
+  color: var(--qp-text);
+  background: var(--qp-glass);
+  border: 1px solid var(--qp-line);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.quest-postgame-card:hover {
+  border-color: rgba(94, 240, 224, 0.4);
+  transform: translateY(-2px);
+}
+.quest-postgame-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.quest-postgame-copy strong {
+  font-family: var(--display);
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.quest-postgame-copy span {
+  font-size: 12px;
+  color: var(--qp-text-soft);
+}
+.quest-postgame-card > svg:last-child {
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+/* ------------------------------------------------------------ Responsive. */
+@media (max-width: 860px) {
+  .quest-hero {
+    flex-direction: column;
+    gap: 20px;
+    padding: 22px;
+  }
+  .quest-hero-meter {
+    flex-basis: auto;
+    padding-left: 0;
+    border-left: none;
+    padding-top: 18px;
+    border-top: 1px solid var(--qp-line);
+  }
+}
+
+/* Vertical journey on small screens: hide the SVG wave, stack the nodes on a
+   left rail. Same DOM, different layout. */
+@media (max-width: 760px) {
+  .quest-journey-frame {
+    aspect-ratio: auto;
+    margin-bottom: 0;
+  }
+  .quest-journey-svg {
+    display: none;
+  }
+  .quest-journey-nodes {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding-left: 2px;
+  }
+  .quest-journey-nodes::before {
+    content: '';
+    position: absolute;
+    left: 24px;
+    top: 20px;
+    bottom: 20px;
+    width: 2px;
+    background: linear-gradient(180deg, rgba(94, 240, 224, 0.5), rgba(140, 180, 220, 0.12));
+  }
+  .qj-node {
+    position: static;
+    transform: none;
+  }
+  .qj-node-btn {
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    transform: none;
+    text-align: left;
+  }
+  .qj-node-btn:hover {
+    transform: none;
+  }
+  .qj-label {
+    width: auto;
+    align-items: flex-start;
+    text-align: left;
+  }
+  .quest-panel {
+    padding: 20px;
+  }
+  .quest-panel-actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quest-continue,
+  .quest-gauntlet-banner,
+  .quest-gauntlet-action,
+  .quest-postgame-card,
+  .quest-track,
+  .qj-node-btn {
+    transition: none;
+  }
 }

@@ -12,5 +12,3 @@ export function canGuestAccessSection(
 ): boolean {
   return lessonId === FIRST_LESSON_ID && section === 'learn'
 }
-
-export const GUEST_PREVIEW_LESSON_ID = FIRST_LESSON_ID

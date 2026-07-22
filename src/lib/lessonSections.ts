@@ -55,17 +55,6 @@ export function withLearnCompletedFlag(
   return { ...progress, learnCompleted: true }
 }
 
-export function isQuizComplete(progress: LessonProgress | undefined): boolean {
-  return progress?.status === 'completed'
-}
-
-export function isLessonFullyComplete(
-  progress: LessonProgress | undefined,
-  lesson: Lesson,
-): boolean {
-  return isLearnComplete(progress, lesson) && isQuizComplete(progress)
-}
-
 export function sectionResumeIndex(
   progress: LessonProgress | undefined,
   section: CourseSection,
@@ -140,13 +129,6 @@ export function reviewResumeFrameIndex(
   return progress?.lastReview?.reviewFrameIndex ?? 0
 }
 
-export function sectionLabel(section: CourseSection): string {
-  return section === 'learn' ? 'Interactive lesson' : 'Quiz'
-}
-
-export function sectionTitle(section: CourseSection): string {
-  return section === 'learn' ? 'Learn' : 'Quiz'
-}
 
 /** True once the learner has started or finished the quiz section. */
 export function hasQuizActivity(progress: LessonProgress | undefined): boolean {

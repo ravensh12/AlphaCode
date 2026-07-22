@@ -1,123 +1,156 @@
-import { mergeBadgeCounts, reconcileBadgeCounts } from '../content/badges'
-import type { LessonProgress, ProgressState, StreakState } from '../types/progress'
-import { hasQuizActivity } from './lessonSections'
+import { reconcileBadgeCounts } from '../content/badges'
+import type { BadgeCounts } from '../content/badges'
+import type {
+  ExperienceLevel,
+  LessonProgress,
+  LessonReview,
+  ProgressState,
+  StreakState,
+} from '../types/progress'
 import { meetsUnlockThreshold } from './mastery'
 import { mergeLearnerModels } from './learnerModel'
+import { mergeAcademyProgressStates } from './academyProgress'
 
-/**
- * Merge a new in-progress save without dropping section flags or step ids.
- */
+export { mergeAcademyProgressStates } from './academyProgress'
+
+type SectionPosition = {
+  readonly stepIndex?: number
+  readonly frameIndex?: number
+}
+
+function furthestPosition(
+  aStep: number | undefined,
+  aFrame: number | undefined,
+  bStep: number | undefined,
+  bFrame: number | undefined,
+): SectionPosition {
+  if (
+    aStep === undefined &&
+    aFrame === undefined &&
+    bStep === undefined &&
+    bFrame === undefined
+  ) {
+    return {}
+  }
+  const a: readonly [number, number] = [aStep ?? 0, aFrame ?? 0]
+  const b: readonly [number, number] = [bStep ?? 0, bFrame ?? 0]
+  const selected = a[0] > b[0] || (a[0] === b[0] && a[1] >= b[1]) ? a : b
+  return { stepIndex: selected[0], frameIndex: selected[1] }
+}
+
+const earliest = (
+  ...values: readonly (string | undefined)[]
+): string | undefined =>
+  values.filter((value): value is string => !!value).sort()[0]
+
+const latest = (
+  ...values: readonly (string | undefined)[]
+): string | undefined =>
+  values
+    .filter((value): value is string => !!value)
+    .sort()
+    .at(-1)
+
+function latestReview(
+  a: LessonReview | undefined,
+  b: LessonReview | undefined,
+): LessonReview | undefined {
+  if (!a) return b
+  if (!b) return a
+  const parsedA = Date.parse(a.recordedAt)
+  const parsedB = Date.parse(b.recordedAt)
+  const aTime = Number.isFinite(parsedA) ? parsedA : Number.NEGATIVE_INFINITY
+  const bTime = Number.isFinite(parsedB) ? parsedB : Number.NEGATIVE_INFINITY
+  if (aTime !== bTime) return aTime > bTime ? a : b
+  return JSON.stringify(a) >= JSON.stringify(b) ? a : b
+}
+
+function optionalBadgeCounts(
+  a: BadgeCounts | undefined,
+  b: BadgeCounts | undefined,
+): BadgeCounts | undefined {
+  if (!a) return b
+  if (!b) return a
+  return reconcileBadgeCounts(a, b)
+}
+
+function joinedLessonProgress(
+  a: LessonProgress,
+  b: LessonProgress,
+  forceCompleted = false,
+): LessonProgress {
+  if (a.lessonId !== b.lessonId) {
+    throw new Error('Cannot reconcile different lessons')
+  }
+  const completed =
+    forceCompleted || a.status === 'completed' || b.status === 'completed'
+  const status = completed
+    ? 'completed'
+    : a.status === 'inProgress' || b.status === 'inProgress'
+      ? 'inProgress'
+      : 'notStarted'
+  const masteryScore = Math.max(a.masteryScore, b.masteryScore)
+  const learn = furthestPosition(
+    a.learnStepIndex,
+    a.learnFrameIndex,
+    b.learnStepIndex,
+    b.learnFrameIndex,
+  )
+  const quiz = furthestPosition(
+    a.quizStepIndex,
+    a.quizFrameIndex,
+    b.quizStepIndex,
+    b.quizFrameIndex,
+  )
+  return {
+    lessonId: a.lessonId,
+    status,
+    currentStepIndex: Math.max(a.currentStepIndex, b.currentStepIndex),
+    completedStepIds: [...new Set([...a.completedStepIds, ...b.completedStepIds])]
+      .sort(),
+    correctCount: Math.max(a.correctCount, b.correctCount),
+    wrongCount: Math.max(a.wrongCount, b.wrongCount),
+    totalAttempts: Math.max(a.totalAttempts, b.totalAttempts),
+    correctFirstTry: Math.max(a.correctFirstTry, b.correctFirstTry),
+    accuracy: Math.max(a.accuracy, b.accuracy),
+    masteryScore,
+    unlockNextLesson:
+      a.unlockNextLesson ||
+      b.unlockNextLesson ||
+      (completed && meetsUnlockThreshold(masteryScore)),
+    completedAt: completed ? earliest(a.completedAt, b.completedAt) : undefined,
+    updatedAt: latest(a.updatedAt, b.updatedAt),
+    lastReview: latestReview(a.lastReview, b.lastReview),
+    learnCompleted: a.learnCompleted || b.learnCompleted,
+    learnStepIndex: learn.stepIndex,
+    learnFrameIndex: learn.frameIndex,
+    quizStepIndex: quiz.stepIndex,
+    quizFrameIndex: quiz.frameIndex,
+    lastQuizBadgeCounts: optionalBadgeCounts(
+      a.lastQuizBadgeCounts,
+      b.lastQuizBadgeCounts,
+    ),
+    pendingBadgeCounts: optionalBadgeCounts(
+      a.pendingBadgeCounts,
+      b.pendingBadgeCounts,
+    ),
+  }
+}
+
+/** Merge a new in-progress save without splitting section step/frame tuples. */
 export function mergeInProgress(
   existing: LessonProgress,
   next: LessonProgress,
 ): LessonProgress {
-  return {
-    ...next,
-    status:
-      existing.status === 'completed' || next.status === 'completed'
-        ? next.status
-        : 'inProgress',
-    currentStepIndex: Math.max(
-      existing.currentStepIndex ?? 0,
-      next.currentStepIndex ?? 0,
-    ),
-    completedStepIds: [
-      ...new Set([...existing.completedStepIds, ...next.completedStepIds]),
-    ],
-    correctCount: Math.max(existing.correctCount, next.correctCount),
-    wrongCount: Math.max(existing.wrongCount, next.wrongCount),
-    totalAttempts: Math.max(existing.totalAttempts, next.totalAttempts),
-    correctFirstTry: Math.max(existing.correctFirstTry, next.correctFirstTry),
-    accuracy: Math.max(existing.accuracy, next.accuracy),
-    learnCompleted: existing.learnCompleted || next.learnCompleted,
-    learnStepIndex: Math.max(
-      existing.learnStepIndex ?? 0,
-      next.learnStepIndex ?? 0,
-    ),
-    learnFrameIndex:
-      (next.learnStepIndex ?? 0) !== (existing.learnStepIndex ?? 0)
-        ? (next.learnFrameIndex ?? 0)
-        : Math.max(existing.learnFrameIndex ?? 0, next.learnFrameIndex ?? 0),
-    quizStepIndex: Math.max(
-      existing.quizStepIndex ?? 0,
-      next.quizStepIndex ?? 0,
-    ),
-    quizFrameIndex:
-      (next.quizStepIndex ?? 0) !== (existing.quizStepIndex ?? 0)
-        ? (next.quizFrameIndex ?? 0)
-        : Math.max(existing.quizFrameIndex ?? 0, next.quizFrameIndex ?? 0),
-    masteryScore: hasQuizActivity(next)
-      ? Math.max(existing.masteryScore ?? 0, next.masteryScore ?? 0)
-      : hasQuizActivity(existing)
-        ? existing.masteryScore
-        : Math.max(existing.masteryScore ?? 0, next.masteryScore ?? 0),
-    unlockNextLesson: existing.unlockNextLesson || next.unlockNextLesson,
-    lastReview: next.lastReview ?? existing.lastReview,
-    lastQuizBadgeCounts: next.lastQuizBadgeCounts ?? existing.lastQuizBadgeCounts,
-    pendingBadgeCounts: next.pendingBadgeCounts ?? existing.pendingBadgeCounts,
-    updatedAt:
-      [existing.updatedAt, next.updatedAt]
-        .filter(Boolean)
-        .sort()
-        .at(-1) ?? next.updatedAt,
-  }
+  return joinedLessonProgress(existing, next)
 }
 
-/**
- * Merge a new attempt into an already-completed lesson so reviewing/replaying
- * can only improve (or hold) progress — never lose it. Best metrics win.
- */
+/** Merge completed snapshots as a commutative, idempotent best-known view. */
 export function mergeCompleted(
   existing: LessonProgress,
   next: LessonProgress,
 ): LessonProgress {
-  const completedStepIds = [
-    ...new Set([...existing.completedStepIds, ...next.completedStepIds]),
-  ]
-  return {
-    ...next,
-    status: 'completed',
-    completedStepIds,
-    correctCount: Math.max(existing.correctCount, next.correctCount),
-    correctFirstTry: Math.max(existing.correctFirstTry, next.correctFirstTry),
-    accuracy: Math.max(existing.accuracy, next.accuracy),
-    masteryScore: Math.max(existing.masteryScore, next.masteryScore),
-    unlockNextLesson:
-      existing.unlockNextLesson ||
-      next.unlockNextLesson ||
-      meetsUnlockThreshold(Math.max(existing.masteryScore, next.masteryScore)),
-    completedAt: existing.completedAt ?? next.completedAt,
-    wrongCount: Math.max(existing.wrongCount, next.wrongCount),
-    totalAttempts: Math.max(existing.totalAttempts, next.totalAttempts),
-    currentStepIndex: Math.max(
-      existing.currentStepIndex ?? 0,
-      next.currentStepIndex ?? 0,
-    ),
-    updatedAt:
-      [existing.updatedAt, next.updatedAt]
-        .filter(Boolean)
-        .sort()
-        .at(-1) ?? next.updatedAt ?? new Date().toISOString(),
-    lastReview: next.lastReview ?? existing.lastReview,
-    lastQuizBadgeCounts: next.lastQuizBadgeCounts ?? existing.lastQuizBadgeCounts,
-    learnCompleted: existing.learnCompleted || next.learnCompleted,
-    learnStepIndex: Math.max(
-      existing.learnStepIndex ?? 0,
-      next.learnStepIndex ?? 0,
-    ),
-    learnFrameIndex:
-      (next.learnStepIndex ?? 0) !== (existing.learnStepIndex ?? 0)
-        ? (next.learnFrameIndex ?? 0)
-        : Math.max(existing.learnFrameIndex ?? 0, next.learnFrameIndex ?? 0),
-    quizStepIndex: Math.max(
-      existing.quizStepIndex ?? 0,
-      next.quizStepIndex ?? 0,
-    ),
-    quizFrameIndex:
-      (next.quizStepIndex ?? 0) !== (existing.quizStepIndex ?? 0)
-        ? (next.quizFrameIndex ?? 0)
-        : Math.max(existing.quizFrameIndex ?? 0, next.quizFrameIndex ?? 0),
-  }
+  return joinedLessonProgress(existing, next, true)
 }
 
 /** Pick the furthest-along snapshot from two copies of the same lesson. */
@@ -125,29 +158,41 @@ export function reconcileLessonProgress(
   a: LessonProgress,
   b: LessonProgress,
 ): LessonProgress {
-  if (a.status === 'completed' && b.status === 'completed') {
-    return mergeCompleted(a, b)
-  }
-  if (a.status === 'completed') {
-    return mergeCompleted(a, mergeInProgress(a, b))
-  }
-  if (b.status === 'completed') {
-    return mergeCompleted(b, mergeInProgress(b, a))
-  }
-  return mergeInProgress(b, mergeInProgress(a, b))
+  return joinedLessonProgress(a, b)
 }
 
-function reconcileStreak(a: StreakState, b: StreakState): StreakState {
+export function reconcileStreak(a: StreakState, b: StreakState): StreakState {
   const aDate = a.lastActivityDate ?? ''
   const bDate = b.lastActivityDate ?? ''
-  if (aDate === bDate) {
-    return {
-      current: Math.max(a.current, b.current),
-      longest: Math.max(a.longest, b.longest),
-      lastActivityDate: aDate || bDate || undefined,
-    }
+  const newest = aDate === bDate ? null : aDate > bDate ? a : b
+  return {
+    current: newest ? newest.current : Math.max(a.current, b.current),
+    longest: Math.max(a.longest, b.longest),
+    lastActivityDate: latest(a.lastActivityDate, b.lastActivityDate),
   }
-  return aDate > bDate ? a : b
+}
+
+function reconcileExperienceLevel(
+  a: ExperienceLevel | undefined,
+  b: ExperienceLevel | undefined,
+): ExperienceLevel | undefined {
+  const rank: Record<ExperienceLevel, number> = {
+    new: 0,
+    some: 1,
+    class: 2,
+  }
+  if (!a) return b
+  if (!b) return a
+  return rank[a] >= rank[b] ? a : b
+}
+
+function reconcileOptionalString(
+  a: string | undefined,
+  b: string | undefined,
+): string | undefined {
+  if (!a) return b
+  if (!b) return a
+  return a >= b ? a : b
 }
 
 /** Merge cloud and local snapshots — never drop the furthest lesson progress. */
@@ -156,6 +201,13 @@ export function mergeProgressStates(
   local: ProgressState,
 ): ProgressState {
   const lessons: ProgressState['lessons'] = { ...cloud.lessons }
+  const academyProgress =
+    cloud.academyProgress !== undefined || local.academyProgress !== undefined
+      ? mergeAcademyProgressStates(
+          cloud.academyProgress,
+          local.academyProgress,
+        )
+      : undefined
 
   for (const [lessonId, localLesson] of Object.entries(local.lessons)) {
     const cloudLesson = lessons[lessonId]
@@ -175,7 +227,10 @@ export function mergeProgressStates(
     : undefined
 
   return {
-    experienceLevel: cloud.experienceLevel ?? local.experienceLevel,
+    experienceLevel: reconcileExperienceLevel(
+      cloud.experienceLevel,
+      local.experienceLevel,
+    ),
     // Placement lives client-side (no cloud column yet); keep whichever side has
     // the further-reaching unlock so a device that ran the diagnostic wins.
     placementUnlockIndex:
@@ -188,15 +243,18 @@ export function mergeProgressStates(
             local.placementUnlockIndex ?? -1,
           )
         : undefined,
-    recommendedLessonId: cloud.recommendedLessonId ?? local.recommendedLessonId,
-    streak: reconcileStreak(cloud.streak, local.streak),
-    badgeCounts: reconcileBadgeCounts(
-      cloud.badgeCounts,
-      mergeBadgeCounts(cloud.badgeCounts, local.badgeCounts),
+    recommendedLessonId: reconcileOptionalString(
+      cloud.recommendedLessonId,
+      local.recommendedLessonId,
     ),
+    streak: reconcileStreak(cloud.streak, local.streak),
+    // Counts are snapshots, not deltas. Adding before reconciling duplicated
+    // badges every time the same cloud/local pair was hydrated.
+    badgeCounts: reconcileBadgeCounts(cloud.badgeCounts, local.badgeCounts),
     interZoneComplete,
     interZoneCompletedAt,
     learnerModel: mergeLearnerModels(cloud.learnerModel, local.learnerModel),
+    ...(academyProgress ? { academyProgress } : {}),
     lessons,
   }
 }

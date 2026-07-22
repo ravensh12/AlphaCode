@@ -1,4 +1,7 @@
-import type { StepReview } from '../../hooks/useLessonEngine'
+import {
+  assessmentAnswerLabel,
+  type StepReview,
+} from '../../hooks/useLessonEngine'
 import type { LessonStep } from '../../types/lesson'
 import { IconCheck, IconX } from '../icons'
 
@@ -14,6 +17,9 @@ export function stepToReview(step: LessonStep, missed: boolean): StepReview {
     expected: Object.fromEntries(
       step.targetVariables.map((t) => [t, step.expectedState[t]]),
     ),
+    assessmentAnswerLabel: step.assessment
+      ? assessmentAnswerLabel(step.assessment)
+      : undefined,
     missed,
   }
 }
@@ -45,9 +51,11 @@ export function ReviewBreakdown({
             s.currentLineIndex != null && s.code[s.currentLineIndex] != null
               ? s.code[s.currentLineIndex]
               : (s.code[s.code.length - 1] ?? s.prompt)
-          const answer = s.targetVariables
-            .map((t) => `${t} = ${s.expected[t]}`)
-            .join(', ')
+          const answer =
+            s.assessmentAnswerLabel ??
+            s.targetVariables
+              .map((t) => `${t} = ${s.expected[t]}`)
+              .join(', ')
           return (
             <li
               key={s.id}
@@ -58,7 +66,13 @@ export function ReviewBreakdown({
               </span>
               <span className="review-step">{i + 1}</span>
               <code className="review-code">{line}</code>
-              <span className="review-ans">{answer}</span>
+              <span
+                className={`review-ans ${
+                  s.assessmentAnswerLabel ? 'assessment-answer' : ''
+                }`}
+              >
+                {answer}
+              </span>
             </li>
           )
         })}

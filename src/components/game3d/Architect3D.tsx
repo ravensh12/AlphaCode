@@ -45,6 +45,15 @@ export interface Architect3DProps {
   staggerRef: MutableRefObject<number>
   /** Bumped on a phase transition -> glyph/reality burst. */
   phaseBreakRef: MutableRefObject<number>
+  /** Bumped once a real (Meshy) rig has mounted — arenas hold the entrance
+   *  beat on it. The procedural rig ignores it (it is always resident). */
+  readyRef?: MutableRefObject<number>
+  /** Render as a translucent echo-clone (Meshy rig only). */
+  ghost?: boolean
+  /** Render as the colossal sky projection (Meshy rig only): fog-immune
+   *  spectral hologram that mirrors the boss's animations across the skyline.
+   *  Implies ghost-style translucency; suppresses hit flinches/flashes. */
+  projection?: boolean
   dead: boolean
 }
 

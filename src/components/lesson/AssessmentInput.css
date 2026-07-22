@@ -1,0 +1,307 @@
+.assessment-input {
+  width: 100%;
+}
+
+.assessment-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.assessment-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.assessment-choice-list {
+  display: grid;
+  gap: 10px;
+}
+
+.assessment-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  padding: 12px 14px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease,
+    background 0.15s ease;
+}
+
+.assessment-choice:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow);
+}
+
+.assessment-choice:has(input:focus-visible) {
+  outline: 3px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.assessment-choice.selected {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.assessment-choice:has(input:disabled) {
+  cursor: default;
+  opacity: 0.78;
+  transform: none;
+}
+
+.assessment-choice input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.assessment-choice-marker {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+.assessment-choice.selected .assessment-choice-marker::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.assessment-choice-label {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.assessment-text-field,
+.assessment-code-input {
+  display: grid;
+  gap: 8px;
+}
+
+.assessment-text-field label,
+.assessment-code-input label {
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.assessment-text-field input,
+.assessment-text-field textarea,
+.assessment-code-input textarea {
+  width: 100%;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 13px 14px;
+  font: 600 16px/1.5 var(--mono);
+  box-shadow: var(--shadow-sm);
+  resize: vertical;
+}
+
+.assessment-text-field input:focus-visible,
+.assessment-text-field textarea:focus-visible,
+.assessment-code-input textarea:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.assessment-text-field input:disabled,
+.assessment-text-field textarea:disabled,
+.assessment-code-input textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.assessment-code-input textarea {
+  min-height: 220px;
+  tab-size: 4;
+  background: var(--code-bg);
+  color: var(--on-dark);
+  line-height: 1.65;
+}
+
+.assessment-order {
+  display: grid;
+  gap: 10px;
+}
+
+.assessment-order-help {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.assessment-order-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assessment-order-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: var(--bd) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.assessment-order-item:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.assessment-order-position {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--yellow);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.assessment-order-label {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.assessment-order-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.assessment-order-actions button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--ink);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.assessment-order-actions button:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.assessment-order-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.assessment-input-error {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--coral-soft);
+  color: var(--ink);
+}
+
+.lp .assessment-choice,
+.lp .assessment-text-field input,
+.lp .assessment-text-field textarea,
+.lp .assessment-order-item {
+  border-color: var(--cc-line-strong);
+  background: var(--cc-glass);
+  color: var(--cc-text);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.38);
+}
+
+.lp .assessment-choice.selected {
+  background: var(--cc-violet);
+  color: #fff;
+  box-shadow: 0 0 22px rgba(109, 74, 254, 0.42);
+}
+
+.lp .assessment-choice:has(input:focus-visible),
+.lp .assessment-text-field input:focus-visible,
+.lp .assessment-text-field textarea:focus-visible,
+.lp .assessment-code-input textarea:focus-visible,
+.lp .assessment-order-item:focus-visible,
+.lp .assessment-order-actions button:focus-visible {
+  outline-color: var(--cc-cyan);
+}
+
+.lp .assessment-text-field label,
+.lp .assessment-code-input label,
+.lp .assessment-order-help {
+  color: var(--cc-text-soft);
+}
+
+.lp .assessment-code-input textarea {
+  border-color: var(--cc-line-strong);
+  background: var(--cc-glass-3);
+  color: var(--cc-text);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.48);
+}
+
+.lp .assessment-order-position {
+  background: var(--cc-window);
+  color: #1c1402;
+}
+
+.lp .assessment-order-actions button {
+  border-color: var(--cc-line-strong);
+  background: var(--cc-glass-2);
+  color: var(--cc-text);
+}
+
+.lp .assessment-input-error {
+  background: var(--cc-coral-soft);
+  color: var(--cc-text);
+}
+
+@media (max-width: 460px) {
+  .assessment-order-item {
+    gap: 8px;
+  }
+
+  .assessment-order-actions {
+    flex-direction: column;
+  }
+}

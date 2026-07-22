@@ -1,0 +1,71 @@
+.lesson-review-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 2.5px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--cyan-soft);
+}
+
+.lesson-review-prompt-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lesson-review-prompt-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 14.5px;
+}
+
+.lesson-review-prompt-sub {
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.lesson-review-prompt-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lesson-retake-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  padding: 18px 16px;
+  border: 2.5px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--yellow-soft);
+}
+
+.lesson-retake-prompt-title {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lesson-retake-prompt-text {
+  font-size: 14.5px;
+  line-height: 1.5;
+  font-weight: 500;
+  max-width: 34ch;
+}
+
+.lesson-retake-prompt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}

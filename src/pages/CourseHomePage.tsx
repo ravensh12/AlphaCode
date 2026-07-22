@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AppHeader } from '../components/AppHeader'
 import { useAuth } from '../context/AuthContext'
@@ -12,6 +12,16 @@ import {
 } from '../lib/lessonSections'
 import { hasPendingMissedReview, hasEverMastered, meetsUnlockThreshold } from '../lib/mastery'
 import { BADGE_ORDER, BADGES } from '../content/badges'
+import {
+  NEETCODE_150_MANIFEST,
+  NEETCODE_150_TRACK_BY_ID,
+} from '../content/curricula/neetcode150'
+import {
+  selectAcademyProgressCounts,
+  selectTrackProgress,
+} from '../lib/academyProgress'
+import { activeRunProgressView } from '../lib/freshRunView'
+import { academyTrackPath } from '../lib/academyQuest'
 import type { LessonSummary } from '../types/lesson'
 import type { ExperienceLevel } from '../types/progress'
 import {
@@ -36,10 +46,6 @@ export function CourseHomePage() {
   const {
     streak,
     variablesMastery,
-    averageMastery,
-    completedLessonsCount,
-    totalLessonsCount,
-    allLessonsComplete,
     experienceLevel,
     lessons,
     cloudEnabled,
@@ -47,7 +53,17 @@ export function CourseHomePage() {
     totalBadgeCount,
     badgesUnlockedCount,
     learnerModel,
+    academyProgress,
+    academyCampaignComplete,
   } = useProgress()
+  // The run view (see freshRunView.ts): identical to durable progress outside
+  // a fresh run; during one, counts match what the levels/track pages show —
+  // a reset run reads 0 solved again, a skip run reads prior realms complete.
+  const viewProgress = useMemo(
+    () => activeRunProgressView(academyProgress),
+    [academyProgress],
+  )
+  const academyCounts = selectAcademyProgressCounts(viewProgress)
 
   const firstLesson = lessons[LESSON_CATALOG[0].id]
   const showReview =
@@ -87,14 +103,14 @@ export function CourseHomePage() {
               tone="yellow"
             />
             <Stat
-              label="Lessons done"
-              value={`${completedLessonsCount}/${totalLessonsCount}`}
+              label="Missions solved"
+              value={`${academyCounts.completedProblems}/150`}
               icon={<IconTrophy size={20} />}
               tone="lime"
             />
             <Stat
-              label="Avg mastery"
-              value={`${averageMastery}%`}
+              label="Topics cleared"
+              value={`${academyCounts.completedTracks}/18`}
               icon={<IconGauge size={20} />}
               tone="cyan"
             />
@@ -120,29 +136,45 @@ export function CourseHomePage() {
           </Link>
         )}
 
-        {allLessonsComplete && (
+        {academyCampaignComplete && (
           <div className="course-complete-banner card">
             <span className="course-review-emoji" aria-hidden="true">
               <IconTrophy size={24} />
             </span>
             <div className="course-review-text">
-              <strong>Course complete!</strong>
+              <strong>Academy campaign complete!</strong>
               <span className="muted">
-                You finished all {totalLessonsCount} core patterns with{' '}
-                {averageMastery}% average mastery. You&apos;re ready to start
-                NeetCode 150 — AlphaCode was your prep; NeetCode is your practice.
+                You solved all 150 missions across 18 topics and cleared all 6
+                realm knowledge gates and bosses.
               </span>
             </div>
           </div>
         )}
+
+        <Link
+          to="/demo/guarantee"
+          className="course-warmup course-demo-guarantee card"
+        >
+          <span className="course-review-emoji" aria-hidden="true">
+            <IconGauge size={24} />
+          </span>
+          <div className="course-review-text">
+            <strong>DEMO ONLY · Fictional guarantee workflow</strong>
+            <span className="muted">
+              No payment provider is connected and no money can move. Explore
+              simulated policy outcomes.
+            </span>
+          </div>
+          <IconArrowRight size={20} />
+        </Link>
 
         {isGuest && (
           <div className="course-setup-banner card">
             <div className="course-review-text">
               <strong>Guest preview</strong>
               <span className="muted">
-                Try the first interactive lesson free. Sign in to unlock the quiz
-                and full course.
+                Try the first academy mission&apos;s teaching section free. Sign in
+                to unlock assessments and the full 150-mission campaign.
               </span>
             </div>
             <Link className="btn subtle" to="/auth">
@@ -182,6 +214,43 @@ export function CourseHomePage() {
           </div>
         )}
 
+        <section className="course-path">
+          <h2 className="course-path-title">NeetCode 150 Academy</h2>
+          <p className="muted course-path-hint">
+            150 authored missions · 18 topics · 6 realms. Open any unlocked
+            checkpoint directly or enter it through Code City.
+          </p>
+          <div className="course-academy-grid">
+            {NEETCODE_150_MANIFEST.realms.map((realm) => (
+              <article key={realm.id} className="course-academy-realm card">
+                <span className="eyebrow">Realm {realm.order}</span>
+                <h3>{realm.title}</h3>
+                <div className="course-academy-tracks">
+                  {realm.trackIds.map((trackId) => {
+                    const track = NEETCODE_150_TRACK_BY_ID.get(trackId)!
+                    const progress = selectTrackProgress(viewProgress, trackId)
+                    return (
+                      <Link
+                        key={trackId}
+                        to={academyTrackPath(realm.id, trackId)}
+                        className="course-academy-track"
+                      >
+                        <span>
+                          <strong>{track.title}</strong>
+                          <small>
+                            {progress.completedProblems}/{progress.totalProblems} solved
+                          </small>
+                        </span>
+                        <IconArrowRight size={16} />
+                      </Link>
+                    )
+                  })}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
         <section className="course-badges">
           <div className="course-badges-head">
             <h2 className="course-path-title">Badges</h2>
@@ -218,10 +287,10 @@ export function CourseHomePage() {
         </section>
 
         <section className="course-path">
-          <h2 className="course-path-title">Learning path</h2>
+          <h2 className="course-path-title">Historical primer</h2>
           <p className="muted course-path-hint">
-            LeetCode prep course — interactive lesson, quiz, then readiness for
-            real-style problems.
+            The original six-lesson primer remains available for review. It does
+            not unlock academy checkpoints, realm bosses, or the final journey.
           </p>
           <div className="course-modules stagger">
             {LESSON_CATALOG.map((lesson, index) => (

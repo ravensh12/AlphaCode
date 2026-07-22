@@ -202,6 +202,27 @@
   color: #6f8a83;
 }
 
+.app-header-save-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #6f2331;
+  color: #fff4f5;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.app-header-save-error button {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app-audio-pop {
     animation: none;

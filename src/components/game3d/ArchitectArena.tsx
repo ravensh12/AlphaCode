@@ -1,5 +1,8 @@
 import {
+  Component,
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -7,16 +10,71 @@ import {
   useState,
   type JSX,
   type MutableRefObject,
+  type ReactNode,
 } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import { MeshReflectorMaterial } from '@react-three/drei'
 import * as THREE from 'three'
 import { Avatar, type AvatarAnim } from './Avatar'
-import { Architect3D, ARCHITECT_DEATH_DUR, ARCHITECT_HEAVY_DUR, type ArchitectAnim, type ArchitectPhase } from './Architect3D'
+import { Architect3D, ARCHITECT_DEATH_DUR, type Architect3DProps, type ArchitectAnim, type ArchitectPhase } from './Architect3D'
+import { genTowers, makeTowerMaps } from './nightTowerMaps'
+
+// The real character-boss-architect rig streams lazily; the procedural
+// Architect3D stays as the loading fallback AND the permanent one if the GLBs
+// ever fail — a final boss always renders.
+const MeshyArchitectBoss = lazy(() => import('./meshy/MeshyArchitectBoss'))
+
+class BossBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
+}
+
+/** The Meshy Architect behind a boundary + suspense, procedural as fallback. */
+function ArchitectSwitch(props: Architect3DProps) {
+  const fallback = <Architect3D {...props} />
+  return (
+    <BossBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>
+        <MeshyArchitectBoss {...props} />
+      </Suspense>
+    </BossBoundary>
+  )
+}
 import { useKeys } from './useKeys'
+import {
+  bossProjectileDamageScale,
+  resolveEquippedWeapon,
+  weaponPelletYaw,
+} from './weaponProfile'
+import {
+  architectWardHint,
+  ARCHITECT_SEALS,
+  ARCHITECT_SIGILS,
+  createMarkState,
+  createSphinxState,
+  createTwinKeyState,
+  MARK,
+  markDashTransfer,
+  sphinxNextValue,
+  sphinxStep,
+  sphinxTileAt,
+  tickMark,
+  tickSphinx,
+  tickTwinKey,
+  twinStrike,
+  WARD_CHIP_MUL,
+  type MarkState,
+  type MechEvent,
+  type SphinxState,
+  type TwinKeyState,
+} from './bossMechanics'
 import { playShot } from '../../lib/soundFx'
 import {
-  ARCHITECT_PARRY_LINES,
   ARCHITECT_PHASE_TAUNTS,
   ARCHITECT_HIT_LINES,
 } from '../../content/finalGauntletLore'
@@ -37,27 +95,37 @@ import {
   type GroundDecalHandle,
   type WeaponTrailHandle,
 } from './cinematic'
+import {
+  EnemyProjectiles,
+  ImpactFlashes,
+  type EnemyProjectilesHandle,
+  type ImpactFlashesHandle,
+} from './projectileFx'
 
 /* ======================================================================
    THE APEX — the climactic final fight against THE ARCHITECT atop the Null
    Tower, in a lightning storm above a neon megacity.
 
    Built on the `cinematic` engine and the same proven combat scaffolding as
-   CinematicBossArena (identical player kit + parry system), but DEEPER: 4 phases,
+   CinematicBossArena, but DEEPER: 4 phases,
    200 boss HP / 14 player HP, a telekinesis/reality-editing roster (glyph-blades,
    debris hurl, lightning strikes, blink combo, force shockwaves, glyph-wall,
-   parryable force-slam, reality-rewrite sweep, and a phase-4 glyph-storm ult),
+   reality-rewrite sweep, and a phase-4 glyph-storm ult),
    plus a storming rooftop that fractures as he loses. Ref-driven sim, pooled
    VFX, HUD via CinematicStage; no per-frame setState.
    ====================================================================== */
 
 /* ------------------------------------------------------------- Tuning */
 
+const WEAPON = resolveEquippedWeapon({ run: 'boss' })
+
 const PLAYER_HP = 12
-const BOSS_HP_MAX = 300
-const P2_AT = Math.round(BOSS_HP_MAX * 0.75)
-const P3_AT = Math.round(BOSS_HP_MAX * 0.5)
-const P4_AT = Math.round(BOSS_HP_MAX * 0.25)
+// ~100 HP per warded phase, with the finale weighted HEAVIEST (30%) — the
+// Deletion-Mark endgame is the climax, not an 8-second victory lap (QA).
+const BOSS_HP_MAX = 400
+const P2_AT = Math.round(BOSS_HP_MAX * 0.76)
+const P3_AT = Math.round(BOSS_HP_MAX * 0.53)
+const P4_AT = Math.round(BOSS_HP_MAX * 0.3)
 
 const BOUND = 24
 const CAM_BACK = 8.2
@@ -92,17 +160,13 @@ const MELEE_DMG = [5, 5, 9]
 const LUNGE_SPEED = 19
 const SLASH_TIME = 0.32
 
-// Parry
-const PARRY_WINDOW = 0.2
-const PARRY_CD = 0.42
-const STAGGER_TIME = 1.7
-
 // Ranged
-const BOLT_SPEED = 72
+const LEGACY_BOLT_CD = 0.15
+const BOSS_BOLT_DAMAGE_SCALE = bossProjectileDamageScale(LEGACY_BOLT_CD)
+const BOLT_SPEED = WEAPON.boltSpeed
 const BOLT_LIFE = 1.4
-const BOLT_CD = 0.15
-const BOLT_POOL = 36
-const BOLT_DMG = 1
+const BOLT_CD = WEAPON.cooldown
+const BOLT_POOL = 48
 
 // Boss projectiles
 const ORB_POOL = 110
@@ -121,9 +185,67 @@ const GLYPH = '#9fd0ff'
 const HOT = '#ff7a4a'
 const LIGHTNING = '#dCe8ff'
 
+/** Boss entrance beat length (s) — hero shot + storm roar before the fight. */
+const INTRO_DUR = 3.0
+
+/* --------------------------- Phase wards (the mastery exam) ---------------
+   Phases 2-4 guard the Architect's HP behind a TWISTED version of an earlier
+   boss's kill mechanic (bossMechanics.ts); outside a broken ward damage is
+   chip-only (WARD_CHIP_MUL):
+     P1 — the opening: NO ward, just fight him down with melee/ranged.
+     P2 — the Twin-Key seals: melee BOTH orbiting seals within the link.
+     P3 — the Sphinx's sigils: cross 4 numbered sigils in ascending order.
+     P4 — DELETION MARK (unique): he brands you; dash THROUGH him to return
+          it before the fuse, detonating it on him.
+   ------------------------------------------------------------------------ */
+
+const WARD_HOT = '#ffd27a'
+const WARD_GOOD = '#8dffb0'
+const WARD_BAD = '#ff5a6a'
+
+/** Crisp glyph texture for the sigil numbers (local twin of the arena helper).
+ *  Dark backing disc keeps the digits readable over storm bloom (QA). */
+function makeSigilTexture(text: string, color: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas')
+  c.width = 128
+  c.height = 128
+  const ctx = c.getContext('2d')
+  if (ctx) {
+    ctx.clearRect(0, 0, 128, 128)
+    ctx.fillStyle = 'rgba(4,6,12,0.72)'
+    ctx.beginPath()
+    ctx.arc(64, 64, 58, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = color
+    ctx.lineWidth = 5
+    ctx.beginPath()
+    ctx.arc(64, 64, 55, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.font = '900 76px system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.shadowColor = color
+    ctx.shadowBlur = 14
+    ctx.fillStyle = color
+    ctx.fillText(text, 64, 69)
+    ctx.shadowBlur = 0
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(text, 64, 69)
+  }
+  const tex = new THREE.CanvasTexture(c)
+  tex.anisotropy = 2
+  return tex
+}
+
 type Phase = ArchitectPhase
 
-type Bolt = { active: boolean; pos: THREE.Vector3; vel: THREE.Vector3; life: number }
+type Bolt = {
+  active: boolean
+  pos: THREE.Vector3
+  vel: THREE.Vector3
+  life: number
+  damage: number
+}
 type Orb = { active: boolean; pos: THREE.Vector3; vel: THREE.Vector3; life: number; mode: 0 | 1; lock: number }
 type Debris = { active: boolean; pos: THREE.Vector3; vel: THREE.Vector3; spin: THREE.Vector3; life: number }
 type After = { active: boolean; pos: THREE.Vector3; life: number }
@@ -215,52 +337,213 @@ const sfx = {
   },
 }
 
+/* ------------------------------------------------- Corruptible skyline */
+
+/** Finale drive values, mutated by the scene every frame (no re-renders). */
+interface CityStateRefs {
+  /** 0..1 — how far the Null has eaten the city (phase-driven). */
+  corrupt: MutableRefObject<number>
+  /** 0..1 — the dawn that breaks over the city while the Architect dies. */
+  dawn: MutableRefObject<number>
+}
+
+const C_WIN_BASE = new THREE.Color('#ffffff')
+const C_WIN_NULL = new THREE.Color('#ff2438')
+const C_WIN_DAWN = new THREE.Color('#ffca7a')
+
+/**
+ * The finale's city: the same lit-window skyline as everywhere else — until
+ * the Architect starts LOSING. Window glow shifts blood-red in glitch waves,
+ * a red wireframe ghost shell fades up over every block (the city de-rezzing
+ * into the Null's source view), and in the last phase the outer towers
+ * stutter-sink as whole blocks delete. When he falls, it all runs backwards
+ * into a warm dawn. Two instanced draws + ~16 matrix writes per frame.
+ */
+const CorruptibleSkyline = memo(function CorruptibleSkyline({
+  count,
+  innerRadius,
+  baseY,
+  city,
+}: {
+  count: number
+  innerRadius: number
+  baseY: number
+  city: CityStateRefs
+}) {
+  const winRef = useRef<THREE.InstancedMesh>(null)
+  const wireRef = useRef<THREE.InstancedMesh>(null)
+  const maps = useMemo(makeTowerMaps, [])
+  const geo = useMemo(() => new THREE.BoxGeometry(1, 1, 1), [])
+  const winMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: '#3a4257',
+        map: maps.map,
+        emissiveMap: maps.emissive,
+        emissive: '#ffffff',
+        emissiveIntensity: 0.8,
+        roughness: 0.68,
+        metalness: 0.25,
+      }),
+    [maps],
+  )
+  const wireMat = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: '#ff3b4e',
+        wireframe: true,
+        transparent: true,
+        opacity: 0,
+        toneMapped: false,
+        fog: false,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    [],
+  )
+  const towers = useMemo(() => genTowers(count, innerRadius), [count, innerRadius])
+  const dummy = useRef(new THREE.Object3D())
+  useEffect(() => {
+    const d = dummy.current
+    for (const m of [winRef.current, wireRef.current]) {
+      if (!m) continue
+      for (let i = 0; i < towers.length; i++) {
+        const t = towers[i]
+        d.position.set(t.x, t.h / 2 + baseY, t.z)
+        d.scale.set(t.w, t.h, t.d)
+        d.rotation.set(0, (i * 0.61) % Math.PI, 0)
+        d.updateMatrix()
+        m.setMatrixAt(i, d.matrix)
+      }
+      m.count = towers.length
+      m.instanceMatrix.needsUpdate = true
+    }
+  }, [towers, baseY])
+  useEffect(
+    () => () => {
+      geo.dispose()
+      winMat.dispose()
+      wireMat.dispose()
+      maps.map.dispose()
+      maps.emissive.dispose()
+    },
+    [geo, winMat, wireMat, maps],
+  )
+  useFrame((state) => {
+    const t = state.clock.elapsedTime
+    const c = city.corrupt.current
+    const dawn = city.dawn.current
+    // Window tint: clean city → blood red with corruption → gold with dawn.
+    winMat.emissive.copy(C_WIN_BASE).lerp(C_WIN_NULL, c).lerp(C_WIN_DAWN, dawn)
+    // Glitch waves: corruption strobes whole-city brightness in rolling
+    // square waves; dawn steadies and brightens everything.
+    const wave = Math.sin(t * 9) > 0.65 || Math.sin(t * 23 + 4) > 0.9 ? 1 : 0
+    winMat.emissiveIntensity =
+      0.8 * (1 - c * 0.35) + c * wave * 0.9 + dawn * 0.9
+    // Wireframe source-view shell (draw skipped entirely while clean).
+    wireMat.opacity = c * (0.14 + 0.08 * Math.max(0, Math.sin(t * 3.2))) * (1 - dawn)
+    if (wireRef.current) wireRef.current.visible = wireMat.opacity > 0.01
+    // Last-phase de-rez: every 4th tower stutter-sinks as its block deletes.
+    const win = winRef.current
+    const wire = wireRef.current
+    if (win && wire && (c > 0.75 || dawn > 0)) {
+      const d = dummy.current
+      const sinkK = Math.max(0, (c - 0.75) / 0.25) * (1 - dawn)
+      for (let i = 0; i < towers.length; i += 4) {
+        const tw = towers[i]
+        // Quantized (stepped) sink — de-rez, not smooth submersion.
+        const saw = Math.floor(((Math.sin(t * 1.1 + i * 2.7) + 1) / 2) * 5) / 5
+        const s = 1 - sinkK * saw * 0.55
+        d.position.set(tw.x, (tw.h * s) / 2 + baseY, tw.z)
+        d.scale.set(tw.w, tw.h * s, tw.d)
+        d.rotation.set(0, (i * 0.61) % Math.PI, 0)
+        d.updateMatrix()
+        win.setMatrixAt(i, d.matrix)
+        wire.setMatrixAt(i, d.matrix)
+      }
+      win.instanceMatrix.needsUpdate = true
+      wire.instanceMatrix.needsUpdate = true
+    }
+  })
+  return (
+    <group>
+      <instancedMesh ref={winRef} args={[geo, winMat, count]} frustumCulled={false} />
+      <instancedMesh ref={wireRef} args={[geo, wireMat, count]} frustumCulled={false} renderOrder={3} />
+    </group>
+  )
+})
+
+/* -------------------------------------------------------------- Sky dome */
+
+/**
+ * The finale sky. CinematicStage renders a "void" (flat dark clear color) —
+ * which left a dead-black slab above the skyline (QA: "sky ~80% black, no
+ * dawn"). This inverted gradient dome sits behind everything and is driven by
+ * the same city refs: storm indigo in P1, a pulsing blood-red corruption
+ * band as he wins the war on reality, then a warm dawn that breaks when he
+ * falls. Fog-immune, depth-write-off, drawn first — a pure backdrop, one
+ * draw call, uniforms updated once per frame.
+ */
+const FinaleSky = memo(function FinaleSky({ city }: { city: CityStateRefs }) {
+  const mat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        fog: false,
+        uniforms: {
+          uCorrupt: { value: 0 },
+          uDawn: { value: 0 },
+          uTime: { value: 0 },
+        },
+        vertexShader: `
+          varying vec3 vPos;
+          void main() {
+            vPos = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vPos;
+          uniform float uCorrupt;
+          uniform float uDawn;
+          uniform float uTime;
+          void main() {
+            float h = clamp(vPos.y / 180.0 * 0.5 + 0.5, 0.0, 1.0);
+            // P1 storm: deep indigo, lighter toward the horizon.
+            vec3 storm = mix(vec3(0.02,0.03,0.07), vec3(0.05,0.07,0.16), pow(h, 0.8));
+            // Corruption: near-black crown, blood-red horizon that pulses.
+            float pulse = 0.5 + 0.5 * sin(uTime * 3.0);
+            vec3 corr = mix(vec3(0.28,0.02,0.05) * (0.6 + 0.4 * pulse), vec3(0.03,0.0,0.02), pow(h, 0.55));
+            vec3 col = mix(storm, corr, uCorrupt);
+            // Dawn: warm horizon rising into cool morning blue.
+            vec3 dawn = mix(vec3(1.0,0.62,0.34), vec3(0.36,0.5,0.72), pow(h, 0.65));
+            col = mix(col, dawn, uDawn);
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `,
+      }),
+    [],
+  )
+  const geo = useMemo(() => new THREE.SphereGeometry(182, 32, 16), [])
+  useEffect(
+    () => () => {
+      mat.dispose()
+      geo.dispose()
+    },
+    [mat, geo],
+  )
+  useFrame((state) => {
+    mat.uniforms.uCorrupt.value = city.corrupt.current
+    mat.uniforms.uDawn.value = city.dawn.current
+    mat.uniforms.uTime.value = state.clock.elapsedTime
+  })
+  return <mesh geometry={geo} material={mat} frustumCulled={false} renderOrder={-100} />
+})
+
 /* ---------------------------------------------------------- Rooftop env */
 
-function ApexRooftop({ accent, tier, count }: { accent: string; tier: QualityTier; count: number }): JSX.Element {
-  // Instanced skyline towers receding into the fog below/around the deck. Kept
-  // within ~camera-far so distant rings are frustum/fog-culled, not overdrawn.
-  const towers = useMemo(() => {
-    const out: { x: number; z: number; w: number; h: number; d: number; lit: number }[] = []
-    for (let i = 0; i < count; i++) {
-      const ring = 1 + Math.floor(i / 20)
-      const a = (i * 2.399) % (Math.PI * 2)
-      const r = BOUND + 22 + ring * 20 + (i % 5) * 5
-      out.push({
-        x: Math.cos(a) * r,
-        z: Math.sin(a) * r,
-        w: 6 + (i % 4) * 3,
-        h: 30 + (i % 7) * 22,
-        d: 6 + (i % 3) * 3,
-        lit: (i % 3) / 3,
-      })
-    }
-    return out
-  }, [count])
-  const towerGeo = useMemo(() => new THREE.BoxGeometry(1, 1, 1), [])
-  const towerMat = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: '#0a0c16', emissive: new THREE.Color(accent), emissiveIntensity: 0.12, roughness: 0.7, metalness: 0.3 }),
-    [accent],
-  )
-  const towerRef = useRef<THREE.InstancedMesh>(null)
-  useEffect(() => {
-    const m = towerRef.current
-    if (!m) return
-    const d = new THREE.Object3D()
-    for (let i = 0; i < towers.length; i++) {
-      const tw = towers[i]
-      d.position.set(tw.x, tw.h / 2 - 36, tw.z)
-      d.scale.set(tw.w, tw.h, tw.d)
-      d.updateMatrix()
-      m.setMatrixAt(i, d.matrix)
-    }
-    m.instanceMatrix.needsUpdate = true
-  }, [towers])
-  useEffect(() => () => {
-    towerGeo.dispose()
-    towerMat.dispose()
-  }, [towerGeo, towerMat])
-
+function ApexRooftop({ accent, tier, count, city }: { accent: string; tier: QualityTier; count: number; city: CityStateRefs }): JSX.Element {
   return (
     <group>
       {/* Wet rooftop deck: real-time reflector on HIGH only; cheap glossy PBR
@@ -329,8 +612,10 @@ function ApexRooftop({ accent, tier, count }: { accent: string; tier: QualityTie
         )
       })}
 
-      {/* Skyline. */}
-      <instancedMesh ref={towerRef} args={[towerGeo, towerMat, count]} frustumCulled={false} />
+      {/* Skyline — the same lit-window night city the other arenas stage,
+          sunk below the rooftop deck… and wired into the finale: it corrupts
+          phase by phase and breaks into dawn when the Architect falls. */}
+      <CorruptibleSkyline count={count} innerRadius={BOUND + 36} baseY={-38} city={city} />
     </group>
   )
 }
@@ -387,34 +672,45 @@ interface SceneProps {
   accent: string
   dead: boolean
   frozen: boolean
+  /** Player HP hit 0 — drives the avatar's death collapse (presentation only). */
+  playerDefeated: boolean
   phaseRef: MutableRefObject<Phase>
   hitRef: MutableRefObject<number>
   attackRef: MutableRefObject<number>
   staggerRef: MutableRefObject<number>
   phaseBreakRef: MutableRefObject<number>
+  bossReadyRef: MutableRefObject<number>
+  onCurtainUp: () => void
   onBossHit: (amount: number) => void
+  onBossHeal: (amount: number) => void
   onPlayerHit: (amount: number) => void
   onBossAttack: () => void
   onTelegraph: (label: string | null, danger?: boolean) => void
+  onMechFlash: (label: string | null, danger?: boolean) => void
   onCombo: (n: number) => void
-  onParry: () => void
+  qaHooks: boolean
 }
 
 const ArchitectScene = memo(function ArchitectScene({
   accent,
   dead,
   frozen,
+  playerDefeated,
   phaseRef,
   hitRef,
   attackRef,
   staggerRef,
   phaseBreakRef,
+  bossReadyRef,
+  onCurtainUp,
   onBossHit,
+  onBossHeal,
   onPlayerHit,
   onBossAttack,
   onTelegraph,
+  onMechFlash,
   onCombo,
-  onParry,
+  qaHooks,
 }: SceneProps): JSX.Element {
   const { camera, gl } = useThree()
   const tier = useQuality()
@@ -438,6 +734,30 @@ const ArchitectScene = memo(function ArchitectScene({
 
   // Deck tilt (reality-rewrite).
   const deckTilt = useRef<THREE.Group>(null)
+
+  // ---- FINALE STATE (all imperative — zero re-renders mid-fight) ----
+  // Corruption eats the city as he loses; dawn takes it back when he dies.
+  const corruptRef = useRef(0)
+  const dawnRef = useRef(0)
+  const city = useRef<CityStateRefs>({ corrupt: corruptRef, dawn: dawnRef }).current
+  // The colossal sky projection (phase 2+): grows in behind the skyline and
+  // mirrors his every gesture. Group scale is animated imperatively.
+  const giantGrp = useRef<THREE.Group>(null)
+  const giantScale = useRef(0)
+  const giantAzimuth = useRef(Math.PI) // start upstage (behind the boss)
+  // Reality-glitch shockwave shells (wireframe cylinders bursting outward).
+  const glitchShells = useMemo(
+    () => Array.from({ length: 3 }, () => ({ active: false, t: 0 })),
+    [],
+  )
+  const glitchRefs = useRef<(THREE.Mesh | null)[]>([])
+  const glitchMats = useRef<(THREE.MeshBasicMaterial | null)[]>([])
+  const nextGlitchWave = useRef(6)
+  // Corrupted data rings that ignite across the deck as the city falls.
+  const deckRingMats = useRef<(THREE.MeshBasicMaterial | null)[]>([])
+  // Fog palette drift (mutates scene.fog — CinematicStage only sets initials).
+  const fogColor = useRef(new THREE.Color('#070a14'))
+  const fogTarget = useRef(new THREE.Color('#070a14'))
 
   // ---- Player ----
   const playerGroup = useRef<THREE.Group>(null)
@@ -463,16 +783,12 @@ const ArchitectScene = memo(function ArchitectScene({
   const comboIndex = useRef(0)
   const comboTimer = useRef(0)
 
-  const parryT = useRef(-100)
-  const parryCd = useRef(0)
-
   // Input edges.
   const holdFire = useRef(false)
   const reqSlice = useRef(false)
   const reqDash = useRef(false)
   const reqRoll = useRef(false)
   const reqJump = useRef(false)
-  const reqParry = useRef(false)
   const downSet = useRef<Set<string>>(new Set())
 
   // ---- Boss ----
@@ -495,24 +811,210 @@ const ArchitectScene = memo(function ArchitectScene({
   const atkT = useRef(0)
   const gapT = useRef(1.4)
   const lastName = useRef('')
-  const staggerTimer = useRef(0)
-  const heavyStruck = useRef(false)
   const blinkStruck = useRef(false)
   const prevPhase = useRef<Phase>(1)
   const markPts = useRef<{ x: number; z: number }[]>([])
   const tiltT = useRef(0)
+
+  // ---- Phase wards (twisted reprises of the realm mechanics) ----
+  const seals = useRef<TwinKeyState>(createTwinKeyState(ARCHITECT_SEALS))
+  const sigils = useRef<SphinxState | null>(null)
+  const mark = useRef<MarkState>(createMarkState())
+  const sealPosA = useRef(new THREE.Vector3())
+  const sealPosB = useRef(new THREE.Vector3())
+  const sealRefs = useRef<(THREE.Group | null)[]>([])
+  const sealMats = useRef<(THREE.MeshBasicMaterial | null)[]>([])
+  const sigilRefs = useRef<(THREE.Group | null)[]>([])
+  const sigilDiskMats = useRef<(THREE.MeshBasicMaterial | null)[]>([])
+  const sigilSpriteMats = useRef<(THREE.SpriteMaterial | null)[]>([])
+  const sigilTexes = useRef<(THREE.CanvasTexture | null)[]>([])
+  const markRingRef = useRef<THREE.Mesh>(null)
+  const markRingMat = useRef<THREE.MeshBasicMaterial>(null)
+  const markBeamRef = useRef<THREE.Mesh>(null)
+  const markBeamMat = useRef<THREE.MeshBasicMaterial>(null)
+  const sigilDwellIdx = useRef(-1)
+  const sigilDwellT = useRef(0)
+  const wardFlashHold = useRef(0)
+  const lastWardFlash = useRef<string | null>('')
+  const qaRec = useRef({
+    variant: -1,
+    open: false,
+    fire: true,
+    hold: false,
+    keys: [] as string[],
+    press: [] as string[],
+  })
+  useEffect(() => {
+    const texes = sigilTexes.current
+    return () => {
+      for (const tx of texes) tx?.dispose()
+    }
+  }, [])
+  const refreshSigilGlyphs = useCallback(() => {
+    const s = sigils.current
+    if (!s) return
+    for (let i = 0; i < s.tiles.length; i++) {
+      const mat = sigilSpriteMats.current[i]
+      if (!mat) continue
+      const tex = makeSigilTexture(String(s.tiles[i].value), WARD_HOT)
+      sigilTexes.current[i]?.dispose()
+      sigilTexes.current[i] = tex
+      mat.map = tex
+      mat.needsUpdate = true
+    }
+  }, [])
+
+  /** Is the current phase's ward broken right now (full damage window)? */
+  function wardBroken(phase: Phase): boolean {
+    // P1 has no ward — the boss takes full damage the whole opening phase.
+    if (phase === 1) return true
+    if (phase === 2) return seals.current.windowT > 0
+    if (phase === 3) return (sigils.current?.windowT ?? 0) > 0
+    if (phase === 4) return mark.current.windowT > 0
+    return false
+  }
+
+  /** Push a transient ward flash only when the text changes. */
+  function wardFlash(label: string | null, danger = false, hold = 0) {
+    if (label === lastWardFlash.current) return
+    lastWardFlash.current = label
+    onMechFlash(label, danger)
+    if (hold > 0) wardFlashHold.current = hold
+  }
+
+  /** Route ward-mechanic events into damage/heals/VFX/prompts. */
+  function applyWardEvents(events: readonly MechEvent[]) {
+    if (events.length === 0) return
+    const dir = dirRef.current
+    for (const e of events) {
+      switch (e.type) {
+        case 'open':
+          if (shockFx.current) {
+            shockFx.current.fire(
+              tmpDir.current.set(bossPos.current.x, 0.05, bossPos.current.z),
+              7,
+              WARD_GOOD,
+            )
+          }
+          if (sparks.current) {
+            sparks.current.burst(
+              tmpTip.current.set(bossPos.current.x, 2, bossPos.current.z),
+              WARD_GOOD,
+              22,
+            )
+          }
+          hitRef.current += 1
+          dir?.shake(0.35)
+          wardFlash('WARD BROKEN — UNLOAD!', false, 1.2)
+          sfx.parry()
+          break
+        case 'close':
+          wardFlash(null)
+          break
+        case 'heal':
+          if (e.amount > 0) {
+            onBossHeal(e.amount)
+            if (sparks.current) {
+              sparks.current.burst(
+                tmpTip.current.set(bossPos.current.x, 2.2, bossPos.current.z),
+                WARD_BAD,
+                14,
+              )
+            }
+          } else {
+            // The returned Deletion Mark detonates ON HIM — raw, ungated damage.
+            onBossHit(-e.amount)
+            hitRef.current += 1
+            if (dir) {
+              dir.shake(0.55)
+              dir.punch(0.6)
+            }
+            if (shockFx.current) {
+              shockFx.current.fire(
+                tmpDir.current.set(bossPos.current.x, 0.05, bossPos.current.z),
+                9,
+                WARD_BAD,
+              )
+            }
+            sfx.boom()
+          }
+          break
+        case 'zap':
+          if (!invuln.current) onPlayerHit(e.amount)
+          if (dir) {
+            dir.shake(0.3)
+            dir.punch(0.45)
+          }
+          break
+        case 'shuffle':
+          if (phaseRef.current === 2) {
+            wardFlash(
+              seals.current.phase === 'second'
+                ? '◆ NOW THE OTHER SEAL — CROSS HIM! ◆'
+                : 'A SEAL IGNITES — MELEE IT!',
+              true,
+              1.6,
+            )
+            sfx.warn()
+          } else if (phaseRef.current === 3) {
+            refreshSigilGlyphs()
+          } else if (phaseRef.current === 4) {
+            wardFlash('◆ YOU ARE MARKED — DASH THROUGH HIM ◆', true, 2.2)
+            sfx.warn()
+          }
+          break
+        case 'progress':
+          if (sparks.current) {
+            sparks.current.burst(
+              tmpTip.current.set(pos.current.x, 1.4, pos.current.z),
+              WARD_GOOD,
+              8,
+            )
+          }
+          sfx.slash()
+          break
+        case 'mistake':
+          if (e.reason === 'link-broken') wardFlash('TOO SLOW — THE SEALS RESET, HE FEEDS', true, 1.8)
+          else if (e.reason === 'wrong-lock') wardFlash('WRONG SEAL — THE IGNITED ONE FIRST. HE FEEDS', true, 1.8)
+          else if (e.reason === 'too-early') wardFlash('THE SECOND SEAL STILL CHARGES — HE FEEDS', true, 1.8)
+          else if (e.reason === 'wrong-order') wardFlash('WRONG SIGIL — LOWEST FIRST. HE FEEDS', true, 1.8)
+          else if (e.reason === 'timeout') wardFlash('SIGILS RESHUFFLED — FASTER', true, 1.6)
+          else if (e.reason === 'mark-detonated') wardFlash('THE MARK CONSUMED YOU', true, 1.8)
+          dirRef.current?.shake(0.2)
+          break
+      }
+    }
+  }
 
   // Juice.
   const hitStop = useRef(0)
   const cutsceneT = useRef(0)
   const slowmoUntil = useRef(0)
 
+  // Entrance beat: hero-shot sweep on the Architect (sim parked). Held
+  // behind the black curtain until the real rig mounts (2.2s cap).
+  const introT = useRef(0)
+  const holdT = useRef(0)
+  const curtainCalled = useRef(false)
+  const introSnapped = useRef(false)
+  const introRoared = useRef(false)
+
   const enabledRef = useRef(true)
   enabledRef.current = !frozen
   const keys = useKeys(enabledRef)
 
   // Pools.
-  const bolts = useMemo<Bolt[]>(() => Array.from({ length: BOLT_POOL }, () => ({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0 })), [])
+  const bolts = useMemo<Bolt[]>(
+    () =>
+      Array.from({ length: BOLT_POOL }, () => ({
+        active: false,
+        pos: new THREE.Vector3(),
+        vel: new THREE.Vector3(),
+        life: 0,
+        damage: WEAPON.damage,
+      })),
+    [],
+  )
   const orbs = useMemo<Orb[]>(() => Array.from({ length: ORB_POOL }, () => ({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), life: 0, mode: 0 as const, lock: 0 })), [])
   const debris = useMemo<Debris[]>(() => Array.from({ length: DEBRIS_POOL }, () => ({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0 })), [])
   const afters = useMemo<After[]>(() => Array.from({ length: AFTER_POOL }, () => ({ active: false, pos: new THREE.Vector3(), life: 0 })), [])
@@ -522,7 +1024,8 @@ const ArchitectScene = memo(function ArchitectScene({
   const band = useRef<Band>({ active: false, z: 0, dir: 1, speed: 10, gapX: 0, gapHalf: 2.2, struck: false, kind: 'wall' })
 
   const boltsMesh = useRef<THREE.InstancedMesh>(null)
-  const orbsMesh = useRef<THREE.InstancedMesh>(null)
+  const orbFx = useRef<EnemyProjectilesHandle>(null)
+  const impactFx = useRef<ImpactFlashesHandle>(null)
   const debrisMesh = useRef<THREE.InstancedMesh>(null)
   const afterMesh = useRef<THREE.InstancedMesh>(null)
   const lboltRefs = useRef<(THREE.Mesh | null)[]>([])
@@ -547,18 +1050,16 @@ const ArchitectScene = memo(function ArchitectScene({
   // Instanced geo/mat.
   const boltGeo = useMemo(() => new THREE.SphereGeometry(0.16, 8, 8), [])
   const boltMat = useMemo(() => new THREE.MeshBasicMaterial({ color: accent, toneMapped: false, fog: false }), [accent])
-  const orbGeo = useMemo(() => new THREE.OctahedronGeometry(0.32, 0), [])
-  const orbMat = useMemo(() => new THREE.MeshBasicMaterial({ color: GLYPH, toneMapped: false, fog: false }), [])
   const debrisGeo = useMemo(() => new THREE.DodecahedronGeometry(0.5, 0), [])
   const debrisMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#2a2e3c', roughness: 0.8, metalness: 0.3, flatShading: true }), [])
   const afterGeo = useMemo(() => new THREE.CapsuleGeometry(0.22, 0.9, 4, 8), [])
   const afterMat = useMemo(() => new THREE.MeshBasicMaterial({ color: accent, toneMapped: false, fog: false, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }), [accent])
   useEffect(
     () => () => {
-      boltGeo.dispose(); boltMat.dispose(); orbGeo.dispose(); orbMat.dispose()
+      boltGeo.dispose(); boltMat.dispose()
       debrisGeo.dispose(); debrisMat.dispose(); afterGeo.dispose(); afterMat.dispose()
     },
-    [boltGeo, boltMat, orbGeo, orbMat, debrisGeo, debrisMat, afterGeo, afterMat],
+    [boltGeo, boltMat, debrisGeo, debrisMat, afterGeo, afterMat],
   )
 
   /* --- spawn helpers --- */
@@ -663,7 +1164,6 @@ const ArchitectScene = memo(function ArchitectScene({
       if (k === 'q' && fresh) reqSlice.current = true
       if (k === 'shift' && fresh) reqDash.current = true
       if (k === 'k' && fresh) reqRoll.current = true
-      if (k === 'l' && fresh) reqParry.current = true
       if ((k === ' ' || e.code === 'Space') && fresh) {
         reqJump.current = true
         e.preventDefault()
@@ -707,7 +1207,6 @@ const ArchitectScene = memo(function ArchitectScene({
       case 'blink': return [0.45, 0.55, 0.6]
       case 'shockwave': return [0.7, 0.3, 0.5]
       case 'glyphWall': return [0.9, 1.4, 0.5]
-      case 'heavy': return [0.7, ARCHITECT_HEAVY_DUR, 0.7]
       case 'rewrite': return [1.2, 2.0, 0.7]
       case 'ultimate': return [1.8, 1.6, 1.0]
       default: return [0.8, 0.5, 0.5]
@@ -721,17 +1220,17 @@ const ArchitectScene = memo(function ArchitectScene({
       case 'blink': return ['HE VANISHES — WATCH YOUR BACK', false]
       case 'shockwave': return ['FORCE WAVE — JUMP', false]
       case 'glyphWall': return ['GLYPH WALL — DASH THE GAP', false]
-      case 'heavy': return ['◆ FORCE-SLAM — PARRY (L) ◆', true]
       case 'rewrite': return ['◆ REALITY REWRITE — DASH THE SWEEP ◆', true]
       case 'ultimate': return ['◆◆ DELETION PROTOCOL — SURVIVE ◆◆', true]
       default: return ['', false]
     }
   }
   function chooseAttack(phase: Phase) {
-    const p1 = ['glyphFan', 'debris', 'shockwave', 'heavy']
-    const p2 = ['glyphFan', 'debris', 'shockwave', 'lightning', 'blink', 'glyphWall', 'heavy']
-    const p3 = ['glyphFan', 'debris', 'shockwave', 'lightning', 'blink', 'glyphWall', 'heavy', 'rewrite']
-    const p4 = ['glyphFan', 'debris', 'lightning', 'blink', 'glyphWall', 'heavy', 'rewrite', 'ultimate']
+    // P1 is the open phase — no ward, so it's a straight dodge-and-punish mix.
+    const p1 = ['glyphFan', 'debris', 'shockwave']
+    const p2 = ['glyphFan', 'debris', 'shockwave', 'lightning', 'blink', 'glyphWall']
+    const p3 = ['glyphFan', 'debris', 'shockwave', 'lightning', 'blink', 'glyphWall', 'rewrite']
+    const p4 = ['glyphFan', 'debris', 'lightning', 'blink', 'glyphWall', 'rewrite', 'ultimate']
     const list = phase === 1 ? p1 : phase === 2 ? p2 : phase === 3 ? p3 : p4
     let name = list[Math.floor(Math.random() * list.length)]
     if (name === lastName.current) name = list[Math.floor(Math.random() * list.length)]
@@ -739,7 +1238,6 @@ const ArchitectScene = memo(function ArchitectScene({
     atkName.current = name
     atkState.current = 'tele'
     atkT.current = 0
-    heavyStruck.current = false
     blinkStruck.current = false
     const [lab, danger] = telegraphLabel(name)
     onTelegraph(lab, danger)
@@ -782,8 +1280,6 @@ const ArchitectScene = memo(function ArchitectScene({
       band.current.gapX = 0
       band.current.struck = false
       tiltT.current = durs('rewrite')[0] + durs('rewrite')[1]
-    } else if (name === 'heavy') {
-      if (decals.current) decals.current.show(tmpDir.current.set(pos.current.x, 0.05, pos.current.z), 3.0, HOT, durs('heavy')[0])
     } else if (name === 'blink') {
       // Reposition behind the player at the END of the telegraph (in execute).
     }
@@ -801,6 +1297,8 @@ const ArchitectScene = memo(function ArchitectScene({
         // Slow drift first; homing lock fires them after ~0.6s.
         spawnOrb(bossPos.current.x, bossPos.current.y + 1.5, bossPos.current.z, Math.sin(ang) * 3, 0, Math.cos(ang) * 3, 0, 0.6)
       }
+      // Muzzle flare — the fan visibly LEAVES the Architect's core.
+      impactFx.current?.spawn(bossPos.current.x, bossPos.current.y + 1.5, bossPos.current.z, GLYPH, 1.1, 4)
       // Echo-clones loose their own fans, so volleys come from several directions.
       const cc = cloneCountFor(phase)
       if (cc >= 1) emitCloneFan(cloneAPos.current, phase)
@@ -849,41 +1347,16 @@ const ArchitectScene = memo(function ArchitectScene({
       sfx.boom()
       sfx.thunder()
     }
-    // 'glyphWall','rewrite','heavy' resolve via per-frame updates.
+    // 'glyphWall','rewrite' resolve via per-frame updates.
   }
 
-  function activeAttack(_phase: Phase, parryActive: boolean) {
+  function activeAttack(_phase: Phase) {
     const name = atkName.current
     const dir = dirRef.current
-    if (name === 'heavy' && !heavyStruck.current) {
-      const connectAt = durs('heavy')[1] * 0.45
-      if (atkT.current >= connectAt) {
-        heavyStruck.current = true
-        const pd = Math.hypot(pos.current.x - bossPos.current.x, pos.current.z - bossPos.current.z)
-        const inReach = pd < 5.5
-        if (parryActive && inReach) {
-          staggerTimer.current = STAGGER_TIME
-          staggerRef.current += 1
-          slowmoUntil.current = performance.now() + 850
-          if (dir) {
-            dir.punch(1.0)
-            dir.shake(0.5)
-          }
-          if (sparks.current) sparks.current.burst(tmpDir.current.set(pos.current.x, 1.4, pos.current.z), '#ffffff', 28)
-          onTelegraph(null)
-          onParry()
-          sfx.parry()
-        } else {
-          fireDShock(bossPos.current.x, bossPos.current.z, 6)
-          if (dir) dir.shake(0.28)
-          sfx.boom()
-          if (inReach && !invuln.current && pos.current.y < 1.4) onPlayerHit(2)
-        }
-      }
-    } else if (name === 'blink' && !blinkStruck.current) {
+    if (name === 'blink' && !blinkStruck.current) {
       if (atkT.current >= 0.3) {
         blinkStruck.current = true
-        if (vexAnimRef.current !== 'stagger') vexAnimRef.current = 'heavy'
+        vexAnimRef.current = 'heavy'
         fireDShock(bossPos.current.x, bossPos.current.z, 3.5)
         const pd = Math.hypot(pos.current.x - bossPos.current.x, pos.current.z - bossPos.current.z)
         if (pd < 3 && !invuln.current) onPlayerHit(2)
@@ -901,16 +1374,29 @@ const ArchitectScene = memo(function ArchitectScene({
     if (dir) dir.attach(camera)
     const now = performance.now()
 
+    // Entrance beat parks the whole sim while the camera sweeps the boss.
+    // The beat itself waits behind the curtain until the rig is resident.
+    const bossReady = bossReadyRef.current > 0 || holdT.current >= 2.2
+    if (!bossReady) holdT.current += realDt
+    else if (introT.current < INTRO_DUR) introT.current += realDt
+    if (bossReady && !curtainCalled.current) {
+      curtainCalled.current = true
+      onCurtainUp()
+    }
+    const intro = introT.current < INTRO_DUR
+
     const slow = now < slowmoUntil.current
     if (dir) dir.setTimeScale(slow ? 0.32 : 1)
     hitStop.current = Math.max(0, hitStop.current - realDt)
     cutsceneT.current = Math.max(0, cutsceneT.current - realDt)
-    const simFrozen = frozen || hitStop.current > 0 || cutsceneT.current > 0
+    const simFrozen = frozen || intro || hitStop.current > 0 || cutsceneT.current > 0
     const dt = simFrozen ? 0 : (dir ? dir.scaledDelta(realDt) : realDt)
     const phase = phaseRef.current
     const k = simFrozen ? {} : keys.current
 
-    // Phase transition beat.
+    // Phase transition beat — the fight's music-video moment: sim freezes for
+    // the cutscene window, a glitch shell tears outward, the camera (below)
+    // punches in on him while the city corrupts another step.
     if (phase !== prevPhase.current) {
       if (phase > prevPhase.current) {
         cutsceneT.current = 0.85
@@ -919,18 +1405,306 @@ const ArchitectScene = memo(function ArchitectScene({
         phaseBreakRef.current += 1
         spawnSlabs(phase === 2 ? 2 : phase === 3 ? 3 : 4)
         triggerFlash(0.9)
+        const shell = glitchShells.find((q) => !q.active)
+        if (shell) {
+          shell.active = true
+          shell.t = 0
+        }
         if (dir) dir.shake(0.45)
         sfx.thunder()
+        // Arm the new phase's ward fresh (each phase is its own exam).
+        if (phase === 2) seals.current = createTwinKeyState(ARCHITECT_SEALS)
+        if (phase === 3) {
+          sigils.current = createSphinxState(Math.random, ARCHITECT_SIGILS)
+          refreshSigilGlyphs()
+        }
+        if (phase === 4) mark.current = createMarkState()
+        wardFlash(architectWardHint(phase), true, 3.2)
       }
       prevPhase.current = phase
     }
 
-    /* ---- ambient lightning ---- */
+    /* ---- PHASE WARDS: the twisted realm mechanics that gate his HP ---- */
+    if (!dead && !simFrozen) {
+      wardFlashHold.current = Math.max(0, wardFlashHold.current - dt)
+      // Transient flashes clear themselves once their hold runs out.
+      if (wardFlashHold.current <= 0 && lastWardFlash.current) wardFlash(null)
+      if (phase === 2) {
+        applyWardEvents(tickTwinKey(seals.current, dt))
+      } else if (phase === 3) {
+        const s = sigils.current
+        if (s) {
+          applyWardEvents(tickSphinx(s, dt))
+          if (s.windowT <= 0) {
+            // A sigil registers only while PLANTED (standing still, no
+            // action) — moving across any sigil is always safe, so a wrong
+            // registration is always a deliberate mistake, never a route
+            // accident (same exact-safety rule as the Sphinx).
+            const ti = sphinxTileAt(s, pos.current.x, pos.current.z)
+            const stationary =
+              !(
+                k['w'] || k['a'] || k['s'] || k['d'] ||
+                k['arrowup'] || k['arrowdown'] || k['arrowleft'] || k['arrowright']
+              ) && action.current === 'none'
+            if (ti !== sigilDwellIdx.current) {
+              sigilDwellIdx.current = ti
+              sigilDwellT.current = 0
+            } else if (ti >= 0 && stationary) {
+              sigilDwellT.current += dt
+              if (sigilDwellT.current >= 0.35) {
+                sigilDwellT.current = 0
+                sigilDwellIdx.current = -1
+                applyWardEvents(sphinxStep(s, ti))
+              }
+            }
+          }
+        }
+      } else if (phase === 4) {
+        applyWardEvents(tickMark(mark.current, dt))
+        // A dash that clips him returns the brand.
+        if (mark.current.phase === 'branded' && action.current === 'dash') {
+          const dm = Math.hypot(
+            pos.current.x - bossPos.current.x,
+            pos.current.z - bossPos.current.z,
+          )
+          const returned = markDashTransfer(mark.current, dm)
+          if (returned.length > 0) {
+            applyWardEvents(returned)
+            wardFlash('MARK RETURNED — BRACE!', false, 1.2)
+            if (sparks.current) {
+              sparks.current.burst(
+                tmpTip.current.set(bossPos.current.x, 2, bossPos.current.z),
+                WARD_BAD,
+                20,
+              )
+            }
+          }
+        }
+      }
+    }
+
+    /* ---- ward prop visuals (imperative; a handful of objects) ---- */
+    {
+      const showWard = !dead && !frozen && !intro
+      // Twin seals orbit him on opposite sides (phase 2, outside the window).
+      const sealsVisible = showWard && phase === 2 && seals.current.windowT <= 0
+      const sealAng = t * 0.55
+      for (let si = 0; si < 2; si++) {
+        const grp = sealRefs.current[si]
+        const mat = sealMats.current[si]
+        const p3 = si === 0 ? sealPosA.current : sealPosB.current
+        const a = sealAng + (si === 0 ? 0 : Math.PI)
+        p3.set(
+          bossPos.current.x + Math.cos(a) * 5.4,
+          1.6 + Math.sin(t * 2 + si * 1.3) * 0.2,
+          bossPos.current.z + Math.sin(a) * 5.4,
+        )
+        const rr3 = Math.hypot(p3.x, p3.z)
+        if (rr3 > BOUND - 1.5) {
+          p3.x *= (BOUND - 1.5) / rr3
+          p3.z *= (BOUND - 1.5) / rr3
+        }
+        if (!grp || !mat) continue
+        grp.visible = sealsVisible
+        if (!sealsVisible) continue
+        grp.position.copy(p3)
+        grp.rotation.y = t * 1.6
+        const st = seals.current
+        const mySide = si === 0 ? 'L' : 'R'
+        const isFirst = st.firstSide === mySide
+        if (st.phase === 'first' && isFirst) {
+          // The seal to melee NOW.
+          const pl = 1 + 0.2 * Math.sin(t * 13)
+          grp.scale.set(pl, pl, pl)
+          mat.opacity = 0.95
+          mat.color.set(WARD_HOT)
+        } else if (st.phase === 'charge' && !isFirst) {
+          const chargeP = 1 - st.t / st.cfg.chargeDelay
+          const sc = 0.75 + chargeP * 0.2
+          grp.scale.set(sc, sc, sc)
+          mat.opacity = 0.35 + chargeP * 0.45
+          mat.color.set('#ffffff')
+        } else if (st.phase === 'second' && !isFirst) {
+          const pl = 1 + 0.24 * Math.sin(t * 15)
+          grp.scale.set(pl, pl, pl)
+          mat.opacity = 1
+          mat.color.set('#ffffff')
+        } else if ((st.phase === 'charge' || st.phase === 'second') && isFirst) {
+          grp.scale.set(0.85, 0.85, 0.85)
+          mat.opacity = 0.6
+          mat.color.set(WARD_GOOD) // struck + locked in
+        } else {
+          grp.scale.set(0.7, 0.7, 0.7)
+          mat.opacity = 0.28
+          mat.color.set(GLYPH)
+        }
+      }
+      // Sorted sigils (phase 3, outside the window).
+      const sg = sigils.current
+      for (let ti2 = 0; ti2 < 4; ti2++) {
+        const grp = sigilRefs.current[ti2]
+        if (!grp) continue
+        const tile = sg?.tiles[ti2]
+        const vis = showWard && phase === 3 && !!sg && sg.windowT <= 0 && !!tile
+        grp.visible = vis
+        if (!vis || !tile || !sg) continue
+        grp.position.set(tile.x, 0, tile.z)
+        const dmat = sigilDiskMats.current[ti2]
+        const smat = sigilSpriteMats.current[ti2]
+        const urgency = sg.timer < 4 ? 9 : 3
+        if (dmat) {
+          if (tile.done) {
+            dmat.color.set(WARD_GOOD)
+            dmat.opacity = 0.4
+          } else {
+            dmat.color.set(WARD_HOT)
+            dmat.opacity = 0.18 + 0.12 * Math.sin(t * urgency + ti2)
+          }
+        }
+        if (smat) smat.opacity = tile.done ? 0.25 : 1
+      }
+      // Deletion Mark brand — a hot ring chasing the player's feet (phase 4).
+      const mr = markRingRef.current
+      const mm = markRingMat.current
+      const mb = markBeamRef.current
+      const mbm = markBeamMat.current
+      if (mr && mm && mb && mbm) {
+        const branded = showWard && phase === 4 && mark.current.phase === 'branded'
+        mr.visible = branded
+        mb.visible = branded
+        if (branded) {
+          const fuseFrac = Math.max(0, mark.current.t / MARK.fuse)
+          const pulse = 6 + (1 - fuseFrac) * 22
+          mr.position.set(pos.current.x, 0.08 + pos.current.y, pos.current.z)
+          mm.opacity = 0.55 + 0.4 * Math.sin(t * pulse)
+          const sc = 2.0 + fuseFrac * 0.8
+          mr.scale.set(sc, sc, sc)
+          // The column burns brighter as the fuse runs out.
+          mb.position.set(pos.current.x, 3.5 + pos.current.y, pos.current.z)
+          mbm.opacity = 0.16 + (1 - fuseFrac) * 0.3 + 0.06 * Math.sin(t * pulse)
+        }
+      }
+    }
+
+    /* ---- ambient lightning (escalates per phase; dies at dawn) ---- */
     nextAmbientBolt.current -= realDt
-    if (nextAmbientBolt.current <= 0) {
-      nextAmbientBolt.current = 4 + Math.random() * 5
-      triggerFlash(0.6 + Math.random() * 0.3)
+    if (nextAmbientBolt.current <= 0 && dawnRef.current < 0.3) {
+      // P1 a storm, P4 the sky tearing itself apart.
+      const gap =
+        phase === 1 ? 3.2 + Math.random() * 3 :
+        phase === 2 ? 2.4 + Math.random() * 2.4 :
+        phase === 3 ? 1.5 + Math.random() * 1.6 :
+        0.9 + Math.random() * 1.1
+      nextAmbientBolt.current = gap
+      triggerFlash(0.6 + Math.random() * 0.35 + (phase - 1) * 0.08)
       thunderDelay.current = 0.4 + Math.random() * 0.8
+    }
+
+    /* ---- FINALE DRIVERS: the city falls with him ---- */
+    {
+      // Corruption chases the phase (P1 0 → P4 1); dawn overrides on death.
+      const cTarget = dead ? 0 : (phase - 1) / 3
+      corruptRef.current += (cTarget - corruptRef.current) * Math.min(1, realDt * 0.8)
+      if (dead) dawnRef.current = Math.min(1, dawnRef.current + realDt / (ARCHITECT_DEATH_DUR * 0.9))
+      const c = corruptRef.current
+      const dawn = dawnRef.current
+
+      // Storm tint: white lightning → Null red; dawn washes it out entirely.
+      if (skyFlashMat.current) skyFlashMat.current.color.setRGB(0.9 + c * 0.1, 0.9 - c * 0.58, 1 - c * 0.62)
+      if (lightningLight.current) lightningLight.current.color.setRGB(0.9 + c * 0.1, 0.9 - c * 0.58, 1 - c * 0.62)
+
+      // Fog palette drift — deep storm blue → Null maroon → warm dawn.
+      fogTarget.current.set(
+        dawn > 0.02 ? '#4a3350' : phase === 1 ? '#070a14' : phase === 2 ? '#0c0a1a' : phase === 3 ? '#160a14' : '#1c0710',
+      )
+      fogColor.current.lerp(fogTarget.current, Math.min(1, realDt * 0.6))
+      const sceneFog = state.scene.fog as THREE.Fog | null
+      if (sceneFog) sceneFog.color.copy(fogColor.current)
+
+      // The sky projection: rises among the towers at phase 2, rages with
+      // him, dissolves at dawn. A fixed world position kept it out of frame
+      // for most camera azimuths (QA: "faint cropped smears") — instead it
+      // DRIFTS to stay in the camera's view direction, always looming on the
+      // horizon past the boss, and slowly enough to feel weightless.
+      const g = giantGrp.current
+      if (g) {
+        // Sized/pushed so the figure reads as a colossus WITHOUT covering
+        // half the frame — a scale-26 body at 95m was ~30° of overdraw from
+        // a skinned translucent mesh every frame and cost ~8ms (perf probe).
+        const target = dead ? 0 : phase >= 2 ? 26 : 0
+        giantScale.current += (target - giantScale.current) * Math.min(1, realDt * 0.7)
+        const s = giantScale.current
+        g.visible = s > 0.5
+        g.scale.setScalar(Math.max(0.001, s))
+        // Track the camera's view direction in ANGLE space on a fixed ring
+        // well past the deck — lerping raw XZ dragged the colossus straight
+        // THROUGH the arena whenever the camera swung (QA caught giant legs
+        // over the helipad). Orbiting the rim can never cross the deck.
+        camera.getWorldDirection(tmpDir.current)
+        tmpDir.current.y = 0
+        if (tmpDir.current.lengthSq() > 1e-6) {
+          const want = Math.atan2(tmpDir.current.x, tmpDir.current.z)
+          let delta = want - giantAzimuth.current
+          delta = ((delta + Math.PI) % (Math.PI * 2)) - Math.PI
+          if (delta < -Math.PI) delta += Math.PI * 2
+          // Near-locked to the view azimuth: the player strafes in circles
+          // constantly, and any real lag left the colossus perpetually
+          // half-cropped at the frame edge (two QA rounds). At 88m the
+          // residual smoothing still hides the tracking completely.
+          giantAzimuth.current += delta * Math.min(1, realDt * 4.5)
+          // Just past the deck edge, INSIDE the skyline ring: torso and head
+          // fill the upper frame and dwarf the towers behind him. At the
+          // skyline distance (124m) he shrank into "a guy on the horizon";
+          // head-cropping at this range reads as scale, not as a bug.
+          g.position.x = Math.sin(giantAzimuth.current) * 96
+          g.position.z = Math.cos(giantAzimuth.current) * 96
+        }
+        // Face the arena; breathe vertically.
+        g.rotation.y = Math.atan2(-g.position.x, -g.position.z) + Math.sin(t * 0.11) * 0.1
+        g.position.y = -4 + Math.sin(t * 0.4) * 1.4
+      }
+
+      // Deck data-rings ignite with corruption (pulse outward like the Null
+      // is streaming the rooftop).
+      for (let i = 0; i < deckRingMats.current.length; i++) {
+        const m = deckRingMats.current[i]
+        if (!m) continue
+        const p = (t * 0.55 + i / deckRingMats.current.length) % 1
+        m.opacity = c * (1 - dawn) * 0.4 * Math.sin(p * Math.PI)
+      }
+
+      // Reality-glitch shells: periodic in P3+, always on phase breaks.
+      nextGlitchWave.current -= realDt
+      if (!dead && phase >= 3 && nextGlitchWave.current <= 0) {
+        nextGlitchWave.current = phase >= 4 ? 4.5 + Math.random() * 3 : 7 + Math.random() * 4
+        const shell = glitchShells.find((q) => !q.active)
+        if (shell) {
+          shell.active = true
+          shell.t = 0
+        }
+      }
+      for (let i = 0; i < glitchShells.length; i++) {
+        const shell = glitchShells[i]
+        const mesh = glitchRefs.current[i]
+        const mat = glitchMats.current[i]
+        if (!mesh || !mat) continue
+        if (!shell.active) {
+          mesh.visible = false
+          continue
+        }
+        shell.t += realDt
+        const p = shell.t / 2.1
+        if (p >= 1) {
+          shell.active = false
+          mesh.visible = false
+          continue
+        }
+        mesh.visible = true
+        const r = 2 + p * 95
+        mesh.scale.set(r, 1 + p * 6, r)
+        mesh.position.set(bossPos.current.x, 5, bossPos.current.z)
+        mat.opacity = (1 - p) * 0.4 * Math.max(0.25, c)
+      }
     }
     if (thunderDelay.current != null) {
       thunderDelay.current -= realDt
@@ -966,7 +1740,6 @@ const ArchitectScene = memo(function ArchitectScene({
     rollCd.current -= dt
     cooldown.current -= dt
     comboTimer.current -= dt
-    parryCd.current -= dt
     invuln.current = false
 
     if (!simFrozen) {
@@ -999,14 +1772,6 @@ const ArchitectScene = memo(function ArchitectScene({
           sfx.dash()
         }
       }
-      if (reqParry.current) {
-        reqParry.current = false
-        if (parryCd.current <= 0) {
-          parryT.current = t
-          parryCd.current = PARRY_CD
-          sfx.slash()
-        }
-      }
       if (reqSlice.current) {
         reqSlice.current = false
         if (!sliceActive.current) {
@@ -1025,8 +1790,6 @@ const ArchitectScene = memo(function ArchitectScene({
       }
     }
 
-    const parryActive = t - parryT.current < PARRY_WINDOW
-
     // Slice swing + melee contact.
     if (sliceActive.current) {
       sliceT.current += dt
@@ -1041,14 +1804,33 @@ const ArchitectScene = memo(function ArchitectScene({
         playerTrail.current.setTip(tmpTip.current)
       }
       if (!sliceHit.current && sliceT.current >= 0.09 && sliceT.current <= 0.22) {
+        // Phase-2 ward: a slice that reaches a twin seal strikes IT instead.
+        // Only an engaged sequence consumes the swing — idle whiffs near a
+        // dormant seal still carry through to the boss.
+        if (phase === 2 && !dead && seals.current.windowT <= 0 && seals.current.phase !== 'idle') {
+          for (let si = 0; si < 2; si++) {
+            const sp = si === 0 ? sealPosA.current : sealPosB.current
+            const sd = Math.hypot(sp.x - pos.current.x, sp.z - pos.current.z)
+            if (sd < 2.6) {
+              sliceHit.current = true
+              applyWardEvents(twinStrike(seals.current, si === 0 ? 'L' : 'R'))
+              if (sparks.current) sparks.current.burst(tmpTip.current.copy(sp), WARD_HOT, 12)
+              sfx.hit()
+              break
+            }
+          }
+        }
         const dx = bossPos.current.x - pos.current.x
         const dz = bossPos.current.z - pos.current.z
         const hdist = Math.hypot(dx, dz)
-        if (hdist < MELEE_RANGE && !dead) {
+        if (!sliceHit.current && hdist < MELEE_RANGE && !dead) {
           sliceHit.current = true
           const finisher = comboIndex.current === 2
           let dmg = MELEE_DMG[comboIndex.current]
-          if (staggerTimer.current > 0) dmg = Math.round(dmg * 1.8)
+          // The phase ward soaks everything outside a broken window (kept
+          // fractional — a min-1 floor made mindless melee spam a faster kill
+          // than the actual mechanics).
+          if (!wardBroken(phase)) dmg = dmg * WARD_CHIP_MUL
           onBossHit(dmg)
           hitRef.current += 1
           hitStop.current = finisher ? 0.1 : 0.07
@@ -1124,7 +1906,12 @@ const ArchitectScene = memo(function ArchitectScene({
       pos.current.z *= BOUND / rr
     }
 
-    if (sliceActive.current || action.current === 'dash') playerAnimRef.current = 'dash'
+    // Player defeat: the collapse is TOP priority — once hearts hit zero the
+    // avatar timbers and holds prone (the rig clamps 'death'), overriding any
+    // slice/dash/jump/move pose. Cleared on retry when the arena remounts with
+    // full hearts (playerAnimRef starts 'idle' on a fresh mount).
+    if (playerDefeated) playerAnimRef.current = 'death'
+    else if (sliceActive.current || action.current === 'dash') playerAnimRef.current = 'dash'
     else if (!grounded.current || action.current === 'roll') playerAnimRef.current = 'jump'
     else playerAnimRef.current = moving ? 'run' : 'idle'
 
@@ -1143,8 +1930,7 @@ const ArchitectScene = memo(function ArchitectScene({
       const distP = tmpDir.current.length() || 1
       tmpDir.current.normalize()
       const attacking = atkState.current === 'tele' || atkState.current === 'active'
-      const staggered = staggerTimer.current > 0
-      if (!attacking && !staggered) {
+      if (!attacking) {
         let approach = 0
         if (distP > 10) approach = 1
         else if (distP < 6) approach = -1
@@ -1164,8 +1950,7 @@ const ArchitectScene = memo(function ArchitectScene({
       dbh = Math.atan2(Math.sin(dbh), Math.cos(dbh))
       bossHeading.current += dbh * 0.18
 
-      if (staggered) vexAnimRef.current = 'stagger'
-      else if (atkName.current === 'heavy' && attacking) vexAnimRef.current = 'heavy'
+      if (intro) vexAnimRef.current = 'cast' // entrance channel pose
       else if (atkName.current === 'blink' && attacking) vexAnimRef.current = 'blink'
       else if (attacking) vexAnimRef.current = 'cast'
       else vexAnimRef.current = moving ? 'stride' : 'idle'
@@ -1199,11 +1984,52 @@ const ArchitectScene = memo(function ArchitectScene({
     if (tmpFwd.current.lengthSq() < 1e-6) tmpFwd.current.set(0, 0, 1)
     tmpFwd.current.normalize()
     tmpRight.current.set(-tmpFwd.current.z, 0, tmpFwd.current.x)
-    if (dead) {
+    if (intro && !dead) {
+      // Entrance hero shot: swing low around the Architect against the storm,
+      // then rise + pull back to the gameplay framing as the beat ends.
+      const p = THREE.MathUtils.clamp(introT.current / INTRO_DUR, 0, 1)
+      const ease = p * p * (3 - 2 * p)
+      const ang = Math.atan2(pos.current.x - bossPos.current.x, pos.current.z - bossPos.current.z)
+      const sweep = ang + (1 - ease) * 1.2 - 0.3
+      const dist = 4.6 + ease * 10.8
+      const h = 1.5 + ease * (CAM_HEIGHT - 1.5)
+      tmpFrom.current.set(
+        bossPos.current.x + Math.sin(sweep) * dist,
+        h,
+        bossPos.current.z + Math.cos(sweep) * dist,
+      )
+      tmpLook.current.set(bossPos.current.x, 1.8 + (1 - ease) * 0.4, bossPos.current.z)
+      if (!introSnapped.current) {
+        introSnapped.current = true
+        camera.position.copy(tmpFrom.current)
+      }
+      if (!introRoared.current && introT.current > INTRO_DUR * 0.42) {
+        introRoared.current = true
+        if (dir) dir.shake(0.5)
+        triggerFlash(1.0)
+        sfx.thunder()
+      }
+      if (dir) dir.frame(tmpLook.current, tmpFrom.current, realDt)
+    } else if (dead) {
       const e = state.clock.elapsedTime
       const orbit = e * 0.7
       tmpFrom.current.set(bossPos.current.x + Math.cos(orbit) * 9, 4.8, bossPos.current.z + Math.sin(orbit) * 9)
       tmpLook.current.set(bossPos.current.x, 1.6, bossPos.current.z)
+      if (dir) dir.frame(tmpLook.current, tmpFrom.current, realDt)
+    } else if (cutsceneT.current > 0) {
+      // Phase-break beat: fast low push-in on the Architect (sim is frozen
+      // for exactly this window) with the corrupting city behind him.
+      tmpDir.current.set(pos.current.x - bossPos.current.x, 0, pos.current.z - bossPos.current.z)
+      if (tmpDir.current.lengthSq() < 1e-6) tmpDir.current.set(0, 0, 1)
+      tmpDir.current.normalize()
+      const push = 1 - cutsceneT.current / 0.85 // 0 → 1 over the beat
+      const d = 6.2 - push * 2.1
+      tmpFrom.current.set(
+        bossPos.current.x + tmpDir.current.x * d - tmpDir.current.z * 1.4,
+        1.3 + push * 0.5,
+        bossPos.current.z + tmpDir.current.z * d + tmpDir.current.x * 1.4,
+      )
+      tmpLook.current.set(bossPos.current.x, 2.1, bossPos.current.z)
       if (dir) dir.frame(tmpLook.current, tmpFrom.current, realDt)
     } else {
       let tx = pos.current.x - tmpFwd.current.x * CAM_BACK + tmpRight.current.x * CAM_SIDE
@@ -1222,13 +2048,39 @@ const ArchitectScene = memo(function ArchitectScene({
     /* ---- player shooting ---- */
     if (holdFire.current && !simFrozen && cooldown.current <= 0) {
       cooldown.current = BOLT_CD
-      const b = bolts.find((x) => !x.active)
-      if (b) {
+      const muzzleX = pos.current.x + tmpFwd.current.x * 0.7
+      const muzzleY = 1.2 + pos.current.y
+      const muzzleZ = pos.current.z + tmpFwd.current.z * 0.7
+      tmpDir.current
+        .set(
+          bossPos.current.x - muzzleX,
+          bossPos.current.y + 1.5 - muzzleY,
+          bossPos.current.z - muzzleZ,
+        )
+        .normalize()
+      const horiz = Math.hypot(tmpDir.current.x, tmpDir.current.z) || 1
+      const baseAng = Math.atan2(tmpDir.current.x, tmpDir.current.z)
+      let fired = false
+      for (let pellet = 0; pellet < WEAPON.pellets; pellet++) {
+        const b = bolts.find((x) => !x.active)
+        if (!b) break
         b.active = true
         b.life = BOLT_LIFE
-        b.pos.set(pos.current.x + tmpFwd.current.x * 0.7, 1.2 + pos.current.y, pos.current.z + tmpFwd.current.z * 0.7)
-        tmpDir.current.set(bossPos.current.x - b.pos.x, bossPos.current.y + 1.5 - b.pos.y, bossPos.current.z - b.pos.z).normalize()
-        b.vel.copy(tmpDir.current).multiplyScalar(BOLT_SPEED)
+        b.damage = WEAPON.damage
+        b.pos.set(muzzleX, muzzleY, muzzleZ)
+        const ang =
+          baseAng + weaponPelletYaw(pellet, Math.random(), WEAPON)
+        b.vel
+          .set(
+            Math.sin(ang) * horiz,
+            tmpDir.current.y,
+            Math.cos(ang) * horiz,
+          )
+          .normalize()
+          .multiplyScalar(BOLT_SPEED)
+        fired = true
+      }
+      if (fired) {
         fireRef.current = t
         playShot()
       }
@@ -1243,10 +2095,6 @@ const ArchitectScene = memo(function ArchitectScene({
           hideInstance(m, i)
           continue
         }
-        if (!dead) {
-          tmpDir.current.set(bossPos.current.x - b.pos.x, bossPos.current.y + 1.5 - b.pos.y, bossPos.current.z - b.pos.z).normalize()
-          b.vel.lerp(tmpDir.current.multiplyScalar(BOLT_SPEED), 0.08)
-        }
         b.pos.addScaledVector(b.vel, dt)
         b.life -= dt
         let consumed = false
@@ -1254,8 +2102,9 @@ const ArchitectScene = memo(function ArchitectScene({
           const d = Math.hypot(b.pos.x - bossPos.current.x, b.pos.y - (bossPos.current.y + 1.5), b.pos.z - bossPos.current.z)
           if (d < BOLT_HIT_R) {
             consumed = true
-            let dmg = BOLT_DMG
-            if (staggerTimer.current > 0) dmg = 2
+            let dmg = b.damage * BOSS_BOLT_DAMAGE_SCALE
+            // The phase ward soaks ranged chip outside broken windows too.
+            if (!wardBroken(phaseRef.current)) dmg *= WARD_CHIP_MUL
             onBossHit(dmg)
             hitRef.current += 1
             if (sparks.current) sparks.current.burst(b.pos, accent, 5)
@@ -1276,9 +2125,7 @@ const ArchitectScene = memo(function ArchitectScene({
     }
 
     /* ---- boss AI ---- */
-    if (staggerTimer.current > 0) {
-      staggerTimer.current -= dt
-    } else if (!dead && !simFrozen) {
+    if (!dead && !simFrozen) {
       switch (atkState.current) {
         case 'gap': {
           gapT.current -= dt
@@ -1297,7 +2144,7 @@ const ArchitectScene = memo(function ArchitectScene({
         }
         case 'active': {
           atkT.current += dt
-          activeAttack(phase, parryActive)
+          activeAttack(phase)
           if (atkT.current >= durs(atkName.current)[1]) {
             atkState.current = 'recover'
             atkT.current = 0
@@ -1317,13 +2164,14 @@ const ArchitectScene = memo(function ArchitectScene({
     }
 
     /* ---- orbs (glyph-blades) ---- */
-    if (orbsMesh.current) {
-      const m = orbsMesh.current
+    {
+      const fx = orbFx.current
       const homeSpeed = phase <= 2 ? 14 : 18
+      fx?.begin(camera.quaternion)
       for (let i = 0; i < orbs.length; i++) {
         const o = orbs[i]
         if (!o.active) {
-          hideInstance(m, i)
+          fx?.hide(i)
           continue
         }
         if (o.mode === 0 && !simFrozen) {
@@ -1344,20 +2192,17 @@ const ArchitectScene = memo(function ArchitectScene({
         if (!simFrozen && !invuln.current && d < PLAYER_HIT_R) {
           gone = true
           onPlayerHit(1)
+          impactFx.current?.spawn(o.pos.x, o.pos.y, o.pos.z, GLYPH, 1.3, 8)
           if (dir) dir.shake(0.16)
         }
         if (gone || o.life <= 0) {
           o.active = false
-          hideInstance(m, i)
+          fx?.hide(i)
           continue
         }
-        dObj.current.position.copy(o.pos)
-        dObj.current.scale.setScalar(o.mode === 0 && o.lock > 0 ? 1.2 : 1)
-        dObj.current.rotation.set(t * 3, t * 4, t * 2)
-        dObj.current.updateMatrix()
-        m.setMatrixAt(i, dObj.current.matrix)
+        fx?.set(i, o.pos, o.vel.x, o.vel.y, o.vel.z, t)
       }
-      m.instanceMatrix.needsUpdate = true
+      fx?.commit()
     }
 
     /* ---- debris ---- */
@@ -1497,6 +2342,9 @@ const ArchitectScene = memo(function ArchitectScene({
       const s = slabs[i]
       const mesh = slabRefs.current[i]
       if (!mesh) continue
+      // Clear the stage for the kill cam — a drifting slab parked in front of
+      // the death orbit blocked the payoff shot for most of a rotation (QA).
+      if (dead && s.active) s.active = false
       if (!s.active) {
         mesh.visible = false
         continue
@@ -1506,10 +2354,14 @@ const ArchitectScene = memo(function ArchitectScene({
       s.rot.x += s.spin.x * dt
       s.rot.y += s.spin.y * dt
       s.rot.z += s.spin.z * dt
-      mesh.visible = true
       mesh.position.copy(s.pos)
       mesh.rotation.copy(s.rot)
-      if (s.pos.y > 14 || s.pos.y < -4) {
+      // Camera-occlusion cull: a slab crossing the lens blacked out the whole
+      // frame mid-combat (QA) — background flavor never gets to do that.
+      mesh.visible = mesh.position.distanceToSquared(camera.position) > 42
+      // Cap the hover low — slabs drifting to the roofline read as floating
+      // black boxes against the sky (QA).
+      if (s.pos.y > 8 || s.pos.y < -4) {
         s.active = false
         mesh.visible = false
       }
@@ -1539,20 +2391,161 @@ const ArchitectScene = memo(function ArchitectScene({
       m.instanceMatrix.needsUpdate = true
       afterMat.opacity = 0.5
     }
+
+    /* ---- QA autopilot hook (probe-only; the app never sets qaHooks) ---- */
+    if (qaHooks) {
+      const rec = qaRec.current
+      rec.open = wardBroken(phase)
+      rec.fire = true
+      rec.hold = false
+      rec.keys.length = 0
+      rec.press.length = 0
+      let tX: number | null = null
+      let tZ: number | null = null
+      if (!dead && !simFrozen) {
+        if (
+          phase === 2 &&
+          seals.current.windowT <= 0 &&
+          seals.current.phase !== 'idle'
+        ) {
+          // Route to the seal that must be struck NOW (first, then its twin).
+          const st = seals.current
+          const wantFirst = st.phase === 'first'
+          const wantL = wantFirst ? st.firstSide === 'L' : st.firstSide !== 'L'
+          const sp = wantL ? sealPosA.current : sealPosB.current
+          tX = sp.x
+          tZ = sp.z
+          const sd = Math.hypot(pos.current.x - sp.x, pos.current.z - sp.z)
+          if (sd < 2.4 && st.phase !== 'charge') rec.press.push('q')
+          else if (sd > 6.5) rec.press.push('shift')
+        } else if (phase === 3 && sigils.current && sigils.current.windowT <= 0) {
+          const s = sigils.current
+          const next = sphinxNextValue(s)
+          const tile = s.tiles.find((q) => !q.done && q.value === next)
+          if (tile) {
+            // Anywhere ON the sigil is a valid plant spot — stop there.
+            const don = Math.hypot(pos.current.x - tile.x, pos.current.z - tile.z)
+            if (don <= ARCHITECT_SIGILS.tileRadius * 0.75) {
+              rec.hold = true
+            } else {
+              tX = tile.x
+              tZ = tile.z
+            }
+          }
+        } else if (phase === 4 && mark.current.phase === 'branded') {
+          tX = bossPos.current.x
+          tZ = bossPos.current.z
+          const dm = Math.hypot(
+            pos.current.x - bossPos.current.x,
+            pos.current.z - bossPos.current.z,
+          )
+          if (dm < 8 && dashCd.current <= 0) rec.press.push('shift')
+        }
+      }
+      if (tX !== null && tZ !== null) {
+        const ddx = tX - pos.current.x
+        const ddz = tZ - pos.current.z
+        const fAmt = ddx * tmpFwd.current.x + ddz * tmpFwd.current.z
+        const sAmt = ddx * tmpRight.current.x + ddz * tmpRight.current.z
+        if (fAmt > 1.0) rec.keys.push('w')
+        else if (fAmt < -1.0) rec.keys.push('s')
+        if (sAmt > 1.0) rec.keys.push('d')
+        else if (sAmt < -1.0) rec.keys.push('a')
+        // On target: PLANT (the sigils register only while standing still).
+        rec.hold = rec.hold || rec.keys.length === 0
+      }
+      ;(window as unknown as { __mechQA?: unknown }).__mechQA = rec
+    }
   })
 
   return (
     <group>
       {/* Storm flash light + sky flash plane. */}
       <directionalLight ref={lightningLight} position={[6, 30, 10]} color={LIGHTNING} intensity={0} />
-      <mesh ref={skyFlash} position={[0, 40, -60]} frustumCulled={false}>
-        <planeGeometry args={[400, 200]} />
+      {/* Far outside the fog line and big enough that its edges can never
+          enter the frame — at 400×200/z-60 it read as a floating glass sheet
+          whenever a flash caught the camera at an angle. */}
+      <mesh ref={skyFlash} position={[0, 70, -150]} frustumCulled={false}>
+        <planeGeometry args={[1400, 700]} />
         <meshBasicMaterial ref={skyFlashMat} color={LIGHTNING} transparent opacity={0} toneMapped={false} depthWrite={false} fog={false} side={THREE.DoubleSide} />
       </mesh>
 
+      {/* Phase-tinted gradient sky behind everything (storm → red → dawn). */}
+      <FinaleSky city={city} />
+
       <group ref={deckTilt}>
-        <ApexRooftop accent={accent} tier={tier} count={tier === 'low' ? 28 : tier === 'med' ? 44 : 60} />
+        <ApexRooftop accent={accent} tier={tier} count={tier === 'low' ? 28 : tier === 'med' ? 44 : 60} city={city} />
       </group>
+
+      {/* THE SCALE MOMENT — from phase 2 the Architect projects himself
+          across the skyline: a colossal spectral hologram behind the towers,
+          mirroring every gesture the real one makes on the deck. */}
+      <group ref={giantGrp} position={[0, -2, -54]} visible={false}>
+        <Suspense fallback={null}>
+          <MeshyArchitectBoss
+            accent={accent}
+            phaseRef={phaseRef}
+            animRef={vexAnimRef}
+            hitRef={hitRef}
+            attackRef={attackRef}
+            staggerRef={staggerRef}
+            phaseBreakRef={phaseBreakRef}
+            ghost
+            projection
+            dead={dead}
+          />
+        </Suspense>
+      </group>
+
+      {/* Reality-glitch shells — wireframe waves that tear across the city
+          on phase breaks (and ambiently in the late phases). */}
+      {glitchShells.map((_, i) => (
+        <mesh
+          key={`gl${i}`}
+          ref={(el) => {
+            glitchRefs.current[i] = el
+          }}
+          visible={false}
+          frustumCulled={false}
+          renderOrder={6}
+        >
+          <cylinderGeometry args={[1, 1, 1, 40, 3, true]} />
+          <meshBasicMaterial
+            ref={(el) => {
+              glitchMats.current[i] = el
+            }}
+            color="#ff3b4e"
+            wireframe
+            transparent
+            opacity={0}
+            toneMapped={false}
+            fog={false}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      ))}
+
+      {/* Corrupted deck data-rings — ignite as the city falls. */}
+      {[9, 14.5, 20].map((r, i) => (
+        <mesh key={`dr${i}`} rotation-x={-Math.PI / 2} position={[0, 0.06, 0]} renderOrder={4}>
+          <ringGeometry args={[r - 0.18, r + 0.18, 96]} />
+          <meshBasicMaterial
+            ref={(el) => {
+              deckRingMats.current[i] = el
+            }}
+            color="#ff2438"
+            transparent
+            opacity={0}
+            toneMapped={false}
+            fog={false}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      ))}
 
       <Rain count={tier === 'low' ? 240 : tier === 'med' ? 520 : 900} />
       <EmberField count={tier === 'low' ? 50 : tier === 'med' ? 90 : 140} area={BOUND} height={18} color={LIGHTNING} />
@@ -1562,7 +2555,7 @@ const ArchitectScene = memo(function ArchitectScene({
       </group>
 
       <group ref={bossGroup} scale={BOSS_SCALE}>
-        <Architect3D
+        <ArchitectSwitch
           accent={accent}
           phaseRef={phaseRef}
           animRef={vexAnimRef}
@@ -1570,14 +2563,16 @@ const ArchitectScene = memo(function ArchitectScene({
           attackRef={attackRef}
           staggerRef={staggerRef}
           phaseBreakRef={phaseBreakRef}
+          readyRef={bossReadyRef}
           dead={dead}
         />
       </group>
 
-      {/* Echo clones — the Architect splits into multiple, mirroring his rig and
-          firing alongside him in later phases. */}
+      {/* Echo clones — the Architect splits into multiple, mirroring his rig
+          and firing alongside him in later phases. Rendered as translucent
+          ghosts so the real Architect is never ambiguous. */}
       <group ref={cloneARef} scale={BOSS_SCALE * 0.96} visible={false}>
-        <Architect3D
+        <ArchitectSwitch
           accent={accent}
           phaseRef={phaseRef}
           animRef={vexAnimRef}
@@ -1585,11 +2580,12 @@ const ArchitectScene = memo(function ArchitectScene({
           attackRef={attackRef}
           staggerRef={staggerRef}
           phaseBreakRef={phaseBreakRef}
+          ghost
           dead={dead}
         />
       </group>
       <group ref={cloneBRef} scale={BOSS_SCALE * 0.96} visible={false}>
-        <Architect3D
+        <ArchitectSwitch
           accent={accent}
           phaseRef={phaseRef}
           animRef={vexAnimRef}
@@ -1597,9 +2593,110 @@ const ArchitectScene = memo(function ArchitectScene({
           attackRef={attackRef}
           staggerRef={staggerRef}
           phaseBreakRef={phaseBreakRef}
+          ghost
           dead={dead}
         />
       </group>
+
+      {/* ---- Phase-ward props ---- */}
+      {/* P2 twin seals — melee both within the link to break the ward. */}
+      {[0, 1].map((i) => (
+        <group
+          key={`seal${i}`}
+          ref={(el) => {
+            sealRefs.current[i] = el
+          }}
+          visible={false}
+        >
+          <mesh>
+            <octahedronGeometry args={[0.62, 0]} />
+            <meshBasicMaterial
+              ref={(el) => {
+                sealMats.current[i] = el
+              }}
+              color={WARD_HOT}
+              transparent
+              opacity={0.9}
+              toneMapped={false}
+              fog={false}
+              blending={THREE.AdditiveBlending}
+              depthWrite={false}
+            />
+          </mesh>
+        </group>
+      ))}
+      {/* P3 sorted sigils — cross them in ascending order. */}
+      {Array.from({ length: 4 }).map((_, i) => (
+        <group
+          key={`sigil${i}`}
+          ref={(el) => {
+            sigilRefs.current[i] = el
+          }}
+          visible={false}
+        >
+          <mesh rotation-x={-Math.PI / 2} position={[0, 0.05, 0]} scale={ARCHITECT_SIGILS.tileRadius} renderOrder={4}>
+            <circleGeometry args={[1, 40]} />
+            <meshBasicMaterial
+              ref={(el) => {
+                sigilDiskMats.current[i] = el
+              }}
+              color={WARD_HOT}
+              transparent
+              opacity={0.2}
+              toneMapped={false}
+              fog={false}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+          <mesh rotation-x={-Math.PI / 2} position={[0, 0.07, 0]} scale={ARCHITECT_SIGILS.tileRadius} renderOrder={4}>
+            <ringGeometry args={[0.82, 1, 44]} />
+            <meshBasicMaterial color={WARD_HOT} transparent opacity={0.5} toneMapped={false} fog={false} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+          <sprite position={[0, 1.7, 0]} scale={[2.0, 2.0, 1]}>
+            <spriteMaterial
+              ref={(el) => {
+                sigilSpriteMats.current[i] = el
+              }}
+              transparent
+              depthWrite={false}
+              toneMapped={false}
+              fog={false}
+            />
+          </sprite>
+        </group>
+      ))}
+      {/* P4 Deletion Mark brand — ring underfoot + a blood-red column ON the
+          player, unmissable even mid-storm (QA: the ring alone read as a
+          faint underfoot glow). */}
+      <mesh ref={markRingRef} rotation-x={-Math.PI / 2} visible={false} renderOrder={5}>
+        <ringGeometry args={[0.8, 1, 44]} />
+        <meshBasicMaterial
+          ref={markRingMat}
+          color={WARD_BAD}
+          transparent
+          opacity={0.6}
+          toneMapped={false}
+          fog={false}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+      <mesh ref={markBeamRef} visible={false} renderOrder={5}>
+        <cylinderGeometry args={[0.5, 1.1, 7, 10, 1, true]} />
+        <meshBasicMaterial
+          ref={markBeamMat}
+          color={WARD_BAD}
+          transparent
+          opacity={0.3}
+          toneMapped={false}
+          fog={false}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
 
       <WeaponTrail ref={playerTrail} color={accent} width={0.22} segments={20} fade={0.16} />
 
@@ -1640,7 +2737,8 @@ const ArchitectScene = memo(function ArchitectScene({
         <meshBasicMaterial ref={wallBMat} color={GLYPH} transparent opacity={0} toneMapped={false} side={THREE.DoubleSide} depthWrite={false} blending={THREE.AdditiveBlending} fog={false} />
       </mesh>
 
-      {/* Floating fractured slabs. */}
+      {/* Floating fractured slabs — glyph-lit undersides so they read as
+          telekinetically ripped deck pieces, not stray black boxes (QA). */}
       {slabs.map((_, i) => (
         <mesh
           key={`slab${i}`}
@@ -1651,13 +2749,14 @@ const ArchitectScene = memo(function ArchitectScene({
           frustumCulled={false}
         >
           <boxGeometry args={[3.4, 0.5, 3.4]} />
-          <meshStandardMaterial color="#0c0e18" roughness={0.8} metalness={0.3} flatShading />
+          <meshStandardMaterial color="#0f1119" emissive={GLYPH} emissiveIntensity={0.16} roughness={0.75} metalness={0.3} flatShading />
         </mesh>
       ))}
 
       {/* Pooled projectiles / particles. */}
       <instancedMesh ref={boltsMesh} args={[boltGeo, boltMat, BOLT_POOL]} frustumCulled={false} />
-      <instancedMesh ref={orbsMesh} args={[orbGeo, orbMat, ORB_POOL]} frustumCulled={false} />
+      <EnemyProjectiles ref={orbFx} pool={ORB_POOL} color={GLYPH} size={0.32} />
+      <ImpactFlashes ref={impactFx} pool={12} />
       <instancedMesh ref={debrisMesh} args={[debrisGeo, debrisMat, DEBRIS_POOL]} frustumCulled={false} />
       <instancedMesh ref={afterMesh} args={[afterGeo, afterMat, AFTER_POOL]} frustumCulled={false} />
 
@@ -1723,6 +2822,15 @@ export interface ArchitectArenaProps {
   onWin: () => void
   onLose: () => void
   onFlee?: () => void
+  /** QA capture instrumentation ONLY (default off, never passed by the app):
+   *  the player ignores incoming damage so an automated bot survives long
+   *  enough to drive the fight through every phase for review. Changes NO
+   *  boss HP/damage/combat numbers — purely player-side survivability. */
+  qaGodMode?: boolean
+  /** QA probe instrumentation ONLY: publishes per-frame ward autopilot
+   *  recommendations on window.__mechQA so the scripted bot can execute the
+   *  phase mechanics. Zero gameplay impact; the app never sets it. */
+  qaHooks?: boolean
 }
 
 export function ArchitectArena({
@@ -1731,6 +2839,8 @@ export function ArchitectArena({
   onWin,
   onLose,
   onFlee,
+  qaGodMode = false,
+  qaHooks = false,
 }: ArchitectArenaProps): JSX.Element {
   const [playerHp, setPlayerHp] = useState(PLAYER_HP)
   const [bossHp, setBossHp] = useState(BOSS_HP_MAX)
@@ -1742,11 +2852,22 @@ export function ArchitectArena({
   const [telegraph, setTelegraph] = useState<{ label: string; danger: boolean } | null>(null)
   const [combo, setCombo] = useState(0)
   const [flashOn, setFlashOn] = useState(false)
-  const [parryFlash, setParryFlash] = useState(false)
   const [callout, setCallout] = useState<string | null>(null)
   const [taunt, setTaunt] = useState<string | null>(null)
   const endedRef = useRef(false)
   const comboClearRef = useRef<number | null>(null)
+
+  // Entrance staging: an opaque curtain covers the mount (and the rig load);
+  // the scene lifts it via onCurtainUp, which starts the title-card clock.
+  const bossReadyRef = useRef(0)
+  const [curtain, setCurtain] = useState(true)
+  const [introBanner, setIntroBanner] = useState(true)
+  const onCurtainUp = useCallback(() => setCurtain(false), [])
+  useEffect(() => {
+    if (curtain) return
+    const id = window.setTimeout(() => setIntroBanner(false), 3300)
+    return () => window.clearTimeout(id)
+  }, [curtain])
 
   const phaseRef = useRef<Phase>(1)
   const hitRef = useRef(0)
@@ -1758,14 +2879,32 @@ export function ArchitectArena({
     setHitCount((c) => c + 1)
     setBossHp((hp) => Math.max(0, hp - amount))
   }, [])
+  // Failed wards let him feed — capped at full, and never past a phase gate
+  // he has already broken through (healing back across 75/50/25% would replay
+  // phase cutscenes).
+  const onBossHeal = useCallback((amount: number) => {
+    setBossHp((hp) => {
+      if (hp <= 0) return hp
+      const ceiling =
+        hp <= P4_AT ? P4_AT : hp <= P3_AT ? P3_AT : hp <= P2_AT ? P2_AT : BOSS_HP_MAX
+      return Math.min(ceiling, hp + amount)
+    })
+  }, [])
+  // Transient ward flash (mechanic teaching line, separate from telegraphs).
+  const [mechFlash, setMechFlash] = useState<{ label: string; danger: boolean } | null>(null)
+  const onMechFlash = useCallback((label: string | null, danger = false) => {
+    setMechFlash(label ? { label, danger } : null)
+  }, [])
   const onPlayerHit = useCallback((amount: number) => {
     setHurt((h) => h + 1)
-    setPlayerHp((hp) => Math.max(0, hp - amount))
+    // QA capture only: keep the review bot alive to walk every phase. Real
+    // gameplay never sets this, so damage is unchanged for players.
+    if (!qaGodMode) setPlayerHp((hp) => Math.max(0, hp - amount))
     if (Math.random() < 0.28) {
       setCallout(ARCHITECT_HIT_LINES[Math.floor(Math.random() * ARCHITECT_HIT_LINES.length)])
       window.setTimeout(() => setCallout(null), 1100)
     }
-  }, [])
+  }, [qaGodMode])
   const onBossAttack = useCallback(() => {
     attackRef.current += 1
   }, [])
@@ -1777,13 +2916,6 @@ export function ArchitectArena({
     if (comboClearRef.current) window.clearTimeout(comboClearRef.current)
     comboClearRef.current = window.setTimeout(() => setCombo(0), 900)
   }, [])
-  const onParry = useCallback(() => {
-    setParryFlash(true)
-    window.setTimeout(() => setParryFlash(false), 360)
-    setCallout(ARCHITECT_PARRY_LINES[Math.floor(Math.random() * ARCHITECT_PARRY_LINES.length)])
-    window.setTimeout(() => setCallout(null), 1100)
-  }, [])
-
   useEffect(() => () => {
     if (comboClearRef.current) window.clearTimeout(comboClearRef.current)
   }, [])
@@ -1833,17 +2965,57 @@ export function ArchitectArena({
     return () => window.clearTimeout(id)
   }, [hurt])
 
-  const frozen = playerHp <= 0 || dead
+  const playerDefeated = playerHp <= 0
+  const frozen = playerDefeated || dead
   const bossPct = Math.max(0, (bossHp / BOSS_HP_MAX) * 100)
   const lateGame = phase >= 3
 
   const hud = (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', fontFamily: 'system-ui, sans-serif' }}>
+      {/* Entrance curtain — covers the mount + rig load. */}
+      <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: curtain ? 1 : 0, transition: 'opacity 0.5s ease' }} />
+
+      {/* Player-down treatment: the defeat reads as a beat, not a bug. */}
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'radial-gradient(120% 100% at 50% 50%, transparent 30%, rgba(60,0,8,0.75) 100%)',
+          opacity: playerHp <= 0 ? 1 : 0,
+          transition: 'opacity 0.6s ease',
+        }}
+      />
+
+      {/* Entrance beat: cinematic letterbox + boss title card (lower third). */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: introBanner ? '9%' : 0, background: '#000', transition: 'height 0.6s ease' }} />
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: introBanner ? '9%' : 0, background: '#000', transition: 'height 0.6s ease' }} />
+      <div
+        style={{
+          position: 'absolute',
+          top: '66%',
+          left: 0,
+          right: 0,
+          textAlign: 'center',
+          opacity: introBanner && !curtain ? 1 : 0,
+          transform: introBanner && !curtain ? 'translateY(0)' : 'translateY(-8px)',
+          transition: 'opacity 0.5s ease, transform 0.5s ease',
+        }}
+      >
+        <div style={{ color: accent, fontWeight: 800, fontSize: 13, letterSpacing: 6, textTransform: 'uppercase', textShadow: '0 2px 10px rgba(0,0,0,0.9)' }}>
+          Final Showdown · The Apex
+        </div>
+        <div style={{ color: '#fff', fontWeight: 900, fontSize: 42, letterSpacing: 4, textTransform: 'uppercase', textShadow: `0 0 28px ${accent}aa, 0 3px 16px rgba(0,0,0,0.95)`, lineHeight: 1.1 }}>
+          {bossName}
+        </div>
+        <div style={{ color: 'rgba(255,255,255,0.75)', fontWeight: 700, fontSize: 15, letterSpacing: 3, textTransform: 'uppercase' }}>
+          Mastermind of the Null
+        </div>
+      </div>
+
       <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 90% at 50% 50%, transparent 40%, rgba(255,40,50,0.5) 100%)', opacity: flashOn ? 1 : 0, transition: 'opacity 0.18s ease' }} />
-      <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(120% 90% at 50% 45%, ${accent}cc 0%, transparent 55%)`, opacity: parryFlash ? 1 : 0, transition: parryFlash ? 'opacity 0.05s ease' : 'opacity 0.4s ease', mixBlendMode: 'screen' }} />
 
       {/* Boss HP + 4 phase pips */}
-      <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', width: 'min(680px, 90%)', textAlign: 'center' }}>
+      <div style={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', width: 'min(680px, 90%)', textAlign: 'center', opacity: introBanner ? 0 : 1, transition: 'opacity 0.4s ease' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 6 }}>
           <span style={{ color: '#fff', fontWeight: 800, letterSpacing: 1.2, textShadow: '0 2px 6px rgba(0,0,0,0.7)' }}>{bossName} — MASTERMIND OF THE NULL</span>
           <span style={{ color: accent, fontWeight: 800, fontSize: 13 }}>
@@ -1858,10 +3030,20 @@ export function ArchitectArena({
             <span key={p} style={{ position: 'absolute', top: 0, bottom: 0, left: `${p}%`, width: 2, background: 'rgba(255,255,255,0.5)' }} />
           ))}
         </div>
+        {/* The phase ward — how he can actually be hurt RIGHT NOW. */}
+        <div style={{ marginTop: 6, color: '#ffd27a', fontWeight: 800, fontSize: 12.5, letterSpacing: 1.5, textShadow: '0 2px 8px rgba(0,0,0,0.85)' }}>
+          {architectWardHint(phase)}
+        </div>
+        {/* Kill payoff stamp — the fall reads instantly while dawn breaks. */}
+        {dead && (
+          <div style={{ marginTop: 10, color: '#8dffb0', fontWeight: 900, fontSize: 32, letterSpacing: 6, textTransform: 'uppercase', textShadow: '0 0 24px rgba(141,255,176,0.7), 0 3px 14px rgba(0,0,0,0.95)' }}>
+            The Architect Falls
+          </div>
+        )}
       </div>
 
       {/* Player vitals */}
-      <div style={{ position: 'absolute', bottom: 20, left: 20 }}>
+      <div style={{ position: 'absolute', bottom: 20, left: 20, opacity: introBanner ? 0 : 1, transition: 'opacity 0.4s ease' }}>
         <div style={{ color: '#fff', fontWeight: 700, fontSize: 12, marginBottom: 6, letterSpacing: 1, textShadow: '0 2px 6px rgba(0,0,0,0.7)' }}>VITALS</div>
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 320 }}>
           {Array.from({ length: PLAYER_HP }).map((_, i) => (
@@ -1877,8 +3059,8 @@ export function ArchitectArena({
         </div>
       )}
 
-      <div style={{ position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.82)', fontSize: 12.5, fontWeight: 600, textShadow: '0 2px 6px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
-        WASD move · Click/Q slice · F/RMB shoot · Shift dash · Space jump · K roll · <span style={{ color: accent }}>L PARRY</span>
+      <div style={{ position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)', color: 'rgba(255,255,255,0.82)', fontSize: 12.5, fontWeight: 600, textShadow: '0 2px 6px rgba(0,0,0,0.8)', whiteSpace: 'nowrap', opacity: introBanner || playerHp <= 0 ? 0 : 1, transition: 'opacity 0.4s ease' }}>
+        WASD move · Click/Q slice · F/RMB shoot · Shift dash · Space jump · K roll
       </div>
 
       <div style={{ position: 'absolute', top: '50%', left: '50%', width: 6, height: 6, marginLeft: -3, marginTop: -3, borderRadius: '50%', background: 'rgba(255,255,255,0.55)' }} />
@@ -1886,6 +3068,13 @@ export function ArchitectArena({
       {telegraph && (
         <div key={telegraph.label} style={{ position: 'absolute', top: '19%', left: '50%', transform: 'translateX(-50%)', color: telegraph.danger ? '#ff5a6a' : '#fff', fontWeight: 900, fontSize: telegraph.danger ? 30 : 22, letterSpacing: 1, textShadow: '0 2px 14px rgba(0,0,0,0.9)', whiteSpace: 'nowrap' }}>
           {telegraph.label}
+        </div>
+      )}
+
+      {/* Ward-mechanic flash (separate line so it never fights a telegraph). */}
+      {mechFlash && (
+        <div key={mechFlash.label} style={{ position: 'absolute', top: '25%', left: '50%', transform: 'translateX(-50%)', color: mechFlash.danger ? '#ff5a6a' : '#8dffb0', fontWeight: 900, fontSize: mechFlash.danger ? 26 : 21, letterSpacing: 1, textShadow: '0 2px 14px rgba(0,0,0,0.9)', whiteSpace: 'nowrap' }}>
+          {mechFlash.label}
         </div>
       )}
 
@@ -1929,21 +3118,26 @@ export function ArchitectArena({
           accent={accent}
           dead={dead}
           frozen={frozen}
+          playerDefeated={playerDefeated}
           phaseRef={phaseRef}
           hitRef={hitRef}
           attackRef={attackRef}
           staggerRef={staggerRef}
           phaseBreakRef={phaseBreakRef}
+          bossReadyRef={bossReadyRef}
+          onCurtainUp={onCurtainUp}
           onBossHit={onBossHit}
+          onBossHeal={onBossHeal}
           onPlayerHit={onPlayerHit}
           onBossAttack={onBossAttack}
           onTelegraph={onTelegraph}
+          onMechFlash={onMechFlash}
           onCombo={onCombo}
-          onParry={onParry}
+          qaHooks={qaHooks}
         />
       </CinematicStage>
     ),
-    [accent, dead, frozen, lateGame, phaseRef, hitRef, attackRef, staggerRef, phaseBreakRef, onBossHit, onPlayerHit, onBossAttack, onTelegraph, onCombo, onParry],
+    [accent, dead, frozen, playerDefeated, lateGame, phaseRef, hitRef, attackRef, staggerRef, phaseBreakRef, onCurtainUp, onBossHit, onBossHeal, onPlayerHit, onBossAttack, onTelegraph, onMechFlash, onCombo, qaHooks],
   )
 
   return (

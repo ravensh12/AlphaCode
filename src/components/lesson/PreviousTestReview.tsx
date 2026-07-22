@@ -27,7 +27,10 @@ export function PreviousTestReview({
   const reviews = review.steps.map((s) => stepToReview(s, missed.has(s.id)))
 
   const tutorItems: ReviewTutorItem[] = review.steps
-    .filter((s) => s.targetVariables && s.targetVariables.length > 0)
+    .filter(
+      (s) =>
+        (s.targetVariables && s.targetVariables.length > 0) || !!s.assessment,
+    )
     .map((s) => ({ s, missed: missed.has(s.id) }))
     .sort((a, b) => Number(b.missed) - Number(a.missed))
     .map(({ s, missed: m }, i) => ({

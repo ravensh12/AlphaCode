@@ -2,11 +2,9 @@ import type {
   ConceptId,
   DiagramSpec,
   Lesson,
-  LessonSection,
   LessonStep,
-  VariableValue,
 } from '../../types/lesson'
-import { randInt, shuffle } from '../../lib/random'
+import { shuffle } from '../../lib/random'
 
 type FB = { correct: string; incorrect: string; secondIncorrect?: string }
 
@@ -16,12 +14,6 @@ export function fb(
   secondIncorrect?: string,
 ): FB {
   return { correct, incorrect, secondIncorrect }
-}
-
-function textMode(expected: Record<string, VariableValue>): boolean {
-  return Object.values(expected).some(
-    (v) => typeof v === 'string' && Number.isNaN(Number(v)),
-  )
 }
 
 export function exploreStep(
@@ -164,93 +156,6 @@ export function quizIntroStep(
   }
 }
 
-export function visualStep(
-  id: string,
-  prompt: string,
-  code: string[],
-  line: number,
-  vars: string[],
-  targets: string[],
-  expected: Record<string, VariableValue>,
-  feedback: FB,
-  tags: ConceptId[],
-  diagram?: DiagramSpec,
-  tiles?: (number | string)[],
-): LessonStep {
-  return {
-    id,
-    type: 'visualExample',
-    section: 'teach',
-    phaseLabel: 'Visual',
-    prompt,
-    code,
-    currentLineIndex: line,
-    variables: vars,
-    targetVariables: targets,
-    expectedState: expected,
-    answerTiles: tiles,
-    inputMode: textMode(expected) ? 'text' : 'numeric',
-    feedback,
-    conceptTags: tags,
-    diagram,
-  }
-}
-
-export function guidedStep(
-  id: string,
-  prompt: string,
-  code: string[],
-  targets: string[],
-  expected: Record<string, VariableValue>,
-  tiles: (number | string)[],
-  feedback: FB,
-  tags: ConceptId[],
-): LessonStep {
-  return {
-    id,
-    type: 'guidedCode',
-    section: 'teach',
-    phaseLabel: 'Try it',
-    prompt,
-    code,
-    variables: targets,
-    targetVariables: targets,
-    expectedState: expected,
-    answerTiles: tiles,
-    inputMode: textMode(expected) ? 'text' : 'numeric',
-    feedback,
-    conceptTags: tags,
-  }
-}
-
-/** Quick comprehension check during the teach section. */
-export function teachCheckStep(
-  id: string,
-  prompt: string,
-  answer: string,
-  options: string[],
-  feedback: FB,
-  tags: ConceptId[],
-  diagram?: DiagramSpec,
-): LessonStep {
-  return {
-    id,
-    type: 'teachCheck',
-    section: 'teach',
-    phaseLabel: 'Check',
-    prompt,
-    code: [],
-    variables: ['answer'],
-    targetVariables: ['answer'],
-    expectedState: { answer },
-    answerTiles: shuffle([...new Set([answer, ...options])]),
-    inputMode: 'text',
-    feedback,
-    conceptTags: tags,
-    diagram,
-  }
-}
-
 /** Gated practice check during learn — 2 tries, no hints; rewind block on failure. */
 export function lessonPracticeStep(
   id: string,
@@ -281,37 +186,6 @@ export function lessonPracticeStep(
   }
 }
 
-export function quizStep(
-  id: string,
-  prompt: string,
-  code: string[],
-  targets: string[],
-  expected: Record<string, VariableValue>,
-  hints: string[],
-  feedback: FB,
-  tags: ConceptId[],
-  diagram?: DiagramSpec,
-  tiles?: (number | string)[],
-): LessonStep {
-  return {
-    id,
-    type: 'practice',
-    section: 'quiz',
-    phaseLabel: 'Quiz',
-    prompt,
-    code,
-    variables: targets,
-    targetVariables: targets,
-    expectedState: expected,
-    hints,
-    answerTiles: tiles,
-    inputMode: textMode(expected) ? 'text' : 'numeric',
-    feedback,
-    conceptTags: tags,
-    diagram,
-  }
-}
-
 /** Final quiz question — usually a big-picture pattern check. */
 export function quizCheckStep(
   id: string,
@@ -337,11 +211,6 @@ export function quizCheckStep(
     conceptTags: tags,
   }
 }
-
-/** @deprecated use quizStep */
-export const practiceStep = quizStep
-/** @deprecated use quizCheckStep */
-export const reflectionStep = quizCheckStep
 
 export function lessonShell(
   id: string,
@@ -398,8 +267,4 @@ export function isInteractiveType(type: LessonStep['type']): boolean {
   return !isPassiveType(type)
 }
 
-export function sectionLabel(section: LessonSection): string {
-  return section === 'teach' ? 'Learn' : 'Quiz'
-}
-
-export { randInt, shuffle }
+export { shuffle }

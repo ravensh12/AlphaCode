@@ -1,9 +1,17 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { ArchitectArena } from '../components/game3d/ArchitectArena'
+import { Loader } from '../components/Loader'
+import { useAuth } from '../context/AuthContext'
 import { useGauntlet } from '../context/GauntletContext'
+import { useProgress } from '../context/ProgressContext'
 import { ARCHITECT_INTRO, ARCHITECT_DEFEAT, ARCHITECT_VICTORY } from '../content/finalGauntletLore'
+import {
+  finalBossSealOpenWithShowcase,
+  resolveFinalGauntletAccessWithShowcase,
+} from '../lib/showcaseOverride'
 import { playClick } from '../lib/soundFx'
+import { createGauntletEventId } from '../lib/gauntletProgress'
 import './FinalBossPage.css'
 
 type Phase = 'intro' | 'fight' | 'won' | 'lost'
@@ -12,15 +20,34 @@ const ACCENT = '#8ea2ff'
 
 export function FinalBossPage() {
   const navigate = useNavigate()
-  const { state, beatFinalBoss } = useGauntlet()
+  const { isShowcaseAccount } = useAuth()
+  const { ready: gauntletReady, state, beatFinalBoss } = useGauntlet()
+  const { ready, academyCampaignComplete, readyForFinalGauntlet } =
+    useProgress()
   const [phase, setPhase] = useState<Phase>('intro')
   // Bump to remount the arena for a fresh attempt.
   const [fightRun, setFightRun] = useState(0)
-  // Testing shortcut: lets you enter the fight without passing the trial.
-  const [bypassGate, setBypassGate] = useState(false)
+  const [defeatId, setDefeatId] = useState(() =>
+    createGauntletEventId('final-boss'),
+  )
+  const [saveError, setSaveError] = useState<string | null>(null)
 
-  // --- Gate: the Mastery Trial must be cleared first ----------------------
-  if (!state.examPassed && !bypassGate) {
+  const access = resolveFinalGauntletAccessWithShowcase(
+    isShowcaseAccount,
+    ready && gauntletReady,
+    academyCampaignComplete,
+    readyForFinalGauntlet,
+  )
+  if (access.status === 'loading') {
+    return <Loader label="Restoring final gauntlet progress" night />
+  }
+  if (access.status === 'redirect') {
+    return <Navigate to={access.to} replace />
+  }
+
+  // --- Gate: the Certification Trial must be cleared first (the showcase
+  // account may face the Architect at any time) ----------------------------
+  if (!finalBossSealOpenWithShowcase(isShowcaseAccount, state.examPassed)) {
     return (
       <div className="over3d-page fb-page fb-page--apex">
         <div className="fb-void-bg" aria-hidden />
@@ -30,33 +57,36 @@ export function FinalBossPage() {
             <h1 className="fb-title">The Apex Is Sealed</h1>
             <p className="fb-lead">
               The Architect waits on the storm-lashed rooftop above Code City — but the way up only opens
-              to those who have <strong>proven their mastery</strong>. Clear the Mastery Trial first to
-              break the seal.
+              to those who have <strong>proven their mastery</strong>. Clear the
+              18-topic Certification Trial first to break the seal.
             </p>
             <div className="fb-actions">
               <Link className="fb-btn fb-btn--primary" to="/final/exam">
-                Take the Mastery Trial
+                Take the Certification Trial
               </Link>
               <Link className="fb-btn fb-btn--ghost" to="/quest">
                 Back to Code City
               </Link>
             </div>
-            <button
-              type="button"
-              className="fb-skip-test"
-              onClick={() => setBypassGate(true)}
-            >
-              Skip into the fight (testing)
-            </button>
           </div>
         </div>
       </div>
     )
   }
 
-  function handleWin() {
-    beatFinalBoss()
-    setPhase('won')
+  async function handleWin() {
+    try {
+      await beatFinalBoss(defeatId)
+      setSaveError(null)
+      setPhase('won')
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : 'Final victory could not be saved locally.',
+      )
+      setPhase('lost')
+    }
   }
 
   // --- Live fight ----------------------------------------------------------
@@ -116,15 +146,18 @@ export function FinalBossPage() {
             <span className="fb-tag fb-tag--lost">Overwritten</span>
             <h1 className="fb-title fb-title--lost">The Architect Stands</h1>
             <p className="fb-lead">
-              The storm swallows you and the rooftop goes dark. But you read his rhythm now — bait the
-              glowing overhead, <strong>parry</strong> it clean, and punish the stagger. Get back up and
+              The storm swallows you and the rooftop goes dark. But you read his rhythm now — dodge his
+              strikes, <strong>break each phase ward</strong>, and punish the opening. Get back up and
               finish what you started.
             </p>
+            {saveError && <p role="alert">{saveError}</p>}
             <div className="fb-actions">
               <button
                 className="fb-btn fb-btn--primary"
                 onClick={() => {
                   setFightRun((r) => r + 1)
+                  setDefeatId(createGauntletEventId('final-boss'))
+                  setSaveError(null)
                   setPhase('fight')
                 }}
               >
@@ -153,11 +186,11 @@ export function FinalBossPage() {
           <p className="fb-lead">
             A brutal <strong>four-phase</strong> duel atop the storm-lashed rooftop — and as he weakens he{' '}
             <strong>fractures into echo-clones</strong> that strike alongside him from every side. Read the
-            rhythm, parry the heavies, and don&rsquo;t get surrounded. {ARCHITECT_INTRO.hint}
+            rhythm, break his wards, and don&rsquo;t get surrounded. {ARCHITECT_INTRO.hint}
           </p>
           <p className="fb-controls-line">
             <kbd>WASD</kbd> move · <kbd>Shift</kbd> dash · <kbd>K</kbd> roll · <kbd>Space</kbd> jump ·{' '}
-            <kbd>Q</kbd>/Click melee · <kbd>F</kbd> ranged · <kbd>L</kbd> <strong>PARRY</strong>
+            <kbd>Q</kbd>/Click melee · <kbd>F</kbd> ranged
           </p>
           <div className="fb-actions">
             <button

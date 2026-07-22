@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { applyRimLight } from './simulation'
 
-export type BossAnim = 'idle' | 'run' | 'jump'
+export type BossAnim = 'idle' | 'run' | 'jump' | 'scream'
 
 type OneShot = { type: 'hit' | 'attack'; start: number } | null
 
@@ -171,6 +171,7 @@ export const Boss3D = memo(function Boss3D({
     const a = animRef ? animRef.current : anim
     const running = a === 'run'
     const jumping = a === 'jump'
+    const screaming = a === 'scream'
     const targetAmp = jumping ? 0 : running ? 1 : 0
     amp.current += (targetAmp - amp.current) * Math.min(1, dt * 9)
     const cadence = running ? 10 : 2.0
@@ -206,7 +207,13 @@ export const Boss3D = memo(function Boss3D({
 
     // Arms: menacing forward reach; weapon arm swings on attack.
     if (armL.current && armR.current) {
-      if (jumping) {
+      if (screaming) {
+        // Entrance roar — arms thrown wide + back arch (fallback rig's beat).
+        armL.current.rotation.x = -2.5
+        armR.current.rotation.x = -2.5
+        armL.current.rotation.z = 0.7
+        armR.current.rotation.z = -0.7
+      } else if (jumping) {
         armL.current.rotation.x = -2.2
         armR.current.rotation.x = -2.2
         armL.current.rotation.z = 0.35
@@ -226,7 +233,7 @@ export const Boss3D = memo(function Boss3D({
     const bounce = running ? Math.abs(Math.sin(phase.current)) * 0.09 * amp.current : 0
     const breathe = (1 - amp.current) * Math.sin(t * 2.2) * 0.03
     b.position.y = bounce - hitK * 0.065
-    b.rotation.x = v.hunch - Math.min(0.36, hitK * 0.36) + atkK * 0.11
+    b.rotation.x = v.hunch - Math.min(0.36, hitK * 0.36) + atkK * 0.11 - (screaming ? 0.28 : 0)
     b.rotation.z = Math.sin(t * 0.8) * 0.035 * (1 - amp.current)
     b.scale.y = 1 + breathe - hitK * 0.03
     if (head.current) head.current.rotation.x = Math.sin(t * 1.3) * 0.05 * (1 - amp.current)

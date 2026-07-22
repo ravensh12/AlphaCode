@@ -18,25 +18,32 @@ const BossBattlePage = lazy(() =>
 const FinalBossPage = lazy(() =>
   import('./pages/FinalBossPage').then((m) => ({ default: m.FinalBossPage })),
 )
+// Post-campaign game modes (also three.js-heavy — loaded on demand).
+const BossRushPage = lazy(() =>
+  import('./pages/BossRushPage').then((m) => ({ default: m.BossRushPage })),
+)
+const EndlessSiegePage = lazy(() =>
+  import('./pages/EndlessSiegePage').then((m) => ({ default: m.EndlessSiegePage })),
+)
 const ThresholdPage = lazy(() => import('./pages/ThresholdPage'))
 
 // Content pages carry the lesson engine + every generated lesson. Lazy-load
 // them too so a first visit only pays for the landing/auth shell; the app
 // shell (Landing/Auth/StartRedirect) stays eager for an instant first paint.
 const IntroPage = lazy(() => import('./pages/IntroPage').then((m) => ({ default: m.IntroPage })))
-const OnboardingPage = lazy(() =>
-  import('./pages/OnboardingPage').then((m) => ({ default: m.OnboardingPage })),
-)
 const CourseHomePage = lazy(() =>
   import('./pages/CourseHomePage').then((m) => ({ default: m.CourseHomePage })),
 )
 const QuestMapPage = lazy(() =>
   import('./pages/QuestMapPage').then((m) => ({ default: m.QuestMapPage })),
 )
-const WorldHubPage = lazy(() =>
-  import('./pages/WorldHubPage').then((m) => ({ default: m.WorldHubPage })),
-)
 const LessonPage = lazy(() => import('./pages/LessonPage').then((m) => ({ default: m.LessonPage })))
+const AcademyTrackPage = lazy(() =>
+  import('./pages/AcademyTrackPage').then((m) => ({ default: m.AcademyTrackPage })),
+)
+const AcademyMissionPage = lazy(() =>
+  import('./pages/AcademyMissionPage').then((m) => ({ default: m.AcademyMissionPage })),
+)
 const ReviewPage = lazy(() => import('./pages/ReviewPage').then((m) => ({ default: m.ReviewPage })))
 const FinalJourneyPage = lazy(() =>
   import('./pages/FinalJourneyPage').then((m) => ({ default: m.FinalJourneyPage })),
@@ -47,15 +54,51 @@ const FinalExamPage = lazy(() =>
 const ProfilePage = lazy(() =>
   import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })),
 )
+const DemoGuaranteePage = lazy(() =>
+  import('./pages/DemoGuaranteePage').then((m) => ({
+    default: m.DemoGuaranteePage,
+  })),
+)
 const WarmupPage = lazy(() => import('./pages/WarmupPage').then((m) => ({ default: m.WarmupPage })))
+
+// One-shot idle prefetch of the screens reachable from the overworld in one
+// click (Levels list, lessons/dojo). Without this the FIRST press of
+// "Levels" or E-at-a-dojo stalls on a cold chunk fetch + parse — measured as
+// a visible freeze on the route switch. Uses the same import specifiers as
+// the lazy() routes above, so modules are deduped.
+let questSiblingsWarmed = false
+function prefetchQuestSiblings(): void {
+  if (questSiblingsWarmed || typeof window === 'undefined') return
+  questSiblingsWarmed = true
+  const run = () => {
+    void import('./pages/QuestMapPage').catch(() => {
+      questSiblingsWarmed = false
+    })
+    void import('./pages/LessonPage').catch(() => {
+      questSiblingsWarmed = false
+    })
+  }
+  const w = window as Window & {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+  }
+  if (typeof w.requestIdleCallback === 'function') {
+    w.requestIdleCallback(run, { timeout: 3000 })
+  } else {
+    window.setTimeout(run, 500)
+  }
+}
 
 export default function App() {
   // Once the player is in the overworld (three.js already loaded), warm the
   // boss-battle chunk during idle time so pressing E doesn't stall on a cold
-  // fetch + parse of the arena modules mid-navigation.
+  // fetch + parse of the arena modules mid-navigation. Same for the Levels
+  // list and the lesson engine — the two screens one click away.
   const location = useLocation()
   useEffect(() => {
-    if (location.pathname === '/quest') prefetchBossBattle()
+    if (location.pathname === '/quest') {
+      prefetchBossBattle()
+      prefetchQuestSiblings()
+    }
   }, [location.pathname])
 
   return (
@@ -76,7 +119,7 @@ export default function App() {
         path="/onboarding"
         element={
           <ProtectedRoute>
-            <OnboardingPage />
+            <Navigate to="/quest" replace />
           </ProtectedRoute>
         }
       />
@@ -101,6 +144,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <ProfilePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/demo/guarantee"
+        element={
+          <ProtectedRoute>
+            <DemoGuaranteePage />
           </ProtectedRoute>
         }
       />
@@ -141,10 +192,18 @@ export default function App() {
         }
       />
       <Route
-        path="/world/:lessonId"
+        path="/academy/:realmId/:trackId/:problemSlug"
         element={
           <ProtectedRoute>
-            <WorldHubPage />
+            <AcademyMissionPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/academy/:realmId/:trackId"
+        element={
+          <ProtectedRoute>
+            <AcademyTrackPage />
           </ProtectedRoute>
         }
       />
@@ -204,6 +263,26 @@ export default function App() {
           <ProtectedRoute>
             <Suspense fallback={<Loader label="Entering the final arena" />}>
               <FinalBossPage />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/gauntlet/boss-rush"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<Loader label="Entering the gauntlet" />}>
+              <BossRushPage />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/gauntlet/endless"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={<Loader label="Entering the siege" />}>
+              <EndlessSiegePage />
             </Suspense>
           </ProtectedRoute>
         }

@@ -159,19 +159,18 @@
   }
 }
 
-/* ---------- Final title card + CTA ----------
-   Styled to match the NEW dark, cinematic placement-quiz result card so the
-   transition into the quiz stays visually consistent: a translucent dark
-   "glass/neon" surface with light text and subtle neon accents, centered over
-   a dimmed cinematic. (Scoped to `.intro-cine` — globals untouched.) */
+/* ---------- Final course-promise card + CTA ---------- */
 .intro-cine-cardwrap {
   position: absolute;
   inset: 0;
   z-index: 6;
   display: flex;
   align-items: center;
+  align-items: safe center;
   justify-content: center;
-  padding: calc(7vh + 16px) 24px;
+  padding: calc(7vh + 12px) 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: radial-gradient(120% 90% at 50% 55%, rgba(3, 6, 8, 0.45) 20%, rgba(3, 6, 8, 0.82) 100%);
   animation: cardWrapIn 0.5s ease both;
 }
@@ -184,21 +183,26 @@
   }
 }
 
-/* Override the global `.card` look with the dark-glass quiz surface. */
+/* Override the global `.card` look with a dark-glass cinematic surface. */
 .intro-cine .intro-cine-card {
   display: grid;
   justify-items: center;
-  gap: 13px;
+  gap: 10px;
   width: 100%;
-  max-width: 460px;
-  padding: 34px 30px 30px;
+  max-width: 650px;
+  padding: 28px 32px 22px;
   text-align: center;
   color: #eef7f2;
-  background: rgba(13, 26, 25, 0.66);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(94, 240, 224, 0.12), transparent 42%),
+    linear-gradient(165deg, rgba(16, 31, 30, 0.92), rgba(9, 16, 23, 0.9));
   border: 1.5px solid rgba(120, 220, 200, 0.34);
   border-radius: var(--radius-lg);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), 0 0 26px rgba(20, 60, 52, 0.3);
-  backdrop-filter: blur(8px);
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.55),
+    0 0 34px rgba(20, 90, 78, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
   animation: cardPopIn 0.42s cubic-bezier(0.2, 0.8, 0.3, 1.1) both;
 }
 @keyframes cardPopIn {
@@ -215,9 +219,9 @@
 .intro-cine-badge {
   display: grid;
   place-items: center;
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
   border: 1.5px solid #b6ff5c;
   background: linear-gradient(180deg, rgba(182, 255, 92, 0.28), rgba(182, 255, 92, 0.12));
   color: #b6ff5c;
@@ -228,42 +232,144 @@
 .intro-cine-eyebrow {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 12px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: #5ef0e0;
   text-shadow: 0 0 16px rgba(94, 240, 224, 0.35);
 }
 
-.intro-cine-logo {
+.intro-cine-promise {
   margin: 0;
   font-family: var(--display);
   font-weight: 800;
-  font-size: clamp(32px, 5vw, 44px);
-  line-height: 1;
+  font-size: clamp(27px, 4.2vw, 39px);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
   color: #eef7f2;
-}
-.intro-cine-logo span {
-  color: var(--primary);
-  text-shadow: 0 0 22px rgba(109, 74, 254, 0.6);
+  max-width: 24ch;
+  text-wrap: balance;
 }
 
-.intro-cine-tag {
+.intro-cine-proof {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: min(100%, 500px);
+  margin: 3px 0 1px;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  background: rgba(1, 10, 15, 0.5);
+  border: 1px solid rgba(94, 240, 224, 0.24);
+  border-radius: 14px;
+}
+
+.intro-cine-proof li {
+  display: grid;
+  gap: 1px;
+  padding: 10px 8px 9px;
+}
+
+.intro-cine-proof li + li {
+  border-left: 1px solid rgba(94, 240, 224, 0.2);
+}
+
+.intro-cine-proof strong {
+  font-family: var(--display);
+  font-size: 25px;
+  line-height: 1;
+  color: #b6ff5c;
+  text-shadow: 0 0 18px rgba(182, 255, 92, 0.28);
+}
+
+.intro-cine-proof span {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: #a9c9c0;
+}
+
+.intro-cine-completion {
   margin: 0;
-  font-size: 16px;
-  line-height: 1.55;
-  color: #9bbcb2;
-  max-width: 32ch;
+  max-width: 60ch;
+  font-size: 14px;
+  line-height: 1.48;
+  color: #b9cec8;
+  text-wrap: pretty;
 }
 
 .intro-cine-cta {
-  margin-top: 8px;
-  min-width: 220px;
+  margin-top: 3px;
+  min-width: 230px;
   border-color: rgba(160, 140, 255, 0.55);
   box-shadow: 0 0 26px rgba(109, 74, 254, 0.5), 0 10px 28px rgba(0, 0, 0, 0.45);
 }
 .intro-cine-cta:hover {
   box-shadow: 0 0 36px rgba(109, 74, 254, 0.65), 0 14px 32px rgba(0, 0, 0, 0.5);
+}
+
+.intro-cine-independence {
+  max-width: 62ch;
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgba(195, 216, 210, 0.58);
+}
+
+@media (max-width: 600px) {
+  .intro-cine-cardwrap {
+    padding: calc(7vh + 9px) 12px;
+  }
+
+  .intro-cine .intro-cine-card {
+    gap: 8px;
+    padding: 20px 15px 16px;
+    border-radius: 18px;
+  }
+
+  .intro-cine-badge {
+    width: 44px;
+    height: 44px;
+    border-radius: 13px;
+  }
+
+  .intro-cine-eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+
+  .intro-cine-promise {
+    font-size: clamp(23px, 7vw, 30px);
+    line-height: 1.07;
+  }
+
+  .intro-cine-proof li {
+    padding: 8px 4px 7px;
+  }
+
+  .intro-cine-proof strong {
+    font-size: 21px;
+  }
+
+  .intro-cine-proof span {
+    font-size: 9px;
+    letter-spacing: 0.09em;
+  }
+
+  .intro-cine-completion {
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+
+  .intro-cine-cta {
+    width: 100%;
+    min-width: 0;
+    margin-top: 1px;
+  }
+
+  .intro-cine-independence {
+    font-size: 9px;
+  }
 }
 
 /* ---------- Reduced motion: cross-fade instead of fly/blur ---------- */

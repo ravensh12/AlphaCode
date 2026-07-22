@@ -11,6 +11,12 @@ node_modules
 dist
 dist-ssr
 *.local
+playwright-report/
+test-results/
+blob-report/
+coverage/
+.playwright-browsers/
+artifacts/
 
 # Env files (keep the example template tracked)
 .env
@@ -19,6 +25,22 @@ dist-ssr
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Raw (uncompressed) asset sources — fetch via `npm run assets:fetch`;
+# only the optimized outputs in public/assets are tracked.
+assets-raw/
+
+# Meshy→Blender→web pipeline (scripts/pipeline). Generated build artifacts and
+# user-supplied third-party inputs are NOT tracked (keep the dir skeleton only).
+assets/build/**
+!assets/build/**/
+!assets/build/**/.gitkeep
+assets/source/mixamo/*.fbx
+assets/source/mixamo/*.FBX
+assets/source/weapons/*.glb
+assets/source/weapons/*.gltf
+assets/source/weapons/*.fbx
+assets/source/weapons/*.FBX
 
 # Installed agent skills (managed via `npx skills`, not app code)
 .agents/
@@ -40,3 +62,20 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright browser installs (local, hundreds of MB)
+.pw-browsers/
+
+# QA screenshot output (multi-GB, regenerate via e2e scripts)
+e2e-shots/
+
+# Scratch screenshots/output from agent QA sessions
+.tmp-*
+.tmp_*
+
+# Raw Meshy asset sources (multi-GB; only optimized outputs in public/assets are tracked)
+assets-src/
+assets/source/characters/**/*.glb
+assets/source/characters/**/*.gltf
+assets/source/characters/**/*.fbx
+assets/source/characters/**/*.FBX

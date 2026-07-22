@@ -1,0 +1,236 @@
+/* ================================================================ AI tutor
+   Floating launcher + right-side drawer, painted with the quest design
+   language (dark glass, cyan/violet accents). Self-contained vars so it works
+   over both the lesson runner and the mission pages. */
+
+.tutor-launcher {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 16px;
+  border: 1px solid rgba(143, 107, 255, 0.5);
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 800;
+  color: #eaf2f1;
+  background: rgba(20, 16, 38, 0.92);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45), 0 0 18px rgba(143, 107, 255, 0.25);
+  backdrop-filter: blur(8px);
+  transition: transform 0.14s ease, box-shadow 0.16s ease;
+}
+.tutor-launcher:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 26px rgba(143, 107, 255, 0.4);
+}
+.tutor-launcher.is-open {
+  border-color: rgba(94, 240, 224, 0.55);
+}
+/* No key configured: quiet affordance, not a broken-looking feature. */
+.tutor-launcher.is-unavailable {
+  opacity: 0.45;
+  border-color: rgba(140, 180, 220, 0.26);
+  box-shadow: none;
+}
+
+.tutor-panel {
+  position: fixed;
+  top: 72px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 69;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 28px));
+  border: 1px solid rgba(140, 180, 220, 0.2);
+  border-radius: 18px;
+  overflow: hidden;
+  color: #eaf2f1;
+  background: rgba(11, 15, 26, 0.96);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tutor-panel {
+    animation: tutorPanelIn 0.22s ease both;
+  }
+}
+@keyframes tutorPanelIn {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.tutor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(140, 180, 220, 0.14);
+  background: rgba(143, 107, 255, 0.08);
+}
+.tutor-head-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tutor-head-copy strong {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 800;
+}
+.tutor-head-copy span {
+  font-size: 11.5px;
+  color: #93a6b4;
+}
+.tutor-close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: #93a6b4;
+  background: rgba(140, 180, 220, 0.1);
+}
+.tutor-close:hover {
+  color: #eaf2f1;
+  background: rgba(140, 180, 220, 0.2);
+}
+
+.tutor-log {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.tutor-empty {
+  margin: auto 6px;
+  padding: 14px;
+  border: 1px dashed rgba(140, 180, 220, 0.26);
+  border-radius: 12px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #93a6b4;
+  text-align: center;
+}
+
+.tutor-msg {
+  max-width: 88%;
+  padding: 10px 13px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tutor-msg--user {
+  align-self: flex-end;
+  color: #0b1310;
+  background: linear-gradient(115deg, #5ef0e0, #8ef0c9);
+  border-bottom-right-radius: 5px;
+  font-weight: 600;
+}
+.tutor-msg--assistant {
+  align-self: flex-start;
+  background: rgba(143, 107, 255, 0.12);
+  border: 1px solid rgba(143, 107, 255, 0.24);
+  border-bottom-left-radius: 5px;
+}
+
+.tutor-thinking {
+  display: inline-flex;
+  gap: 5px;
+  padding: 3px 2px;
+}
+.tutor-thinking i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8f6bff;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tutor-thinking i {
+    animation: tutorDot 1s ease-in-out infinite;
+  }
+  .tutor-thinking i:nth-child(2) { animation-delay: 0.15s; }
+  .tutor-thinking i:nth-child(3) { animation-delay: 0.3s; }
+}
+@keyframes tutorDot {
+  0%, 100% { opacity: 0.35; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-3px); }
+}
+
+.tutor-error {
+  padding: 10px 13px;
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  border-radius: 12px;
+  font-size: 13px;
+  color: #ffb3b3;
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.tutor-composer {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid rgba(140, 180, 220, 0.14);
+}
+.tutor-composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  border: 1px solid rgba(140, 180, 220, 0.24);
+  border-radius: 12px;
+  font-size: 13.5px;
+  color: #eaf2f1;
+  background: rgba(10, 15, 24, 0.7);
+}
+.tutor-composer input:focus {
+  outline: none;
+  border-color: rgba(94, 240, 224, 0.55);
+}
+.tutor-composer input::placeholder {
+  color: #5d6f7d;
+}
+.tutor-composer button {
+  flex-shrink: 0;
+  width: 42px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: #0b1310;
+  background: linear-gradient(115deg, #5ef0e0, #8ef0c9);
+}
+.tutor-composer button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@media (max-width: 700px) {
+  .tutor-panel {
+    top: auto;
+    right: 10px;
+    left: 10px;
+    bottom: 10px;
+    width: auto;
+    height: min(70vh, 520px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutor-launcher {
+    transition: none;
+  }
+}

@@ -1,0 +1,231 @@
+/* District NPC dialog — Code City dark-glass HUD theme (shares the --cc-*
+   palette with the other overworld overlays). */
+.npc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: end center;
+  padding: 18px 18px 6vh;
+  background: rgba(4, 10, 10, 0.5);
+  backdrop-filter: blur(5px);
+}
+
+.npc-card {
+  width: min(540px, 94vw);
+  padding: 20px 22px;
+  border-radius: var(--radius, 14px);
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+  background: var(--cc-glass, rgba(13, 26, 25, 0.92));
+  color: var(--cc-text, #eef7f2);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  animation: npcIn 0.18s ease-out both;
+}
+
+@keyframes npcIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.npc-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.npc-eyebrow {
+  font-family: var(--display, inherit);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cc-amber, #ffd166);
+}
+
+.npc-timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 14px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1.5px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  color: var(--cc-lime, #b6ff5c);
+}
+
+.npc-timer.is-low {
+  color: #ff9d7a;
+  border-color: rgba(255, 157, 122, 0.5);
+}
+
+.npc-dots {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+.npc-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+}
+
+.npc-dot.is-done {
+  background: var(--cc-amber, #ffd166);
+  border-color: var(--cc-amber, #ffd166);
+}
+
+.npc-dot.is-now {
+  border-color: var(--cc-lime, #b6ff5c);
+  box-shadow: 0 0 8px rgba(182, 255, 92, 0.5);
+}
+
+.npc-streak {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.npc-streak-bonus {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cc-lime, #b6ff5c);
+}
+
+.npc-card h2 {
+  margin: 10px 0 14px;
+  font-family: var(--display, inherit);
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.npc-q {
+  min-height: 52px;
+}
+
+.npc-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.npc-choice {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  border-radius: 10px;
+  border: 1.5px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  background: var(--cc-glass-2, rgba(9, 18, 18, 0.62));
+  color: var(--cc-text, #eef7f2);
+  transition: border-color 0.1s ease, transform 0.1s ease;
+}
+
+.npc-choice:hover:not(:disabled),
+.npc-choice:focus-visible {
+  border-color: var(--cc-amber, #ffd166);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.npc-choice.is-right {
+  border-color: var(--cc-lime, #b6ff5c);
+  background: rgba(182, 255, 92, 0.14);
+  color: var(--cc-lime, #b6ff5c);
+}
+
+.npc-choice.is-wrong {
+  border-color: rgba(255, 122, 122, 0.6);
+  background: rgba(255, 122, 122, 0.12);
+  color: #ffb3b3;
+}
+
+.npc-choice.is-dim {
+  opacity: 0.5;
+}
+
+.npc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.npc-chip {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--cc-line, rgba(120, 220, 200, 0.16));
+  background: var(--cc-glass-2, rgba(9, 18, 18, 0.62));
+  color: var(--cc-text-soft, #9bbcb2);
+}
+
+.npc-chip-xp {
+  color: var(--cc-lime, #b6ff5c);
+  border-color: rgba(182, 255, 92, 0.35);
+}
+
+.npc-chip-streak {
+  color: var(--cc-amber, #ffd166);
+  border-color: rgba(255, 209, 102, 0.4);
+  box-shadow: 0 0 10px rgba(255, 209, 102, 0.25);
+}
+
+.npc-feedback {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.npc-feedback p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.npc-feedback .is-right {
+  color: var(--cc-lime, #b6ff5c);
+}
+
+.npc-feedback .is-wrong {
+  color: #ffb3a0;
+}
+
+.npc-soft-copy {
+  margin: 6px 0 12px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--cc-text-soft, #9bbcb2);
+}
+
+.npc-btn {
+  align-self: flex-start;
+  cursor: pointer;
+  padding: 9px 18px;
+  font-family: var(--display, inherit);
+  font-weight: 800;
+  font-size: 13px;
+  border-radius: 10px;
+  border: 1.5px solid var(--cc-line-strong, rgba(120, 220, 200, 0.34));
+  background: rgba(255, 209, 102, 0.12);
+  color: var(--cc-amber, #ffd166);
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.npc-btn:hover,
+.npc-btn:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--cc-amber, #ffd166);
+  outline: none;
+}

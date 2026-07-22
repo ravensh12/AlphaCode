@@ -1,4 +1,4 @@
-import { WORLDS, OVERWORLD_SIZE, type World } from '../../content/adventure'
+import { WORLDS, type World } from '../../content/adventure'
 
 /**
  * 1 world unit = 1 meter. The hero is ~1.8m, so everything is real human scale.
@@ -15,20 +15,6 @@ export const GROUND_HALF = 720
 export const WORLD_SPAN = GROUND_HALF * 2
 
 export type Vec2 = { x: number; z: number }
-
-export function to3d(p: { x: number; y: number }): Vec2 {
-  return {
-    x: (p.x / OVERWORLD_SIZE.width - 0.5) * WORLD_SPAN,
-    z: (p.y / OVERWORLD_SIZE.height - 0.5) * WORLD_SPAN,
-  }
-}
-
-export function toPixel(v: Vec2): { x: number; y: number } {
-  return {
-    x: Math.round((v.x / WORLD_SPAN + 0.5) * OVERWORLD_SIZE.width),
-    y: Math.round((v.z / WORLD_SPAN + 0.5) * OVERWORLD_SIZE.height),
-  }
-}
 
 export type Checkpoint3D = {
   world: World
@@ -70,8 +56,6 @@ export const CHECKPOINTS_3D: Checkpoint3D[] = WORLDS.map((world, index) => ({
 
 /** Spawn plaza — south-west district, snapped to a road intersection. */
 export const START_3D: Vec2 = snapToRoad({ x: -420, z: 380 })
-
-export const PATH_3D: Vec2[] = [START_3D, ...CHECKPOINTS_3D.map((c) => c.flag)]
 
 /**
  * Each lesson is approached through a chain of enterable buildings spread far
@@ -173,7 +157,17 @@ export type Building = {
   kind: 'shop' | 'mid' | 'tower'
 }
 export type Road = { x: number; z: number; w: number; d: number; vertical: boolean }
-export type Collider = { x: number; z: number; hw: number; hd: number }
+/**
+ * Static/streamed obstacle footprint. `top` is the obstacle's height above
+ * ground (meters) where known — the controller's parkour vault uses it to
+ * refuse hurdling things taller than the vault arc (a 2.3m holo kiosk or a
+ * 4.4m metro entrance must block, not no-clip). Absent `top` = low prop.
+ */
+export type Collider = { x: number; z: number; hw: number; hd: number; top?: number }
+
+/** Obstacles with tops above this cannot be cleared by the parkour vault
+ *  (apex ~2.0m) — the vault probe must skip them so they stay solid. */
+export const VAULT_CLEAR_TOP = 1.6
 
 export type Scenery = {
   building: Building[]
@@ -222,6 +216,23 @@ function gridLines(): number[] {
 }
 
 const GRID = gridLines()
+
+/** Outermost road centreline coordinate (roads only exist within ±this). */
+const MAX_ROAD_LINE = Math.floor(LIMIT / ROAD_STEP) * ROAD_STEP
+
+/**
+ * Distance from a 1-D coordinate to the nearest road centreline. Street
+ * furniture and parked cars use this to stay clear of crossing streets:
+ * anything whose along-road coordinate lands inside an intersecting road
+ * would otherwise stand in the middle of the asphalt.
+ */
+function distToRoadLine(v: number): number {
+  const nearest = Math.max(
+    -MAX_ROAD_LINE,
+    Math.min(MAX_ROAD_LINE, Math.round(v / ROAD_STEP) * ROAD_STEP),
+  )
+  return Math.abs(v - nearest)
+}
 
 /** Exported road-grid metadata so the renderer can lay kerbs between blocks. */
 export const ROAD_LINES = GRID
@@ -416,16 +427,43 @@ function buildCity(): Scenery {
         COLLIDERS_OUT.push({ x: lot.lx, z: lot.lz, hw: w / 2, hd: d / 2 })
         dressRoof(lot.lx, lot.lz, w, d, h, kind)
 
-        // street trees + planters hugging the lot edges toward the road — denser
-        // now so tall greenery breaks up long sightlines down the avenues.
-        if (rnd() < 0.85)
-          out.tree.push({ x: lot.lx, z: lot.lz + d / 2 + 2.4, s: 1.0 + rnd() * 0.7, r: rnd() * 6 })
-        if (rnd() < 0.7)
-          out.tree.push({ x: lot.lx + (rnd() * 2 - 1) * w * 0.4, z: lot.lz - d / 2 - 2.4, s: 0.9 + rnd() * 0.7, r: rnd() * 6 })
-        if (rnd() < 0.6)
-          out.planter.push({ x: lot.lx - w / 2 - 2, z: lot.lz + (rnd() * 2 - 1) * d * 0.3, s: 0.7 + rnd() * 0.5, r: rnd() * 6 })
-        if (rnd() < 0.5)
-          out.planter.push({ x: lot.lx + w / 2 + 2, z: lot.lz + (rnd() * 2 - 1) * d * 0.3, s: 0.7 + rnd() * 0.5, r: rnd() * 6 })
+        // Street trees + planters in the lot frontage strips. Positions are
+        // clamped INSIDE the block interior (≥1.6m off the sidewalk edge) so
+        // greenery lives in parkway strips, never in the sidewalk or asphalt;
+        // spots too tight to keep clear of both the wall and the kerb are
+        // skipped. (Random draws stay in the original order so the rest of
+        // the city layout is unchanged.)
+        const zTop = cz + innerD / 2 - 1.6
+        const zBot = cz - innerD / 2 + 1.6
+        const xLo = cx - innerW / 2 + 1.6
+        const xHi = cx + innerW / 2 - 1.6
+        if (rnd() < 0.85) {
+          const ts = 1.0 + rnd() * 0.7
+          const tr = rnd() * 6
+          const tz = Math.min(lot.lz + d / 2 + 2.4, zTop)
+          if (tz - (lot.lz + d / 2) >= 1.2) out.tree.push({ x: lot.lx, z: tz, s: ts, r: tr })
+        }
+        if (rnd() < 0.7) {
+          const tx = Math.min(Math.max(lot.lx + (rnd() * 2 - 1) * w * 0.4, xLo), xHi)
+          const ts = 0.9 + rnd() * 0.7
+          const tr = rnd() * 6
+          const tz = Math.max(lot.lz - d / 2 - 2.4, zBot)
+          if (lot.lz - d / 2 - tz >= 1.2) out.tree.push({ x: tx, z: tz, s: ts, r: tr })
+        }
+        if (rnd() < 0.6) {
+          const pz = Math.min(Math.max(lot.lz + (rnd() * 2 - 1) * d * 0.3, zBot), zTop)
+          const ps = 0.7 + rnd() * 0.5
+          const pr = rnd() * 6
+          const px = Math.max(lot.lx - w / 2 - 2, xLo)
+          if (lot.lx - w / 2 - px >= 1.0) out.planter.push({ x: px, z: pz, s: ps, r: pr })
+        }
+        if (rnd() < 0.5) {
+          const pz = Math.min(Math.max(lot.lz + (rnd() * 2 - 1) * d * 0.3, zBot), zTop)
+          const ps = 0.7 + rnd() * 0.5
+          const pr = rnd() * 6
+          const px = Math.min(lot.lx + w / 2 + 2, xHi)
+          if (px - (lot.lx + w / 2) >= 1.0) out.planter.push({ x: px, z: pz, s: ps, r: pr })
+        }
       }
     }
   }
@@ -436,44 +474,59 @@ function buildCity(): Scenery {
     let toggle = 0
     for (let s = -LIMIT + ROAD_STEP / 3; s <= LIMIT; s += ROAD_STEP / 3) {
       toggle++
+      // Kerb spots only exist between intersections: a coordinate inside a
+      // crossing street (asphalt + sidewalk) would put the lamp/bench in the
+      // middle of that road.
+      if (distToRoadLine(s) < EDGE + 1.5) continue
       for (const side of [-1, 1]) {
         const off = ROAD_HALF + SIDEWALK - 1
-        // vertical road kerb
+        // vertical road kerb — benches turned to face the roadway
         const vx = at + side * off
         if (Math.hypot(vx, s) <= LIMIT && !inAny(plazas, vx, s, -10)) {
           out.lamp.push({ x: vx, z: s, s: 1, r: 0 })
-          if (toggle % 3 === 0) out.bench.push({ x: vx, z: s + 3, s: 1, r: 0 })
+          if (toggle % 3 === 0) out.bench.push({ x: vx, z: s + 3, s: 1, r: -side * (Math.PI / 2) })
           else if (toggle % 3 === 1) out.trashCan.push({ x: vx, z: s + 2, s: 1, r: 0 })
         }
-        // horizontal road kerb
+        // horizontal road kerb — benches turned to face the roadway. The
+        // remaining thirds get a trash can / planter so this kerb carries the
+        // same street-level clutter density as the vertical one (it used to
+        // get benches only, which left half the avenues visibly bare).
         const hz = at + side * off
         if (Math.hypot(s, hz) <= LIMIT && !inAny(plazas, s, hz, -10)) {
           out.lamp.push({ x: s, z: hz, s: 1, r: 0 })
-          if (toggle % 3 === 2) out.bench.push({ x: s + 3, z: hz, s: 1, r: Math.PI / 2 })
+          if (toggle % 3 === 2) out.bench.push({ x: s + 3, z: hz, s: 1, r: side > 0 ? Math.PI : 0 })
+          else if (toggle % 3 === 0) out.trashCan.push({ x: s + 2, z: hz, s: 1, r: 0 })
+          else out.planter.push({ x: s + 2.6, z: hz, s: 0.8, r: 0 })
         }
       }
     }
   }
 
-  // --- Parked cars hugging the kerb (colliders) ----------------------------
+  // --- Parked cars in the kerb lane (colliders) -----------------------------
+  // Real kerbside parking: INSIDE the asphalt against the kerb (the old
+  // ROAD_HALF + 1.6 offset put every car half up on the sidewalk), aligned
+  // with the road direction, nose along its side's traffic flow, and clear of
+  // intersection boxes + crosswalk stripes.
   const carRnd = mulberry32(7731)
+  const CAR_KERB = ROAD_HALF - 1.5 // lane centre 5.5m out — wheels at the kerb
+  const CAR_CLEAR = ROAD_HALF + 6 // no parking inside crossings / on crosswalks
   for (const at of GRID) {
     for (let s = -LIMIT + 18; s <= LIMIT - 18; s += 20) {
       if (carRnd() < 0.7) {
         const side = carRnd() < 0.5 ? -1 : 1
-        const x = at + side * (ROAD_HALF + 1.6)
+        const x = at + side * CAR_KERB
         const z = s + (carRnd() * 2 - 1) * 3
-        if (Math.hypot(x, z) <= LIMIT && !inAny(plazas, x, z)) {
-          out.car.push({ x, z, s: 1, r: 0 })
+        if (Math.hypot(x, z) <= LIMIT && distToRoadLine(z) >= CAR_CLEAR && !inAny(plazas, x, z)) {
+          out.car.push({ x, z, s: 1, r: side > 0 ? Math.PI : 0 })
           COLLIDERS_OUT.push({ x, z, hw: 1.4, hd: 2.6 })
         }
       }
       if (carRnd() < 0.66) {
         const side = carRnd() < 0.5 ? -1 : 1
-        const z = at + side * (ROAD_HALF + 1.6)
+        const z = at + side * CAR_KERB
         const x = s + (carRnd() * 2 - 1) * 3
-        if (Math.hypot(x, z) <= LIMIT && !inAny(plazas, x, z)) {
-          out.car.push({ x, z, s: 1, r: Math.PI / 2 })
+        if (Math.hypot(x, z) <= LIMIT && distToRoadLine(x) >= CAR_CLEAR && !inAny(plazas, x, z)) {
+          out.car.push({ x, z, s: 1, r: side > 0 ? Math.PI / 2 : -Math.PI / 2 })
           COLLIDERS_OUT.push({ x, z, hw: 2.6, hd: 1.4 })
         }
       }
@@ -497,6 +550,20 @@ function buildCity(): Scenery {
       const hz = gz - corner
       if (Math.hypot(hx, hz) <= LIMIT && !inAny(plazas, hx, hz) && (i + j) % 2 === 0) {
         out.hydrant.push({ x: hx, z: hz, s: 1, r: 0 })
+      }
+      // Corner greenery on the two free corners (the light and hydrant own
+      // the other pair) — real intersections collect planters and signage
+      // clutter at the ramps. Deterministic hash keeps ~2/3 of corners
+      // dressed without disturbing the main RNG stream.
+      const c1x = gx - corner
+      const c1z = gz + corner
+      if (Math.hypot(c1x, c1z) <= LIMIT && !inAny(plazas, c1x, c1z) && (i * 7 + j * 13) % 3 !== 0) {
+        out.planter.push({ x: c1x, z: c1z, s: 0.85, r: Math.PI / 4 })
+      }
+      const c2x = gx + corner
+      const c2z = gz - corner
+      if (Math.hypot(c2x, c2z) <= LIMIT && !inAny(plazas, c2x, c2z) && (i * 11 + j * 5) % 3 !== 1) {
+        out.trashCan.push({ x: c2x, z: c2z, s: 1, r: 0 })
       }
       // crosswalk stripes across each of the 4 approaches
       if (inAny(plazas, gx, gz, -6)) continue
@@ -535,8 +602,75 @@ const QUEST_FOOTPRINTS: Collider[] = (() => {
   return out
 })()
 
-/** Building / car / quest footprints — the controller blocks the hero from these. */
-export const COLLIDERS: Collider[] = [...COLLIDERS_OUT, ...QUEST_FOOTPRINTS]
+/**
+ * Street-prop footprints — lamp posts, tree trunks, planters, benches,
+ * hydrants, traffic lights and trash cans are solid now (the hero used to
+ * ghost straight through them). Half-extents are sized to each primitive's
+ * base geometry (Primitives3D) times the instance scale; the Meshy street
+ * shell replaces those primitives at the exact same transforms, so one
+ * collider set serves both. Small enough that every one stays vaultable
+ * and sidewalks remain walkable.
+ */
+const PROP_FOOTPRINTS: Collider[] = (() => {
+  const out: Collider[] = []
+  const square = (items: Prop[], half: number, scaled = true, top?: number) => {
+    for (const p of items) {
+      const r = half * (scaled ? p.s : 1)
+      out.push({ x: p.x, z: p.z, hw: r, hd: r, ...(top !== undefined ? { top } : {}) })
+    }
+  }
+  // Poles and trunks carry a `top` so the parkour vault refuses them — a
+  // hurdle carry through a 4m lamp post or a tree trunk is a no-clip, not a
+  // move. Low furniture (benches, planters, bins, hydrants) stays hurdle-able.
+  square(SCENERY.lamp, 0.22, false, 4.4)
+  square(SCENERY.tree, 0.3, true, 5) // trunk only — canopies overhang walkable ground
+  square(SCENERY.planter, 0.6)
+  square(SCENERY.hydrant, 0.28, false)
+  square(SCENERY.trafficLight, 0.24, false, 5.4)
+  square(SCENERY.trashCan, 0.4)
+  for (const b of SCENERY.bench) {
+    // Benches rotate in quarter turns — swap the AABB on the odd ones.
+    const swapped = Math.abs(Math.sin(b.r)) > 0.5
+    out.push({ x: b.x, z: b.z, hw: swapped ? 0.45 : 1.0, hd: swapped ? 1.0 : 0.45 })
+  }
+  return out
+})()
+
+/**
+ * Landmark footprints — every district landmark renders a large solid
+ * primitive (and, on MEDIUM+, a Meshy replacement at the SAME anchor), yet
+ * the hero could sprint straight through all of them. Half-extents cover the
+ * base mass of both the primitive and its Meshy stand-in; deliberately
+ * larger than VAULT_MAX_HALF-sized props so none of them reads "hurdle-able".
+ */
+const LANDMARK_FOOTPRINTS: Collider[] = LANDMARKS.flatMap((l): Collider[] => {
+  switch (l.type) {
+    case 'windmill': // primitive base r4 / observatory dome
+      return [{ x: l.pos.x, z: l.pos.z, hw: 4.4, hd: 4.4 }]
+    case 'lighthouse': // primitive base r3.6 / bridge pylon
+      return [{ x: l.pos.x, z: l.pos.z, hw: 3.8, hd: 3.8 }]
+    case 'spire': // primitive cone r5 + side cones / spiral tower
+      return [{ x: l.pos.x, z: l.pos.z, hw: 5.2, hd: 5.2 }]
+    case 'arch': // solid 30×6 base slab / district gate
+      return [{ x: l.pos.x, z: l.pos.z, hw: 15, hd: 3.2 }]
+    case 'tower': // stacked 8×8 boxes / lighthouse swap
+      return [{ x: l.pos.x, z: l.pos.z, hw: 4.2, hd: 4.2 }]
+    case 'mountain': // twin cliff cones (r26 centre + r12 at offset)
+      return [
+        { x: l.pos.x, z: l.pos.z, hw: 21, hd: 21 },
+        { x: l.pos.x + 14, z: l.pos.z + 8, hw: 9, hd: 9 },
+      ]
+  }
+})
+
+/** Building / car / prop / quest / landmark footprints — the controller
+ *  blocks the hero from all of these. */
+export const COLLIDERS: Collider[] = [
+  ...COLLIDERS_OUT,
+  ...QUEST_FOOTPRINTS,
+  ...PROP_FOOTPRINTS,
+  ...LANDMARK_FOOTPRINTS,
+]
 
 /* --------------------------------------------------------- Collider broadphase */
 
@@ -577,11 +711,130 @@ const BROAD_GRID: Map<number, Collider[]> = (() => {
   return grid
 })()
 
-/** Static colliders that could overlap the point (x, z). Allocation-free. */
+/* ------------------------------------------------- dynamic prop colliders */
+
+// Streamed layers (Meshy signature/grit dressing, encounter terminals, city
+// interactable shells) register footprints for exactly what they RENDER, so
+// solidity always matches what the player sees: nothing collides while the
+// primitive city shows nothing there, and nothing renders walk-through-able.
+// Registration happens on stream transitions (~1/s while moving, never per
+// frame); queries stay allocation-free via per-cell merged buckets that are
+// rebuilt only when a registration changes.
+
+const DYNAMIC_SETS = new Map<string, Collider[]>()
+/** Cell key → static ∪ dynamic colliders; null while nothing is registered. */
+let MERGED_GRID: Map<number, Collider[]> | null = null
+
+function insertIntoGrid(grid: Map<number, Collider[]>, c: Collider): void {
+  const minIx = Math.floor((c.x - c.hw - BROAD_PAD + BROAD_ORIGIN) / BROAD_CELL)
+  const maxIx = Math.floor((c.x + c.hw + BROAD_PAD + BROAD_ORIGIN) / BROAD_CELL)
+  const minIz = Math.floor((c.z - c.hd - BROAD_PAD + BROAD_ORIGIN) / BROAD_CELL)
+  const maxIz = Math.floor((c.z + c.hd + BROAD_PAD + BROAD_ORIGIN) / BROAD_CELL)
+  for (let ix = minIx; ix <= maxIx; ix++) {
+    for (let iz = minIz; iz <= maxIz; iz++) {
+      const key = broadKey(ix, iz)
+      let bucket = grid.get(key)
+      if (!bucket) {
+        // Seed with the static bucket so a merged cell supersedes it 1:1.
+        bucket = [...(BROAD_GRID.get(key) ?? EMPTY_COLLIDERS)]
+        grid.set(key, bucket)
+      }
+      bucket.push(c)
+    }
+  }
+}
+
+function rebuildMergedGrid(): void {
+  if (DYNAMIC_SETS.size === 0) {
+    MERGED_GRID = null
+    return
+  }
+  const grid = new Map<number, Collider[]>()
+  for (const set of DYNAMIC_SETS.values()) {
+    for (const c of set) insertIntoGrid(grid, c)
+  }
+  MERGED_GRID = grid
+}
+
+/**
+ * Replace the dynamic collider set owned by `owner` (empty list = remove).
+ * Call from stream/mount transitions only — each call rebuilds the merged
+ * broadphase overlay (cheap: a few hundred colliders at most).
+ */
+export function setDynamicColliders(owner: string, colliders: readonly Collider[]): void {
+  if (colliders.length === 0) {
+    if (!DYNAMIC_SETS.delete(owner)) return
+  } else {
+    // No-op sets skip the rebuild: React effects re-fire with identical
+    // placements whenever a sibling cell streams (shared model-map identity),
+    // which would otherwise stack ~1 rebuild per live cell in one frame.
+    const prev = DYNAMIC_SETS.get(owner)
+    if (prev && prev.length === colliders.length) {
+      let same = true
+      for (let i = 0; i < prev.length; i++) {
+        const a = prev[i]
+        const b = colliders[i]
+        if (a.x !== b.x || a.z !== b.z || a.hw !== b.hw || a.hd !== b.hd || a.top !== b.top) {
+          same = false
+          break
+        }
+      }
+      if (same) return
+    }
+    DYNAMIC_SETS.set(owner, [...colliders])
+  }
+  rebuildMergedGrid()
+}
+
+/** Test seam — clears every registered dynamic set. */
+export function resetDynamicCollidersForTests(): void {
+  DYNAMIC_SETS.clear()
+  MERGED_GRID = null
+}
+
+/** Introspection for tests/probes: owner → registered collider count. */
+export function dynamicColliderCounts(): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [owner, set] of DYNAMIC_SETS) out[owner] = set.length
+  return out
+}
+
+/**
+ * Axis-aligned footprint of a local box (half-extents hw×hd) rotated by
+ * `yaw` and scaled by `s` — streamed props register through this so their
+ * colliders stay rotation-aware.
+ */
+export function rotatedFootprint(
+  x: number,
+  z: number,
+  hw: number,
+  hd: number,
+  yaw: number,
+  s = 1,
+  top?: number,
+): Collider {
+  const cos = Math.abs(Math.cos(yaw))
+  const sin = Math.abs(Math.sin(yaw))
+  return {
+    x,
+    z,
+    hw: (cos * hw + sin * hd) * s,
+    hd: (sin * hw + cos * hd) * s,
+    ...(top !== undefined ? { top: top * s } : {}),
+  }
+}
+
+/** Static + registered dynamic colliders that could overlap the point
+ *  (x, z). Allocation-free. */
 export function collidersNear(x: number, z: number): Collider[] {
   const ix = Math.floor((x + BROAD_ORIGIN) / BROAD_CELL)
   const iz = Math.floor((z + BROAD_ORIGIN) / BROAD_CELL)
-  return BROAD_GRID.get(broadKey(ix, iz)) ?? EMPTY_COLLIDERS
+  const key = broadKey(ix, iz)
+  if (MERGED_GRID) {
+    const merged = MERGED_GRID.get(key)
+    if (merged) return merged
+  }
+  return BROAD_GRID.get(key) ?? EMPTY_COLLIDERS
 }
 
 /* ------------------------------------------------------------- Street routing */

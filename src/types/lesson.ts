@@ -1,3 +1,14 @@
+import type {
+  AssessmentId,
+  AssessmentV1,
+  TraceInnerAssessmentV1,
+} from './assessment'
+import type { SkillId } from './curriculum'
+import type { DiagramSpec } from './diagram'
+import type { ProblemLessonContentRef } from './problemLesson'
+
+export type { DiagramSpec } from './diagram'
+
 export type ConceptId =
   | 'arrays'
   | 'strings'
@@ -46,6 +57,8 @@ export type TraceFrame = {
   prompt: string
   currentLineIndex: number
   diagram?: DiagramSpec
+  assessment?: TraceInnerAssessmentV1
+  assessmentId?: AssessmentId
   variables: string[]
   targetVariables: string[]
   expectedState: Record<string, VariableValue>
@@ -57,35 +70,6 @@ export type TraceFrame = {
   answerTiles?: (number | string)[]
   runLabel?: string
 }
-
-export type DiagramSpec =
-  | {
-      kind: 'array'
-      values: (number | string)[]
-      highlight?: number
-      pointers?: { index: number; label: string }[]
-      /** Indices already visited by the loop — shown dimmed. */
-      visited?: number[]
-    }
-  | {
-      kind: 'string'
-      chars: string
-      pointers?: { index: number; label: string }[]
-      visited?: number[]
-    }
-  | {
-      kind: 'hashmap'
-      entries: { key: string; value: string | number }[]
-      lookup?: string
-    }
-  | { kind: 'stack'; items: string[] }
-  | {
-      kind: 'binarySearch'
-      values: number[]
-      low?: number
-      high?: number
-      mid?: number
-    }
 
 export type LessonStep = {
   id: string
@@ -106,10 +90,21 @@ export type LessonStep = {
     secondIncorrect?: string
   }
   conceptTags: ConceptId[]
+  skillIds?: SkillId[]
+  contentRef?: ProblemLessonContentRef
+  assessment?: AssessmentV1
+  masteryId?: string
   diagram?: DiagramSpec
   /** In-slide animation beats — pointers move, swaps, etc. on one slide. */
   diagramSequence?: DiagramSpec[]
   hints?: string[]
+  /**
+   * Optional high-stakes hint gate. A value of 1 keeps hints unavailable until
+   * the learner has recorded one incorrect attempt on this step.
+   */
+  hintPolicy?: {
+    availableAfterAttempts: number
+  }
   answerTiles?: (number | string)[]
   inputMode?: 'numeric' | 'text'
   /** Multi-frame line-by-line trace. When set, each frame is run → answer → continue. */
@@ -131,6 +126,8 @@ export type Lesson = {
   pattern: string
   estimatedMinutes: number
   conceptTags: ConceptId[]
+  skillIds?: SkillId[]
+  contentRef?: ProblemLessonContentRef
   unlockRequirements: {
     previousLessonId?: string
     minimumMastery?: number

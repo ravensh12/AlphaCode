@@ -4,7 +4,6 @@ import {
   START_3D,
   WORLD_GATES,
 } from '../components/game3d/layout'
-import { WORLDS } from '../content/adventure'
 import type { WorldState } from './questState'
 import type { ConceptBand } from './learnerModel'
 
@@ -105,51 +104,3 @@ export function combatAdjustForBand(band: ConceptBand): CombatAdjust {
   }
 }
 
-/** Strip gate progress for locked worlds or worlds ahead of the main quest line. */
-export function sanitizeGateProgress(
-  gateProg: Record<string, number>,
-  activeIndex: number,
-  worlds: WorldEntry[],
-): Record<string, number> {
-  const out: Record<string, number> = {}
-  for (let i = 0; i < WORLDS.length; i++) {
-    const id = WORLDS[i].id
-    const { state } = worlds[i]
-    if (state.learnDone) {
-      out[id] = GATES_PER_WORLD
-      continue
-    }
-    if (state.status === 'locked' || i > activeIndex) continue
-    if (i === activeIndex && (gateProg[id] ?? 0) > 0) out[id] = gateProg[id]!
-  }
-  return out
-}
-
-const GATE_KEY = (id: string) => `alphacode.gates.session.${id}`
-
-export function loadSessionGateProgress(): Record<string, number> {
-  const out: Record<string, number> = {}
-  for (const w of WORLDS) {
-    try {
-      const v = sessionStorage.getItem(GATE_KEY(w.id))
-      if (v) out[w.id] = Math.min(GATES_PER_WORLD, parseInt(v, 10) || 0)
-    } catch {
-      /* ignore */
-    }
-  }
-  return out
-}
-
-export function persistGateProgress(gateProg: Record<string, number>) {
-  for (const w of WORLDS) {
-    const v = gateProg[w.id]
-    try {
-      if (v != null && v > 0) sessionStorage.setItem(GATE_KEY(w.id), String(v))
-      else sessionStorage.removeItem(GATE_KEY(w.id))
-      // Drop legacy local saves so gate order always resets per session.
-      localStorage.removeItem(`alphacode.gates.${w.id}`)
-    } catch {
-      /* ignore */
-    }
-  }
-}

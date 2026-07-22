@@ -1,4 +1,9 @@
-export type ProgressSegmentState = 'todo' | 'now' | 'correct' | 'wrong'
+export type ProgressSegmentState =
+  | 'todo'
+  | 'now'
+  | 'correct'
+  | 'wrong'
+  | 'answered'
 
 export function LevelTracker({
   segments,
@@ -22,12 +27,17 @@ export function LevelTracker({
 
   const correct = states.filter((s) => s === 'correct').length
   const wrong = states.filter((s) => s === 'wrong').length
+  // Exam mode: outcomes stay hidden, segments only report "answered".
+  const answered = states.filter((s) => s === 'answered').length
   const nowIdx = states.findIndex((s) => s === 'now')
-  const levelNow = nowIdx >= 0 ? nowIdx + 1 : correct + wrong + 1
+  const levelNow = nowIdx >= 0 ? nowIdx + 1 : correct + wrong + answered + 1
 
   const ariaParts = [`Step ${Math.min(levelNow, total)} of ${total}`]
   if (correct + wrong > 0) {
     ariaParts.push(`${correct} correct`, `${wrong} missed`)
+  }
+  if (answered > 0) {
+    ariaParts.push(`${answered} answered`)
   }
 
   return (

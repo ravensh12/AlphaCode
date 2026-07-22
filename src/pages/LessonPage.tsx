@@ -11,9 +11,19 @@ import { useProgress } from '../context/ProgressContext'
 import { usePlayerLevel } from '../context/PlayerLevelContext'
 import { answerXp } from '../lib/playerLevel'
 import { canGuestAccessLesson, canGuestAccessSection } from '../lib/guestAccess'
-import { canAccessLessonPart } from '../lib/gameAccess'
+import {
+  canAccessLessonPartWithShowcase,
+  lessonUnlockedWithShowcase,
+} from '../lib/showcaseOverride'
 import { getWorldState } from '../lib/questState'
-import { useLessonEngine, type LessonResult } from '../hooks/useLessonEngine'
+import {
+  useLessonEngine,
+  type AssessmentAttemptInfo,
+  type GradeAssessment,
+  type LessonResult,
+} from '../hooks/useLessonEngine'
+import { usePythonJudge } from '../hooks/usePythonJudge'
+import { prefetchOverworld } from '../lib/prefetchOverworld'
 import { diagramChangedIndices } from '../lib/diagramDiff'
 import {
   canAutoplayStep,
@@ -27,6 +37,12 @@ import { CodePanel } from '../components/lesson/CodePanel'
 import { VariableBoxes } from '../components/lesson/VariableBoxes'
 import { AnswerTiles, AnswerChoiceSlot } from '../components/lesson/AnswerTiles'
 import { FeedbackPanel } from '../components/lesson/FeedbackPanel'
+import { AssessmentInput } from '../components/lesson/AssessmentInput'
+import {
+  ForcedRetakePrompt,
+  ReviewLessonPrompt,
+} from '../components/lesson/LessonReviewPrompts'
+import { LessonReviewWalkthrough } from '../components/lesson/LessonReviewWalkthrough'
 import { HintPanel } from '../components/lesson/HintPanel'
 import { LevelTracker } from '../components/lesson/LevelTracker'
 import { hasEverMastered, hasPendingMissedReview, markUnlockAchieved, meetsUnlockThreshold, applyReviewClear } from '../lib/mastery'
@@ -46,6 +62,23 @@ import { PreviousTestReview } from '../components/lesson/PreviousTestReview'
 import { stepToReview } from '../components/lesson/ReviewBreakdown'
 import { Loader } from '../components/Loader'
 import { IconArrowLeft } from '../components/icons'
+import { lessonProblemId } from '../lib/problemIds'
+import {
+  isPythonJudgeInfrastructureError,
+  pythonJudgeResultToAssessment,
+} from '../lib/pythonAssessmentGrader'
+import type { PythonJudgeRunner } from '../components/lesson/PythonWorkbench'
+import { TutorPanel } from '../components/lesson/TutorPanel'
+import type { TutorProblemContext } from '../lib/tutorClient'
+import { readTutorRun } from '../lib/tutorContext'
+import { describePythonAssessmentForTutor } from '../lib/tutorRunSummary'
+import type {
+  MissionStashHandle,
+  TutorChatMessage,
+} from '../lib/missionStash'
+import type { PythonJudgeRunResult } from '../workers/pythonJudgeProtocol'
+import type { JsonValue } from '../types/learning'
+import { assessmentEvidenceKinds } from '../types/assessment'
 import './LessonPage.css'
 
 const TILE_COUNT = 8
@@ -60,8 +93,9 @@ function savedQuizResult(progress: LessonProgress): LessonResult | null {
     unlockNext: meetsUnlockThreshold(progress.masteryScore),
     badgeCounts: progress.lastQuizBadgeCounts ?? emptyBadgeCounts(),
     badges: [],
+    assessmentEvidence: [],
     stepReviews: progress.lastReview.steps
-      .filter((s) => s.targetVariables.length > 0)
+      .filter((s) => s.targetVariables.length > 0 || !!s.assessment)
       .map((s) =>
         stepToReview(s, progress.lastReview!.missedStepIds.includes(s.id)),
       ),
@@ -106,6 +140,10 @@ function genTiles(step: LessonStep): (number | string)[] {
   return shuffleInPlace(tiles)
 }
 
+function toJsonValue(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue
+}
+
 function parseSection(raw: string | undefined): CourseSection | null {
   if (raw === 'learn' || raw === 'quiz') return raw
   return null
@@ -135,10 +173,16 @@ export function LessonPage() {
       : null
   const { ready, lessons, saveLessonProgress, logAttempt, streak, isLessonUnlocked } =
     useProgress()
-  const { isGuest } = useAuth()
+  const { isGuest, isShowcaseAccount } = useAuth()
   // The overworld entry token is one-time use — cache the access decision per
   // (level, part) so re-renders don't re-consume it and lock the player out.
   const lessonAccessRef = useRef<{ key: string; ok: boolean } | null>(null)
+
+  // Lessons usually exit back into the 3D overworld — warm its route chunk
+  // during idle time so the switch doesn't stall on fetch/parse.
+  useEffect(() => {
+    prefetchOverworld()
+  }, [])
 
   if (!lessonId || !hasLesson(lessonId)) {
     return (
@@ -196,7 +240,12 @@ export function LessonPage() {
   const worldState = summary ? getWorldState(lessonId, progress, !!summary && isLessonUnlocked(summary)) : undefined
   const levelMastered = worldState?.mastered ?? false
 
-  if (section === 'quiz' && !levelMastered) {
+  // Showcase may open the boss quiz from the list at any time; everyone else
+  // must beat the level in Code City first.
+  if (
+    section === 'quiz' &&
+    !lessonUnlockedWithShowcase(isShowcaseAccount, levelMastered)
+  ) {
     return (
       <LessonNotice
         title="Boss quiz locked"
@@ -211,7 +260,12 @@ export function LessonPage() {
     if (lessonAccessRef.current?.key !== accessKey) {
       lessonAccessRef.current = {
         key: accessKey,
-        ok: canAccessLessonPart(world.index, learnPart, levelMastered),
+        ok: canAccessLessonPartWithShowcase(
+          isShowcaseAccount,
+          world.index,
+          learnPart,
+          levelMastered,
+        ),
       }
     }
     if (!lessonAccessRef.current.ok) {
@@ -316,6 +370,7 @@ export function LessonNotice({
 
 export function LessonRunner({
   lessonId,
+  lessonOverride,
   section,
   learnPart = null,
   initial,
@@ -329,9 +384,16 @@ export function LessonRunner({
   onExit,
   onPartComplete,
   onQuizComplete,
+  onGradeAssessment,
+  assessmentMetadata,
+  examMode,
   embedded,
+  stash,
+  tutor,
 }: {
   lessonId: string
+  /** Compiled academy content; legacy callers continue using generateLesson. */
+  lessonOverride?: Lesson
   section: CourseSection
   /** When set (0-based), only this slice of the learn slides is shown. */
   learnPart?: number | null
@@ -347,10 +409,49 @@ export function LessonRunner({
   onPartComplete?: (part: number, final: boolean) => void
   /** Boss mode: fires once the quiz is fully finished (incl. review) → go fight. */
   onQuizComplete?: (result?: LessonResult) => void
+  onGradeAssessment?: GradeAssessment
+  /** Immutable-event metadata for specialized assessment runs. */
+  assessmentMetadata?: Readonly<Record<string, JsonValue>>
+  /**
+   * Deferred-feedback exam (boss quizzes, certification): answers are graded
+   * and recorded as usual, but no correctness signal is shown per question —
+   * one attempt each, no hints, then auto-advance. Verdicts come at the end.
+   */
+  examMode?: boolean
   embedded?: boolean
+  /** In-flight mission state that survives a tab close (see missionStash). */
+  stash?: MissionStashHandle | null
+  /** Enables the AI tutor drawer; never passed on exams/retention checks. */
+  tutor?: { title: string } | null
 }) {
   const { isGuest } = useAuth()
   const { getLessonProgress, restartQuizProgress, learnerModel } = useProgress()
+  const { run: runPythonJudge } = usePythonJudge()
+  // Full judge result of the latest graded Python submission, kept so the IDE
+  // panel can show the per-case breakdown. Grading semantics are unchanged —
+  // this is a read-only copy of what the judge already decided.
+  const [pythonSubmitRun, setPythonSubmitRun] = useState<{
+    assessmentId: string
+    result: PythonJudgeRunResult
+  } | null>(null)
+  const gradeWithPythonJudge = useCallback<GradeAssessment>(
+    async (assessment, response) => {
+      if (
+        assessment.kind !== 'pythonCode' ||
+        response.kind !== 'pythonCode'
+      ) {
+        return null
+      }
+      const result = await runPythonJudge(assessment, response)
+      if (isPythonJudgeInfrastructureError(result)) {
+        throw new Error(result.error?.message ?? 'Python judge unavailable')
+      }
+      setPythonSubmitRun({ assessmentId: assessment.id, result })
+      return pythonJudgeResultToAssessment(assessment, result)
+    },
+    [runPythonJudge],
+  )
+  const assessmentGrader = onGradeAssessment ?? gradeWithPythonJudge
   // Snapshot the learner model once per mount so quiz adaptation stays stable
   // through a run + its review (it must not reshuffle on every answer).
   const learnerSnapshot = useRef(learnerModel).current
@@ -363,6 +464,10 @@ export function LessonRunner({
   )
   const [forceFullQuiz, setForceFullQuiz] = useState(false)
   const quizResultRef = useRef<LessonResult | null>(null)
+  // Feature: send the learner back through the teaching content — either a
+  // voluntary per-miss "review" (place is preserved) or a forced full "retake"
+  // after 3 consecutive misses (quiz restarts from question 1).
+  const [teaching, setTeaching] = useState<'review' | 'retake' | null>(null)
 
   const missedStepIds = liveProgress?.lastReview?.missedStepIds ?? []
   const isReview =
@@ -373,17 +478,29 @@ export function LessonRunner({
 
   const baseLesson = useMemo(() => {
     void round
-    const raw = generateLesson(lessonId)!
+    const raw = lessonOverride ?? generateLesson(lessonId)!
     // Personalize only the quiz, and only for signed-in learners with a model.
-    if (section === 'quiz' && !isGuest) {
+    if (section === 'quiz' && !isGuest && !lessonOverride) {
       return adaptLessonForLearner(raw, learnerSnapshot)
     }
     return raw
-  }, [lessonId, round, section, isGuest, learnerSnapshot])
+  }, [
+    lessonId,
+    lessonOverride,
+    round,
+    section,
+    isGuest,
+    learnerSnapshot,
+  ])
 
   const sectionSteps = useMemo(
     () => stepsForSection(baseLesson.steps, section),
     [baseLesson, section],
+  )
+  // Teaching slides for the review/retake walkthrough (independent of section).
+  const learnSteps = useMemo(
+    () => stepsForSection(baseLesson.steps, 'learn'),
+    [baseLesson],
   )
 
   const usePart = section === 'learn' && learnPart != null && !isReview
@@ -444,6 +561,53 @@ export function LessonRunner({
     setReviewFinished(true)
   }, [])
 
+  // The 3-strikes forced retake and the per-miss review box only make sense on
+  // a normal quiz that actually has teaching content to send the learner back
+  // to. Exams (deferred feedback, one attempt) and retention-only runs (no
+  // teaching slides) never get it.
+  const strikeRetakeSupported =
+    section === 'quiz' && !examMode && learnSteps.length > 0
+
+  const handleReviewLesson = useCallback(() => setTeaching('review'), [])
+  const handleForceRetake = useCallback(() => setTeaching('retake'), [])
+
+  // Wipe just the quiz run so a forced retake genuinely starts over from
+  // question 1. Learn completion, mastery, and the review ledger are preserved,
+  // and no completion/pass is recorded — the learner has not passed.
+  const resetQuizForRetake = useCallback(() => {
+    const base =
+      getLessonProgress(lessonId) ?? initial ?? freshLessonProgress(lessonId, 'quiz')
+    const quizIds = new Set(sectionSteps.map((s) => s.id))
+    onSave({
+      ...base,
+      status: base.status === 'completed' ? 'completed' : 'inProgress',
+      learnCompleted: true,
+      currentStepIndex: 0,
+      quizStepIndex: 0,
+      quizFrameIndex: 0,
+      completedStepIds: (base.completedStepIds ?? []).filter(
+        (id) => !quizIds.has(id),
+      ),
+      correctCount: 0,
+      wrongCount: 0,
+      totalAttempts: 0,
+      correctFirstTry: 0,
+      accuracy: 0,
+      updatedAt: new Date().toISOString(),
+    })
+  }, [getLessonProgress, lessonId, initial, sectionSteps, onSave])
+
+  const finishTeachingReview = useCallback(() => {
+    if (teaching === 'retake') {
+      resetQuizForRetake()
+      // Remount the quiz round fresh from the top.
+      setRound((r) => r + 1)
+    }
+    // A voluntary review resumes the quiz exactly where it was left — the quiz
+    // round flushed its position when it unmounted, so it re-mounts and resumes.
+    setTeaching(null)
+  }, [teaching, resetQuizForRetake])
+
   useEffect(() => {
     if (
       section === 'quiz' &&
@@ -471,6 +635,7 @@ export function LessonRunner({
         unlockNext: meetsUnlockThreshold(saved.masteryScore),
         badgeCounts: saved.lastQuizBadgeCounts ?? emptyBadgeCounts(),
         badges: [],
+        assessmentEvidence: [],
         stepReviews: [],
       }
       return (
@@ -521,9 +686,10 @@ export function LessonRunner({
       unlockNext: true,
       badgeCounts: liveProgress.lastQuizBadgeCounts ?? emptyBadgeCounts(),
       badges: [],
+      assessmentEvidence: [],
       stepReviews: liveProgress.lastReview
         ? liveProgress.lastReview.steps
-            .filter((s) => s.targetVariables.length > 0)
+            .filter((s) => s.targetVariables.length > 0 || !!s.assessment)
             .map((s) =>
               stepToReview(
                 s,
@@ -557,10 +723,28 @@ export function LessonRunner({
     )
   }
 
+  // Review / forced-retake walkthrough: re-present the teaching content, then
+  // hand back to the quiz round (resume for review, fresh restart for retake).
+  if (teaching) {
+    return (
+      <RoundShell embedded={embedded}>
+        <main className="container lp lp-learn">
+          <LessonReviewWalkthrough
+            steps={learnSteps}
+            title={baseLesson.title}
+            mode={teaching}
+            onDone={finishTeachingReview}
+          />
+        </main>
+      </RoundShell>
+    )
+  }
+
   return (
     <LessonRound
       key={`${round}:${reviewRound}:${isReview ? missedStepIds.join('|') : 'all'}:p${learnPart ?? 'x'}`}
       lesson={lesson}
+      fullLessonOverride={lessonOverride}
       section={section}
       isReview={isReview}
       learnPart={usePart ? learnPart : null}
@@ -577,10 +761,20 @@ export function LessonRunner({
       onExit={onExit}
       onPartComplete={onPartComplete}
       onQuizComplete={onQuizComplete}
+      onGradeAssessment={assessmentGrader}
+      pythonJudge={runPythonJudge}
+      pythonSubmitRun={pythonSubmitRun}
+      assessmentMetadata={assessmentMetadata}
+      examMode={examMode}
       onReplay={replay}
       onRedoMissed={redoMissed}
       onReviewMasteryReached={onReviewMasteryReached}
+      onReviewLesson={strikeRetakeSupported ? handleReviewLesson : undefined}
+      onForceRetake={strikeRetakeSupported ? handleForceRetake : undefined}
+      enableStrikeRetake={strikeRetakeSupported}
       embedded={embedded}
+      stash={stash}
+      tutor={examMode ? null : tutor}
     />
   )
 }
@@ -608,6 +802,7 @@ function RoundShell({
 
 export function LessonRound({
   lesson,
+  fullLessonOverride,
   section,
   isReview,
   learnPart = null,
@@ -624,12 +819,24 @@ export function LessonRound({
   onExit,
   onPartComplete,
   onQuizComplete,
+  onGradeAssessment,
+  pythonJudge,
+  pythonSubmitRun,
+  assessmentMetadata,
+  examMode = false,
   onReplay,
   onRedoMissed,
   onReviewMasteryReached,
+  onReviewLesson,
+  onForceRetake,
+  enableStrikeRetake = false,
   embedded,
+  stash,
+  tutor,
 }: {
   lesson: Lesson
+  /** Full compiled lesson before its teach/quiz section is sliced. */
+  fullLessonOverride?: Lesson
   section: CourseSection
   isReview: boolean
   /** 0-based part index when the learn section is split; null = full lesson. */
@@ -647,16 +854,41 @@ export function LessonRound({
   onExit: () => void
   onPartComplete?: (part: number, final: boolean) => void
   onQuizComplete?: (result?: LessonResult) => void
+  onGradeAssessment?: GradeAssessment
+  /** Shared judge client — powers the pre-submit "Run code" IDE action. */
+  pythonJudge?: PythonJudgeRunner
+  /** Latest graded Python submission, for the post-submit case breakdown. */
+  pythonSubmitRun?: { assessmentId: string; result: PythonJudgeRunResult } | null
+  assessmentMetadata?: Readonly<Record<string, JsonValue>>
+  /** Deferred-feedback exam mode — see LessonRunner. */
+  examMode?: boolean
   onReplay: () => void
   onRedoMissed: (ids: string[]) => void
   onReviewMasteryReached: () => void
+  /** Per-miss "review the lesson" navigation (normal quizzes only). */
+  onReviewLesson?: () => void
+  /** Forced full retake after 3 consecutive misses (normal quizzes only). */
+  onForceRetake?: () => void
+  /** Turns on the 3-strikes forced-retake rule for this round. */
+  enableStrikeRetake?: boolean
   embedded?: boolean
+  /** In-flight mission state that survives a tab close (see missionStash). */
+  stash?: MissionStashHandle | null
+  /** Enables the AI tutor drawer (already gated upstream for exam modes). */
+  tutor?: { title: string } | null
 }) {
   const isPart = learnPart != null && section === 'learn' && !isReview
-  const { isGuest } = useAuth()
+  const { isGuest, isShowcaseAccount } = useAuth()
   const { addXp } = usePlayerLevel()
-  const { getLessonProgress, recordConceptResult } = useProgress()
-  const fullLesson = useMemo(() => generateLesson(lesson.id)!, [lesson.id])
+  const {
+    getLessonProgress,
+    recordConceptResult,
+    recordLearningAttempt,
+  } = useProgress()
+  const fullLesson = useMemo(
+    () => fullLessonOverride ?? generateLesson(lesson.id)!,
+    [fullLessonOverride, lesson.id],
+  )
   const savedProgress = getLessonProgress(lesson.id) ?? initial
   // Parts always start at the top of their slice — global resume indices don't
   // map onto a sliced lesson.
@@ -866,23 +1098,124 @@ export function LessonRound({
     ? reviewResumeFrameIndex(savedProgress)
     : sectionResumeFrameIndex(savedProgress ?? initial, section)
 
+  // ---- Mission stash: restore the in-flight draft that LessonProgress
+  // deliberately doesn't hold (current step's answer / editor code + tutor
+  // chat). Loaded once per round; only applied when it names the exact step
+  // the engine is about to resume, so it can never desync grading.
+  const [stashSnapshot] = useState(() =>
+    stash && !isReview ? stash.load() : null,
+  )
+  const engineStartIndex =
+    !isGuest && (isReview || resumeIndex != null)
+      ? (sectionInitial?.currentStepIndex ?? 0)
+      : 0
+  const restoredResponse =
+    stashSnapshot &&
+    stashSnapshot.section === section &&
+    stashSnapshot.stepIndex === engineStartIndex
+      ? stashSnapshot.response
+      : null
+  const tutorMessagesRef = useRef<TutorChatMessage[]>(stashSnapshot?.tutor ?? [])
+
+  const handleAssessmentAttempt = useCallback(
+    async (attempt: AssessmentAttemptInfo) => {
+      const lessonStep = lesson.steps.find(({ id }) => id === attempt.stepId)
+      const contentRef = lessonStep?.contentRef ?? lesson.contentRef
+      const problemId =
+        contentRef?.problemId ??
+        lessonProblemId({
+          lessonId: lesson.id,
+          stepId: attempt.stepId,
+          masteryId: attempt.masteryId,
+          frameIndex: attempt.frameIndex,
+        })
+      const skillIds =
+        attempt.assessment.skillIds ??
+        lessonStep?.skillIds ??
+        lesson.skillIds ??
+        []
+      const evidenceKinds = assessmentEvidenceKinds(attempt.assessment)
+
+      return recordLearningAttempt({
+        interactionId: attempt.interactionId,
+        source: isReview
+          ? 'lesson-review'
+          : section === 'learn'
+            ? 'lesson-learn'
+            : 'lesson-quiz',
+        problemId,
+        skillIds,
+        lessonId: lesson.id,
+        stepId: attempt.stepId,
+        frameIndex: attempt.frameIndex,
+        attemptNumber: attempt.serializedAttempt.attemptNumber,
+        isCorrect: attempt.result.isCorrect,
+        resolved: attempt.resolved,
+        firstTryCorrect:
+          attempt.firstTry &&
+          !attempt.usedHint &&
+          attempt.result.isCorrect,
+        usedHint: attempt.usedHint,
+        revealed: attempt.serializedAttempt.revealed,
+        responseMs: Math.round(attempt.responseMs),
+        submittedAnswer: toJsonValue(attempt.response),
+        expectedAnswer: attempt.result.expectedResponse,
+        metadata: {
+          assessmentId: attempt.assessmentId,
+          masteryId: attempt.masteryId,
+          assessmentKind: attempt.assessment.kind,
+          evidenceKind: attempt.assessment.evidenceKind,
+          evidenceKinds,
+          ...(assessmentMetadata ?? {}),
+          ...(attempt.frameId ? { frameId: attempt.frameId } : {}),
+        },
+      })
+    },
+    [
+      assessmentMetadata,
+      isReview,
+      lesson,
+      recordLearningAttempt,
+      section,
+    ],
+  )
+
   const engine = useLessonEngine(lesson, {
     section,
     initialProgress: sectionInitial,
     initialFrameIndex:
       !isGuest && (isReview || resumeIndex != null) ? resumeFrameIndex : 0,
     resume: !isGuest && (isReview || resumeIndex != null),
+    initialAssessmentResponse: restoredResponse,
     completeAsLesson: section === 'quiz' && !isReview,
+    examMode,
+    enableStrikeRetake,
     reviewMode: isReview
       ? { onStepCleared: handleReviewStepCleared }
       : undefined,
     onSave: handleSave,
     onAttempt,
+    onGradeAssessment,
+    onAssessmentAttempt: handleAssessmentAttempt,
     onCorrect: ({ firstTry, responseMs }) => addXp(answerXp(true, firstTry, responseMs)),
     onConceptResult: recordConceptResult,
   })
 
   engineRef.current = engine
+
+  // Showcase-account dev bypass: one click finishes the whole quiz as a
+  // perfect run with real persisted evidence, so every downstream gate
+  // (mission practice, retention, mastery) records normally.
+  const [skippingQuiz, setSkippingQuiz] = useState(false)
+  const handleSkipQuiz = async () => {
+    if (skippingQuiz) return
+    setSkippingQuiz(true)
+    try {
+      await engine.skipQuiz()
+    } finally {
+      setSkippingQuiz(false)
+    }
+  }
 
   // Boss mode: the moment the quiz section is finished, jump straight to the
   // fight — no review loop, no "next lesson" completion screen. Beating the boss
@@ -1026,6 +1359,99 @@ export function LessonRound({
     }
   }, [isReview, persistReviewProgress])
 
+  // ---- Mission stash writes: debounce keystroke-level changes, flush on tab
+  // hide/close and on unmount, so the in-flight draft survives leaving.
+  const stashRef = useRef(stash ?? null)
+  stashRef.current = stash ?? null
+  const writeStash = useCallback(() => {
+    const store = stashRef.current
+    const eng = engineRef.current
+    if (!store || !eng || isReview || eng.isComplete) return
+    store.save({
+      section,
+      stepIndex: eng.stepIndex,
+      response: eng.assessmentResponse,
+      tutor: tutorMessagesRef.current,
+    })
+  }, [isReview, section])
+
+  useEffect(() => {
+    if (!stash || isReview || engine.isComplete) return
+    const timer = setTimeout(writeStash, 600)
+    return () => clearTimeout(timer)
+  }, [
+    stash,
+    isReview,
+    writeStash,
+    engine.assessmentResponse,
+    engine.stepIndex,
+    engine.isComplete,
+  ])
+
+  useEffect(() => {
+    if (!stash) return
+    const flush = () => writeStash()
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('visibilitychange', onHide)
+    window.addEventListener('pagehide', flush)
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      window.removeEventListener('visibilitychange', onHide)
+      window.removeEventListener('pagehide', flush)
+      window.removeEventListener('beforeunload', flush)
+      flush()
+    }
+  }, [stash, writeStash])
+
+  // Section finished: the draft is spent. A finished learn section rolls the
+  // stash forward (tutor chat continues into the quiz); a finished quiz run
+  // clears it — the mission flow also clears once evidence records.
+  useEffect(() => {
+    const store = stashRef.current
+    if (!store || !engine.isComplete || isReview) return
+    if (section === 'learn') {
+      store.save({
+        section: 'quiz',
+        stepIndex: 0,
+        response: null,
+        tutor: tutorMessagesRef.current,
+      })
+    } else {
+      store.clear()
+    }
+  }, [engine.isComplete, isReview, section])
+
+  // ---- Tutor: context is read fresh at question time (current step prompt,
+  // editor code, latest run verdict from the workbench mailbox).
+  const handleTutorMessages = useCallback(
+    (messages: TutorChatMessage[]) => {
+      tutorMessagesRef.current = messages
+      writeStash()
+    },
+    [writeStash],
+  )
+
+  const tutorTitle = tutor?.title ?? fullLesson.title
+  const buildTutorContext = useCallback((): TutorProblemContext => {
+    const eng = engineRef.current
+    const step = eng?.displayStep
+    const assessment = step?.assessment
+    const parts: string[] = []
+    if (step?.prompt) parts.push(step.prompt)
+    if (assessment?.kind === 'pythonCode') {
+      parts.push(describePythonAssessmentForTutor(assessment))
+    }
+    const response = eng?.assessmentResponse
+    return {
+      problemTitle: tutorTitle,
+      problemStatement: parts.join('\n\n'),
+      code: response?.kind === 'pythonCode' ? response.code : null,
+      runSummary: readTutorRun(assessment?.id ?? null),
+    }
+  }, [tutorTitle])
+
   const completionSaved = useRef(false)
   useEffect(() => {
     if (!engine.isComplete || !engine.result || completionSaved.current) return
@@ -1166,7 +1592,11 @@ export function LessonRound({
     onQuizComplete,
   ])
 
-  const tiles = useMemo(() => genTiles(engine.displayStep), [engine.displayStep])
+  const tiles = useMemo(
+    () =>
+      engine.displayStep.assessment ? [] : genTiles(engine.displayStep),
+    [engine.displayStep],
+  )
   const pageClass = section === 'learn' ? 'lp lp-learn' : 'lp lp-quiz'
 
   const returningToCity =
@@ -1281,6 +1711,7 @@ export function LessonRound({
             type="button"
             className="lp-exit"
             aria-label="Exit to course"
+            disabled={engine.isGrading}
             onClick={onExit}
           >
             <IconArrowLeft size={18} />
@@ -1311,9 +1742,20 @@ export function LessonRound({
             <button
               type="button"
               className="btn ghost sm lp-restart-quiz"
+              disabled={engine.isGrading}
               onClick={onReplay}
             >
               Restart quiz
+            </button>
+          )}
+          {isShowcaseAccount && (section === 'quiz' || isReview) && (
+            <button
+              type="button"
+              className="btn ghost sm lp-skip-quiz"
+              disabled={engine.isGrading || skippingQuiz}
+              onClick={() => void handleSkipQuiz()}
+            >
+              {skippingQuiz ? 'Skipping…' : 'Skip quiz'}
             </button>
           )}
         </div>
@@ -1342,9 +1784,22 @@ export function LessonRound({
             tiles={tiles}
             lessonStepCount={lesson.steps.length}
             isReview={isReview}
+            examMode={examMode}
+            pythonJudge={pythonJudge}
+            pythonSubmitRun={pythonSubmitRun}
+            onReviewLesson={onReviewLesson}
+            onForceRetake={onForceRetake}
           />
         )}
       </main>
+
+      {tutor && !examMode && (
+        <TutorPanel
+          getContext={buildTutorContext}
+          initialMessages={tutorMessagesRef.current}
+          onMessagesChange={handleTutorMessages}
+        />
+      )}
     </RoundShell>
   )
 }
@@ -1685,14 +2140,32 @@ function StepView({
   tiles,
   lessonStepCount,
   isReview,
+  examMode = false,
+  pythonJudge,
+  pythonSubmitRun,
+  onReviewLesson,
+  onForceRetake,
 }: {
   section: CourseSection
   engine: ReturnType<typeof useLessonEngine>
   tiles: (number | string)[]
   lessonStepCount: number
   isReview?: boolean
+  /** Deferred-feedback exam: no hints, no verdicts, auto-advance when solved. */
+  examMode?: boolean
+  pythonJudge?: PythonJudgeRunner
+  pythonSubmitRun?: { assessmentId: string; result: PythonJudgeRunResult } | null
+  /** Send the learner to the teaching content and back (per-miss review box). */
+  onReviewLesson?: () => void
+  /** Forced full lesson retake after 3 consecutive misses on this question. */
+  onForceRetake?: () => void
 }) {
   const { step, displayStep, phase, frameIndex, frameCount, isTrace, progressCurrent, progressTotal } = engine
+  // Demo-only escape hatch: the showcase account may skip any question.
+  const { isShowcaseAccount } = useAuth()
+  // A pre-submit "Run code" shares the judge worker with grading — lock the
+  // Check button while it runs so the two can never race.
+  const [pythonRunning, setPythonRunning] = useState(false)
   const prevDiagramRef = useRef<{ stepId: string; diagram?: DiagramSpec }>({
     stepId: '',
   })
@@ -1711,16 +2184,43 @@ function StepView({
   )
   const isLearn = section === 'learn'
   // Quizzes are one-way: no going back to a previous slide once you're in.
-  const allowPrev = isLearn && engine.canGoPrev
+  const allowPrev = isLearn && engine.canGoPrev && !engine.isGrading
   const isCheckpoint = step.type === 'lessonPractice'
   const isLineRun = stepUsesLineRun(step)
   const directAnswer = isDirectAnswer(displayStep.type)
-  const tileOnly = isTileOnlyStep(displayStep)
+  const hasAssessment = !!displayStep.assessment
+  const isPythonAssessment = displayStep.assessment?.kind === 'pythonCode'
+  // Post-submit breakdown: only once this attempt is actually graded, only for
+  // this assessment, and never in exam mode (verdicts are deferred there).
+  const gradedStatus = engine.assessmentResult?.status
+  const pythonSubmitResult =
+    !examMode &&
+    isPythonAssessment &&
+    (gradedStatus === 'correct' || gradedStatus === 'incorrect') &&
+    pythonSubmitRun != null &&
+    pythonSubmitRun.assessmentId === displayStep.assessment?.id
+      ? pythonSubmitRun.result
+      : null
+  const tileOnly = !hasAssessment && isTileOnlyStep(displayStep)
+  const hints = displayStep.hints ?? step.hints
+  const hintUnlockAttempt = step.hintPolicy?.availableAfterAttempts ?? 0
+  const hintsLocked = engine.stepAttempts < hintUnlockAttempt
   const isLastStep = engine.stepIndex === lessonStepCount - 1
   const isLastFrame = !isTrace || frameIndex >= frameCount - 1
   const isLast = isLastStep && isLastFrame
   const revealed = phase === 'solved' && engine.answerRevealed
   const globalStep = Math.min(progressCurrent + 1, progressTotal)
+  // Per-miss "review the lesson" affordance and the 3-strikes forced retake are
+  // normal-quiz-only. Exam mode and the missed-question review loop never show
+  // them (the engine also hard-gates `forcedRetake`).
+  const canReviewLesson =
+    !examMode && !isReview && section === 'quiz' && !!onReviewLesson
+  const showForcedRetake = engine.forcedRetake && !!onForceRetake
+  const showReviewPrompt =
+    canReviewLesson &&
+    !showForcedRetake &&
+    phase === 'answering' &&
+    engine.feedback?.kind === 'incorrect'
 
   const frame = step.traceFrames?.[frameIndex]
   const runLabel = frame?.runLabel ?? (isLineRun ? 'Run line' : 'Try it')
@@ -1728,7 +2228,9 @@ function StepView({
     .map((t) => engine.boxValues[t]?.trim())
     .filter((v): v is string => !!v)
   const tileOnlyAnswer = engine.boxValues.answer ?? ''
-  const readyHint = isCheckpoint
+  const readyHint = examMode
+    ? 'Exam rules: one attempt per question, no hints. Results come at the end.'
+    : isCheckpoint
     ? `Practice check — ${2 - engine.stepAttempts} ${engine.stepAttempts === 0 ? 'tries' : 'try'} left, no hints.`
     : directAnswer
     ? 'Pick the best answer — use what you just learned.'
@@ -1769,7 +2271,7 @@ function StepView({
         </div>
       )}
 
-      {step.code.length > 0 && (
+      {step.code.length > 0 && !isPythonAssessment && (
         <CodePanel
           code={step.code}
           currentLineIndex={displayStep.currentLineIndex}
@@ -1791,11 +2293,14 @@ function StepView({
         </div>
       )}
 
-      {step.hints && step.hints.length > 0 && phase === 'answering' && (
+      {!examMode && hints && hints.length > 0 && phase === 'answering' && (
         <HintPanel
           key={`${engine.stepIndex}-${frameIndex}`}
-          hints={step.hints}
+          hints={hints}
           autoReveal={engine.stepAttempts >= 1 ? 1 : 0}
+          disabled={hintsLocked}
+          disabledMessage="Hints unlock after the first miss."
+          onReveal={engine.markHintUsed}
         />
       )}
 
@@ -1818,20 +2323,37 @@ function StepView({
         </div>
       )}
 
-      {(phase === 'answering' || phase === 'solved') && (
+      {(phase === 'answering' || phase === 'grading' || phase === 'solved') && (
         <div
           className="stage-reveal answer-stage"
           key={`answer-${engine.stepIndex}-${frameIndex}-${phase}`}
         >
           <p className="stage-question">{displayStep.prompt}</p>
 
-          {isCheckpoint && phase === 'answering' && (
+          {isCheckpoint && !examMode && phase === 'answering' && (
             <p className="stage-hint muted">
               {engine.stepAttempts === 0 ? '2 tries · no hints' : '1 try left · no hints'}
             </p>
           )}
 
-          {revealed && tileOnly ? (
+          {hasAssessment && displayStep.assessment && engine.assessmentResponse ? (
+            <AssessmentInput
+              assessment={displayStep.assessment}
+              response={engine.assessmentResponse}
+              activeFrameIndex={frameIndex}
+              disabled={phase === 'grading' || phase === 'solved'}
+              onChange={engine.setAssessmentResponse}
+              python={
+                isPythonAssessment
+                  ? {
+                      runJudge: pythonJudge,
+                      submitResult: pythonSubmitResult,
+                      onRunningChange: setPythonRunning,
+                    }
+                  : undefined
+              }
+            />
+          ) : revealed && tileOnly ? (
             <AnswerRevealCard answer={formatStepAnswer(displayStep)} />
           ) : tileOnly && phase === 'answering' ? (
             <AnswerChoiceSlot value={tileOnlyAnswer} />
@@ -1852,23 +2374,48 @@ function StepView({
             <SpeedBadgeFlash tier={engine.lastStepBadge} />
           )}
 
-          {engine.feedback && <FeedbackPanel feedback={engine.feedback} />}
+          {engine.feedback && !showForcedRetake && (
+            <FeedbackPanel feedback={engine.feedback} />
+          )}
 
-          {phase === 'answering' ? (
+          {showReviewPrompt && onReviewLesson && (
+            <ReviewLessonPrompt onReview={onReviewLesson} />
+          )}
+
+          {showForcedRetake && onForceRetake ? (
+            <ForcedRetakePrompt onRetake={onForceRetake} />
+          ) : phase === 'answering' || phase === 'grading' ? (
             <div className="stack-center answer-controls">
-              <AnswerTiles
-                tiles={tiles}
-                disabled={false}
-                selectedValue={tileOnly ? tileOnlyAnswer : null}
-                selectedValues={tileOnly ? undefined : selectedTileValues}
-                onPick={engine.fillActive}
-              />
+              {!hasAssessment && (
+                <AnswerTiles
+                  tiles={tiles}
+                  disabled={phase === 'grading'}
+                  selectedValue={tileOnly ? tileOnlyAnswer : null}
+                  selectedValues={tileOnly ? undefined : selectedTileValues}
+                  onPick={engine.fillActive}
+                />
+              )}
               <button
+                type="button"
                 className="btn lg full"
-                disabled={!engine.allFilled}
-                onClick={engine.check}
+                disabled={
+                  phase === 'grading' ||
+                  pythonRunning ||
+                  (hasAssessment
+                    ? !engine.assessmentComplete
+                    : !engine.allFilled)
+                }
+                onClick={
+                  hasAssessment
+                    ? () => void engine.checkAssessment()
+                    : engine.check
+                }
               >
-                Check
+                {phase === 'grading'
+                  ? 'Checking…'
+                  : isPythonAssessment
+                    ? 'Submit'
+                    : 'Check'}
               </button>
               {allowPrev && (
                 <button
@@ -1880,6 +2427,12 @@ function StepView({
                   Previous slide
                 </button>
               )}
+            </div>
+          ) : examMode ? (
+            <div className="exam-locked" role="status">
+              <span className="exam-locked-dot" aria-hidden="true" />
+              Answer locked in
+              {isLast ? ' — scoring your exam…' : ' — next question…'}
             </div>
           ) : (
             <LessonSlideNav
@@ -1903,6 +2456,17 @@ function StepView({
                 engine.answerRevealed ? 'ghost' : isLearn ? 'learn-continue lime' : 'lime'
               }`}
             />
+          )}
+
+          {isShowcaseAccount && phase !== 'solved' && (
+            <button
+              type="button"
+              className="lp-skip-step"
+              disabled={phase === 'grading' || pythonRunning}
+              onClick={() => void engine.skipStep()}
+            >
+              Skip (demo)
+            </button>
           )}
         </div>
       )}

@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { ThresholdScene, type ThresholdSceneHandle } from '../components/game3d/ThresholdScene'
+import { Loader } from '../components/Loader'
+import { useAuth } from '../context/AuthContext'
 import { useProgress } from '../context/ProgressContext'
 import { startCinematicMusic, stopCinematicMusic } from '../lib/cinematicMusic'
+import { resolveThresholdAccessWithShowcase } from '../lib/showcaseOverride'
 import { playClick } from '../lib/soundFx'
 import {
   THRESHOLD_TITLE,
@@ -33,7 +36,13 @@ type Phase = 'travel' | 'gate' | 'entering'
 
 export default function ThresholdPage() {
   const navigate = useNavigate()
-  const { allLessonsComplete, completeInterZone } = useProgress()
+  const { isShowcaseAccount } = useAuth()
+  const { ready, academyCampaignComplete, completeInterZone } = useProgress()
+  const access = resolveThresholdAccessWithShowcase(
+    isShowcaseAccount,
+    ready,
+    academyCampaignComplete,
+  )
 
   const sceneRef = useRef<ThresholdSceneHandle>(null)
   const [phase, setPhase] = useState<Phase>('travel')
@@ -46,20 +55,22 @@ export default function ThresholdPage() {
 
   // Score the crossing with the ethereal cue (respects the global mute).
   useEffect(() => {
+    if (access.status !== 'allowed') return
     startCinematicMusic('threshold')
     return () => stopCinematicMusic()
-  }, [])
+  }, [access.status])
 
   // Timed title-card fade + synced captions during the flythrough. Cleared on
   // unmount so timers never fire against a stale component.
   useEffect(() => {
+    if (access.status !== 'allowed') return
     const timers: ReturnType<typeof setTimeout>[] = []
     timers.push(setTimeout(() => setTitleVisible(false), TITLE_HOLD_MS))
     THRESHOLD_CAPTIONS.forEach((cap, i) => {
       timers.push(setTimeout(() => setCaptionIdx(i), cap.atMs ?? 0))
     })
     return () => timers.forEach(clearTimeout)
-  }, [])
+  }, [access.status])
 
   function handleArrive() {
     if (arrivedRef.current) return
@@ -97,8 +108,13 @@ export default function ThresholdPage() {
     navigate('/final/exam', { replace: true })
   }
 
-  // Only reachable after every world (incl. VEX) is mastered. Replays allowed.
-  if (!allLessonsComplete) return <Navigate to="/quest" replace />
+  // Only redirect once durable progress has finished hydrating.
+  if (access.status === 'loading') {
+    return <Loader label="Restoring Threshold progress" night />
+  }
+  if (access.status === 'redirect') {
+    return <Navigate to={access.to} replace />
+  }
 
   const caption = captionIdx >= 0 ? THRESHOLD_CAPTIONS[captionIdx] : null
 

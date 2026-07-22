@@ -629,10 +629,6 @@ export function isMuted(): boolean {
   }
 }
 
-export function isPlaying(): boolean {
-  return playing
-}
-
 export function startMusic() {
   if (playing || isMuted()) return
   try {
