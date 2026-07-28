@@ -12,13 +12,13 @@ export function AiTutorPanel({ context }: { context: TutorContext }) {
   const [history, setHistory] = useState<TutorTurn[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [offline, setOffline] = useState(false)
+  const [offline, setOffline] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Reset the conversation when the question changes.
   useEffect(() => {
     setHistory([])
-    setOffline(false)
+    setOffline(null)
   }, [context.prompt])
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export function AiTutorPanel({ context }: { context: TutorContext }) {
     setInput('')
     setLoading(true)
     const reply = await askTutor(context, history, text)
-    setOffline(!reply.online)
+    setOffline(reply.online ? null : (reply.reason ?? 'unknown reason'))
     setHistory([...nextHistory, { role: 'tutor', text: reply.text }])
     setLoading(false)
   }
@@ -51,7 +51,14 @@ export function AiTutorPanel({ context }: { context: TutorContext }) {
             {context.answered ? 'Ask me to explain it' : "I'll nudge, not spoil"}
           </span>
         </div>
-        {offline && <span className="tutor-badge" title="Running on built-in hints">offline</span>}
+        {offline && (
+          <span
+            className="tutor-badge"
+            title={`Running on built-in hints — ${offline}`}
+          >
+            offline
+          </span>
+        )}
       </div>
 
       <div className="tutor-log" ref={scrollRef}>

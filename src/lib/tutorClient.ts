@@ -1,18 +1,25 @@
 import type { TutorChatMessage } from './missionStash'
 
 /* ============================================================================
-   AI tutor client — an OpenAI-compatible chat-completions caller.
+   AI tutor client — an OpenAI-compatible chat-completions caller with two
+   transports:
 
-   ⚠️ DEPLOYMENT SAFETY: everything configured here (including the API key)
-   comes from VITE_ env vars, which Vite BAKES INTO THE CLIENT BUNDLE. This
-   wiring is for LOCAL/PERSONAL use only. A public deployment must move the
-   key behind a server-side proxy (same pattern as the phonics project's
-   Vercel proxy) and point VITE_TUTOR_BASE_URL at that proxy instead.
-   See README "AI tutor".
+   • 'direct' — a VITE_TUTOR_API_KEY is present, so the browser talks to the
+     gateway itself and replies stream token-by-token. Vite BAKES VITE_ vars
+     into the client bundle, so this is for LOCAL/PERSONAL use only: never set
+     VITE_TUTOR_API_KEY on a public host.
+
+   • 'proxy' — no client key, but Supabase is configured, so requests go to the
+     `ai-tutor` edge function which holds the provider key server-side. This is
+     the deployment path: nothing secret ends up in the bundle. Non-streaming
+     (the function returns one completed reply).
+
+   Neither available → 'none', and the tutor UI collapses to a subtle
+   "unavailable" affordance. See README "AI tutor".
 
    The client is dependency-injected (fetch + env) so tests exercise context
-   assembly, the unconfigured state, streaming, and error mapping without a
-   network.
+   assembly, both transports, the unconfigured state, streaming, and error
+   mapping without a network.
    ========================================================================== */
 
 export const TUTOR_DEFAULT_BASE_URL = 'https://gateway.truefoundry.ai'
@@ -22,12 +29,21 @@ export type TutorEnv = {
   VITE_TUTOR_BASE_URL?: string
   VITE_TUTOR_MODEL?: string
   VITE_TUTOR_API_KEY?: string
+  VITE_SUPABASE_URL?: string
+  VITE_SUPABASE_ANON_KEY?: string
 }
 
+export type TutorTransport = 'direct' | 'proxy' | 'none'
+
 export type TutorConfig = {
+  transport: TutorTransport
   baseUrl: string
   model: string
   apiKey: string | null
+  /** `ai-tutor` edge-function endpoint; set when transport is 'proxy'. */
+  proxyUrl: string | null
+  /** Supabase anon/publishable key — public by design. */
+  proxyKey: string | null
 }
 
 function defaultEnv(): TutorEnv {
@@ -44,16 +60,25 @@ export function tutorConfig(env?: TutorEnv): TutorConfig {
     /\/+$/,
     '',
   )
+  const apiKey = e.VITE_TUTOR_API_KEY || null
+  const supabaseUrl = (e.VITE_SUPABASE_URL || '').replace(/\/+$/, '')
+  const proxyKey = e.VITE_SUPABASE_ANON_KEY || null
+  const canProxy = supabaseUrl.length > 0 && !!proxyKey
+
   return {
+    // A local key wins so `npm run dev` keeps its streaming replies.
+    transport: apiKey ? 'direct' : canProxy ? 'proxy' : 'none',
     baseUrl,
     model: e.VITE_TUTOR_MODEL || TUTOR_DEFAULT_MODEL,
-    apiKey: e.VITE_TUTOR_API_KEY || null,
+    apiKey,
+    proxyUrl: canProxy ? `${supabaseUrl}/functions/v1/ai-tutor` : null,
+    proxyKey: canProxy ? proxyKey : null,
   }
 }
 
-/** No key → the tutor UI collapses to a subtle "unavailable" affordance. */
+/** No usable transport → the tutor UI collapses to an "unavailable" affordance. */
 export function isTutorConfigured(env?: TutorEnv): boolean {
-  return !!tutorConfig(env).apiKey
+  return tutorConfig(env).transport !== 'none'
 }
 
 /* ------------------------------------------------------- prompt assembly -- */
@@ -178,8 +203,11 @@ export async function requestTutorReply(
   options: TutorRequestOptions = {},
 ): Promise<string> {
   const config = tutorConfig(options.env)
-  if (!config.apiKey) {
+  if (config.transport === 'none') {
     throw new TutorRequestError('Tutor is not configured', null)
+  }
+  if (config.transport === 'proxy') {
+    return requestViaProxy(config, messages, options)
   }
   const doFetch = options.fetchImpl ?? fetch
   const response = await doFetch(`${config.baseUrl}/v1/chat/completions`, {
@@ -213,6 +241,53 @@ export async function requestTutorReply(
     choices?: { message?: { content?: string } }[]
   }
   const content = payload.choices?.[0]?.message?.content ?? ''
+  if (content && options.onDelta) options.onDelta(content)
+  return content
+}
+
+/**
+ * Deployment path: the `ai-tutor` edge function answers with one finished
+ * reply, so there is nothing to stream — the whole text is handed to `onDelta`
+ * at once and the UI renders it in a single frame.
+ */
+async function requestViaProxy(
+  config: TutorConfig,
+  messages: TutorWireMessage[],
+  options: TutorRequestOptions,
+): Promise<string> {
+  const doFetch = options.fetchImpl ?? fetch
+  const response = await doFetch(config.proxyUrl as string, {
+    method: 'POST',
+    signal: options.signal,
+    headers: {
+      apikey: config.proxyKey as string,
+      Authorization: `Bearer ${config.proxyKey as string}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ messages }),
+  })
+
+  if (!response.ok) {
+    // The function forwards the provider's own message in `detail`; surfacing
+    // it here is what makes a misconfigured deployment diagnosable at all.
+    let detail = ''
+    try {
+      const body = (await response.json()) as {
+        error?: string
+        detail?: string
+      }
+      detail = [body.error, body.detail].filter(Boolean).join(': ')
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new TutorRequestError(
+      `Tutor proxy failed (${response.status})${detail ? `: ${detail}` : ''}`,
+      response.status,
+    )
+  }
+
+  const payload = (await response.json()) as { reply?: string }
+  const content = payload.reply ?? ''
   if (content && options.onDelta) options.onDelta(content)
   return content
 }

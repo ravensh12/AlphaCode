@@ -83,29 +83,65 @@ limits are enforced by terminating the worker, while the content-authored
 memory limit is advisory because WebAssembly does not provide a reliable
 per-run memory quota here.
 
-## AI tutor (local setup)
+## AI tutor
 
-Mission pages include a collapsible AI tutor drawer (Socratic hints; it never
-dumps solutions unless the learner insists after a hint). It talks to any
-OpenAI-compatible chat-completions endpoint, configured via env vars:
+Mission pages include a collapsible AI tutor drawer, and review/exam screens
+include "Bit" (Socratic hints; neither dumps solutions unless the learner
+insists after a hint). Both talk to an OpenAI-compatible chat-completions
+endpoint over one of two transports, chosen automatically:
 
-- `VITE_TUTOR_BASE_URL` — default `https://gateway.truefoundry.ai`
-- `VITE_TUTOR_MODEL` — default `openai-group/gpt-5.4-mini`
-- `VITE_TUTOR_API_KEY` — no default; without it the tutor shows a friendly
-  "not plugged in" note behind a subtle button.
+| Transport | Chosen when | Streams | Key location |
+| --- | --- | --- | --- |
+| direct | `VITE_TUTOR_API_KEY` is set | yes | client bundle — **local only** |
+| proxy | Supabase is configured and there is no client key | no | Supabase secret |
 
-Put the key in `.env.local` (git-ignored — never commit it):
+With neither available the tutor shows a friendly "not plugged in" note behind a
+subtle button.
+
+### Local (direct)
+
+Put a key in `.env.local` (git-ignored — never commit it):
 
 ```bash
 # .env.local
 VITE_TUTOR_API_KEY=tfy_...
+# optional overrides
+#VITE_TUTOR_BASE_URL=https://gateway.truefoundry.ai
+#VITE_TUTOR_MODEL=openai-group/gpt-5.4-mini
 ```
 
-> ⚠️ **Deploy safety:** `VITE_` vars are **baked into the client bundle** at
-> build time. This wiring is for LOCAL/personal use only. A public deployment
-> must keep the key server-side behind a proxy (same pattern as the phonics
-> project's Vercel proxy) and point `VITE_TUTOR_BASE_URL` at that proxy with
-> no `VITE_TUTOR_API_KEY` in the build.
+> ⚠️ **Never set `VITE_TUTOR_API_KEY` on a public host.** `VITE_` vars are baked
+> into the client bundle at build time, so the key would be readable by anyone
+> who opens devtools. Deployments use the proxy transport instead.
+
+### Deployed (proxy)
+
+The `ai-tutor` edge function holds the provider key server-side, so a deployment
+needs **no tutor `VITE_` vars at all** — just the two Supabase ones. Configure it
+with Supabase secrets (these never enter a build):
+
+```sh
+supabase secrets set AI_TUTOR_API_KEY=...                          # required
+supabase secrets set AI_TUTOR_BASE_URL=https://gateway.truefoundry.ai  # default api.openai.com
+supabase secrets set AI_TUTOR_MODEL=openai-group/gpt-5.4-mini       # default gpt-4o-mini
+npm run ai:deploy   # supabase functions deploy ai-tutor --no-verify-jwt
+```
+
+`OPENAI_API_KEY` is still honoured as a legacy key name. `AI_TUTOR_TEMPERATURE`
+and `AI_TUTOR_MAX_TOKENS` are optional and omitted by default, since some models
+reject them.
+
+Check a deployment without spending a token — `GET` returns the resolved config
+(never the key):
+
+```sh
+curl -s "$VITE_SUPABASE_URL/functions/v1/ai-tutor" -H "apikey: $VITE_SUPABASE_ANON_KEY"
+# {"ok":true,"hasKey":true,"baseUrl":"https://...","model":"..."}
+```
+
+If the tutor answers with canned hints and an `offline` badge, the browser
+console carries the reason (`[ai-tutor] offline hints: …`), including the
+provider's own error text.
 
 ## Deploy
 
@@ -113,13 +149,17 @@ The app is a static SPA, so any static host works. Both options below include a
 catch-all rewrite to `index.html` so client-side routes (e.g. `/lesson/...`)
 survive a hard refresh.
 
-Set these environment variables in your host's dashboard (same values as
-`.env.local`):
+Set these environment variables in your host's dashboard — and only these. The
+tutor's provider key belongs in a Supabase secret, not here (see
+[AI tutor](#ai-tutor)):
 
 ```sh
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
+
+`VITE_` vars are inlined at build time, so changing any of them requires a
+**redeploy** — an env-var edit alone does not affect the already-built bundle.
 
 **Vercel** — import the repo (build command `npm run build`, output `dist`).
 [`vercel.json`](vercel.json) handles SPA routing. Or from the CLI:

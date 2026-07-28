@@ -36,6 +36,8 @@ export type TutorReply = {
   text: string
   /** True when the answer came from the live model; false for the offline fallback. */
   online: boolean
+  /** Why the fallback kicked in — shown on the "offline" badge, and logged. */
+  reason?: string
 }
 
 const SYSTEM_PROMPT = `You are "Bit", a warm, encouraging coding tutor inside a learning game for beginners.
@@ -55,13 +57,39 @@ function offlineFallback(ctx: TutorContext): string {
   return `Let's think it through together. ${ctx.hint} What does that tell you about the very next step?`
 }
 
+/**
+ * `functions.invoke` rejects with a FunctionsHttpError whose readable body sits
+ * on `context` (a Response). Without unwrapping it, a broken deployment looks
+ * identical to a missing one — both just say "FunctionsHttpError".
+ */
+async function describeInvokeError(error: unknown): Promise<string> {
+  const context = (error as { context?: unknown } | null)?.context
+  if (context instanceof Response) {
+    const status = context.status
+    try {
+      const body = (await context.clone().json()) as {
+        error?: string
+        detail?: string
+      }
+      const parts = [body.error, body.detail].filter(Boolean)
+      if (parts.length > 0) return `${status}: ${parts.join(' — ')}`
+    } catch {
+      /* non-JSON error body */
+    }
+    return `HTTP ${status}`
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
 export async function askTutor(
   ctx: TutorContext,
   history: TutorTurn[],
   studentMessage: string,
 ): Promise<TutorReply> {
   if (!supabase) {
-    return { text: offlineFallback(ctx), online: false }
+    const reason = 'Supabase is not configured in this build'
+    console.warn(`[ai-tutor] offline hints: ${reason}`)
+    return { text: offlineFallback(ctx), online: false, reason }
   }
 
   try {
@@ -78,8 +106,12 @@ export async function askTutor(
     if (typeof reply === 'string' && reply.trim()) {
       return { text: reply.trim(), online: true }
     }
-    return { text: offlineFallback(ctx), online: false }
-  } catch {
-    return { text: offlineFallback(ctx), online: false }
+    const reason = 'the ai-tutor function returned an empty reply'
+    console.warn(`[ai-tutor] offline hints: ${reason}`)
+    return { text: offlineFallback(ctx), online: false, reason }
+  } catch (error) {
+    const reason = await describeInvokeError(error)
+    console.warn(`[ai-tutor] offline hints: ${reason}`)
+    return { text: offlineFallback(ctx), online: false, reason }
   }
 }

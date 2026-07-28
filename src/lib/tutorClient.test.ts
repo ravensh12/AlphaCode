@@ -26,17 +26,50 @@ const CONTEXT: TutorProblemContext = {
 }
 
 describe('tutor config', () => {
-  it('defaults base URL and model; the key gates availability', () => {
+  it('defaults base URL and model; with no transport the tutor is unavailable', () => {
     expect(tutorConfig({})).toEqual({
+      transport: 'none',
       baseUrl: TUTOR_DEFAULT_BASE_URL,
       model: TUTOR_DEFAULT_MODEL,
       apiKey: null,
+      proxyUrl: null,
+      proxyKey: null,
     })
     expect(isTutorConfigured({})).toBe(false)
-    expect(isTutorConfigured({ VITE_TUTOR_API_KEY: 'tfy_x' })).toBe(true)
     expect(
       tutorConfig({ VITE_TUTOR_BASE_URL: 'https://proxy.example/' }).baseUrl,
     ).toBe('https://proxy.example')
+  })
+
+  it('a client key selects the direct streaming transport', () => {
+    const config = tutorConfig({ VITE_TUTOR_API_KEY: 'tfy_x' })
+    expect(config.transport).toBe('direct')
+    expect(config.apiKey).toBe('tfy_x')
+    expect(isTutorConfigured({ VITE_TUTOR_API_KEY: 'tfy_x' })).toBe(true)
+  })
+
+  it('Supabase alone selects the edge-function proxy — no key in the bundle', () => {
+    const env = {
+      VITE_SUPABASE_URL: 'https://ref.supabase.co/',
+      VITE_SUPABASE_ANON_KEY: 'sb_publishable_x',
+    }
+    expect(tutorConfig(env)).toMatchObject({
+      transport: 'proxy',
+      apiKey: null,
+      proxyUrl: 'https://ref.supabase.co/functions/v1/ai-tutor',
+      proxyKey: 'sb_publishable_x',
+    })
+    expect(isTutorConfigured(env)).toBe(true)
+  })
+
+  it('a client key wins over the proxy so local dev keeps streaming', () => {
+    expect(
+      tutorConfig({
+        VITE_TUTOR_API_KEY: 'tfy_x',
+        VITE_SUPABASE_URL: 'https://ref.supabase.co',
+        VITE_SUPABASE_ANON_KEY: 'sb_publishable_x',
+      }).transport,
+    ).toBe('direct')
   })
 })
 
@@ -92,8 +125,13 @@ describe('context assembly', () => {
   })
 })
 
+const PROXY_ENV = {
+  VITE_SUPABASE_URL: 'https://ref.supabase.co',
+  VITE_SUPABASE_ANON_KEY: 'sb_publishable_x',
+}
+
 describe('requestTutorReply', () => {
-  it('refuses when no key is configured (the UI hides behind this)', async () => {
+  it('refuses when no transport is available (the UI hides behind this)', async () => {
     await expect(
       requestTutorReply([{ role: 'user', content: 'hi' }], { env: {} }),
     ).rejects.toMatchObject({ status: null })
@@ -150,6 +188,54 @@ describe('requestTutorReply', () => {
     })
     expect(reply).toBe('Look closer.')
     expect(deltas).toEqual(['Look ', 'closer.'])
+  })
+
+  it('routes through the edge function when only Supabase is configured', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ reply: 'Think about the seen set.' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    const deltas: string[] = []
+    const reply = await requestTutorReply([{ role: 'user', content: 'hi' }], {
+      env: PROXY_ENV,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      onDelta: (delta) => deltas.push(delta),
+    })
+
+    expect(reply).toBe('Think about the seen set.')
+    expect(deltas).toEqual(['Think about the seen set.'])
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://ref.supabase.co/functions/v1/ai-tutor')
+    const headers = init.headers as Record<string, string>
+    expect(headers.apikey).toBe('sb_publishable_x')
+    expect(headers.Authorization).toBe('Bearer sb_publishable_x')
+    // No provider key or model is chosen client-side — the function owns both.
+    const body = JSON.parse(init.body as string) as Record<string, unknown>
+    expect(Object.keys(body)).toEqual(['messages'])
+  })
+
+  it('surfaces the provider detail the edge function forwards', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: 'Provider request failed',
+          detail: '{"error":{"code":"billing_not_active"}}',
+        }),
+        { status: 502, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+    const failure = await requestTutorReply(
+      [{ role: 'user', content: 'hi' }],
+      { env: PROXY_ENV, fetchImpl: fetchMock as unknown as typeof fetch },
+    ).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(TutorRequestError)
+    expect((failure as TutorRequestError).status).toBe(502)
+    expect((failure as TutorRequestError).message).toContain(
+      'billing_not_active',
+    )
   })
 
   it('maps HTTP failures to kid-friendly copy', async () => {
