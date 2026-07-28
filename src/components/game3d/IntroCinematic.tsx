@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { Avatar, type AvatarAnim } from './Avatar'
 import { SimulationDriver } from './SimulationDriver'
 import { SIM } from './simulation'
+import { tuneRenderer } from './rendererTuning'
 import { RainSystem } from './weather/RainSystem'
 import { ZombieHorde } from './ZombieHorde'
 import { VAR_NORMAL, VAR_BRUTE, type ZombieSlot } from './zombieTypes'
@@ -1234,6 +1235,7 @@ export function IntroCinematic() {
       // framebuffer doesn't need its own (wasted) multisampling.
       gl={{ antialias: false, powerPreference: 'high-performance', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.12 }}
       camera={{ position: [3.0, 9.8, 31], fov: 56, near: 0.1, far: 170 }}
+      onCreated={({ gl }) => tuneRenderer(gl)}
     >
       <color attach="background" args={['#060810']} />
       <fog attach="fog" args={['#0a0e1d', 14, 80]} />

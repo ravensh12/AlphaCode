@@ -1,9 +1,16 @@
 // P4 before/after: boot /quest as a guest and screenshot the SAME spawn view
-// right after the boot veil clears (day). node scripts/probe-world-shot.mjs out.png
+// right after the boot veil clears (day).
+//   node scripts/probe-world-shot.mjs out.png
+//     [--base=http://localhost:4173] [--params=qa_notch=3&qa_bloomres=1]
+// The flags exist for visual A/B of a renderer change: same spawn, same notch,
+// one setting different, so the two PNGs can be diffed pixel for pixel.
 import { chromium } from '@playwright/test'
 
-const out = process.argv[2] ?? 'test-results/world-shot.png'
-const base = 'http://localhost:5173'
+const flag = (n, d = null) =>
+  process.argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3) ?? d
+const out = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? 'test-results/world-shot.png'
+const base = flag('base', 'http://localhost:5173')
+const params = flag('params', '')
 const browser = await chromium.launch({
   ...(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL } : {}),
   args: ['--use-gl=angle', '--use-angle=metal', '--ignore-gpu-blocklist'],
@@ -33,7 +40,7 @@ await page.addInitScript(() => {
   )
   sessionStorage.setItem('alphacode.quest.introSeen', '1')
 })
-await page.goto(`${base}/quest`, { waitUntil: 'domcontentloaded' })
+await page.goto(`${base}/quest${params ? `?${params}` : ''}`, { waitUntil: 'domcontentloaded' })
 await page.locator('canvas').first().waitFor({ state: 'visible', timeout: 60_000 })
 // The veil can re-raise when the Meshy preload kicks in — require it to stay
 // down for a few consecutive checks before shooting.

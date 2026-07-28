@@ -19,6 +19,7 @@ import {
 } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { CinematicQualityProvider, qualityDpr, useQuality, type QualityTier } from './quality'
+import { tuneRenderer } from '../rendererTuning'
 import {
   clampSimTier,
   resolveQualityProfile,
@@ -396,6 +397,7 @@ export function CinematicStage({
         // PerformanceMonitor steps the tier.
         dpr={dpr}
         camera={cameraOpts}
+        onCreated={({ gl }) => tuneRenderer(gl)}
       >
         {fog && <fog attach="fog" args={[fog.color, fog.near, fog.far]} />}
         <CinematicWorld

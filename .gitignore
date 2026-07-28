@@ -9,6 +9,8 @@ lerna-debug.log*
 
 node_modules
 dist
+# Production bundle built with VITE_QA_SEAMS=1 for the frame-time probes.
+dist-qa
 dist-ssr
 *.local
 playwright-report/

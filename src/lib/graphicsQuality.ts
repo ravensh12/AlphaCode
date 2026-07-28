@@ -43,7 +43,55 @@ export interface DeviceCaps {
   mobileLike: boolean
 }
 
-/** Gather live capabilities. Safe to call anywhere (SSR/tests get defaults). */
+/**
+ * The window's current device pixel ratio. Separate from readDeviceCaps
+ * because it is the ONLY field most callers want and the only one that
+ * changes during a session (dragging the window to a different display) —
+ * whereas the rest of the caps require the WebGL2 probe below.
+ */
+export function deviceDpr(): number {
+  if (typeof window === 'undefined') return 1
+  return window.devicePixelRatio || 1
+}
+
+/**
+ * Whether the browser can give us a WebGL2 context, answered at most ONCE per
+ * session.
+ *
+ * The probe allocates a real WebGL2 context alongside the live one and
+ * immediately throws it away: 6-17ms of blocked main thread per call on a
+ * fanless Apple Silicon laptop, measured inside the running overworld. That
+ * is cheap in isolation and ruinous in context — the overworld was re-probing
+ * from a useMemo keyed on the governor notch, so it landed inside the React
+ * commit that rebuilds the scene for a quality change, and a CPU profile of
+ * the production build attributed 47% of ALL long-task time during traversal
+ * to this one call. Nothing about the answer can change while the page is
+ * alive, so it is cached, and only boot-time decisions ever consult it.
+ */
+let webgl2Probe: boolean | null = null
+
+function probeWebgl2(): boolean {
+  if (webgl2Probe != null) return webgl2Probe
+  webgl2Probe = false
+  try {
+    const canvas = document.createElement('canvas')
+    const probe = canvas.getContext('webgl2')
+    if (probe) {
+      webgl2Probe = true
+      probe.getExtension('WEBGL_lose_context')?.loseContext()
+    }
+  } catch {
+    /* detection only */
+  }
+  return webgl2Probe
+}
+
+/**
+ * Gather live capabilities. Safe to call anywhere (SSR/tests get defaults).
+ *
+ * Pass the live renderer context when there is one — it answers the WebGL2
+ * question for free and skips the probe entirely.
+ */
 export function readDeviceCaps(gl?: WebGLRenderingContext | WebGL2RenderingContext): DeviceCaps {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return {
@@ -54,24 +102,17 @@ export function readDeviceCaps(gl?: WebGLRenderingContext | WebGL2RenderingConte
       mobileLike: false,
     }
   }
-  let webgl2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext
-  if (!gl) {
-    try {
-      const canvas = document.createElement('canvas')
-      const probe = canvas.getContext('webgl2')
-      if (probe) {
-        webgl2 = true
-        probe.getExtension('WEBGL_lose_context')?.loseContext()
-      }
-    } catch {
-      /* detection only */
-    }
-  }
+  const webgl2 =
+    typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext
+      ? true
+      : gl
+        ? false
+        : probeWebgl2()
   const nav = navigator as Navigator & { deviceMemory?: number }
   const ua = navigator.userAgent || ''
   return {
     webgl2,
-    devicePixelRatio: window.devicePixelRatio || 1,
+    devicePixelRatio: deviceDpr(),
     deviceMemoryGb: typeof nav.deviceMemory === 'number' ? nav.deviceMemory : 0,
     hardwareConcurrency: navigator.hardwareConcurrency || 0,
     mobileLike: /Mobi|Android|iPhone|iPad|iPod/i.test(ua),
@@ -289,5 +330,7 @@ export function profileForTier(tier: GraphicsTier, deviceDpr: number): QualityPr
  * devices never grind through a full ULTRA first frame.
  */
 export function resolveQualityProfile(caps?: Partial<DeviceCaps>): QualityProfile {
-  return profileForTier('ultra', (caps?.devicePixelRatio ?? readDeviceCaps().devicePixelRatio))
+  // deviceDpr(), not readDeviceCaps(): the profile only needs the pixel ratio,
+  // and the full caps read can trigger the WebGL2 probe.
+  return profileForTier('ultra', caps?.devicePixelRatio ?? deviceDpr())
 }

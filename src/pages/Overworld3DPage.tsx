@@ -16,13 +16,13 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PerformanceMonitor, type PerformanceMonitorApi } from '@react-three/drei'
 import {
   EffectComposer,
-  Bloom,
   Vignette,
   ChromaticAberration,
   Scanline,
   Noise,
   SMAA,
 } from '@react-three/postprocessing'
+import { BloomEffect } from 'postprocessing'
 import * as THREE from 'three'
 import { AppHeader } from '../components/AppHeader'
 import { Loader } from '../components/Loader'
@@ -189,6 +189,7 @@ import { SimulationDriver } from '../components/game3d/SimulationDriver'
 import { NIGHT_AMBIENT_FLOOR, SIM } from '../components/game3d/simulation'
 import { SimulationSky, SkyEnvironment } from '../components/game3d/SimulationSky'
 import { CascadedSunlight } from '../components/game3d/CascadedSunlight'
+import { tuneRenderer } from '../components/game3d/rendererTuning'
 import { DuskLightShafts } from '../components/game3d/OverworldGodRays'
 import { hdriMode } from '../components/game3d/skyIbl'
 import { RainSystem } from '../components/game3d/weather/RainSystem'
@@ -199,9 +200,12 @@ import {
   useMeshyLandmarkMask,
 } from '../components/game3d/meshy/meshySwap'
 import type { QualityTier } from '../components/game3d/cinematic/quality'
-import { readDeviceCaps, simTierForDpr } from '../lib/graphicsQuality'
+import { deviceDpr, simTierForDpr } from '../lib/graphicsQuality'
+import { QA_SEAMS } from '../lib/qaSeams'
+import { QA_GFX } from '../lib/qaGfx'
 import {
   GOVERNOR_MAX_NOTCH,
+  GOVERNOR_VEIL_GRACE_MS,
   GOVERNOR_WARMUP_MS,
   governedProfile,
   densityTierForNotch,
@@ -210,7 +214,9 @@ import {
   stepGovernor,
   stepJankFrame,
   writeNotchHint,
+  type FrameCost,
 } from '../lib/graphicsGovernor'
+import { createFrameCostMeter, type FrameCostMeter } from '../lib/frameCostMeter'
 import { playHeartbeat, playHeartPickup, playPlayerHurt } from '../lib/soundFx'
 import {
   CHECKPOINTS_3D,
@@ -430,6 +436,77 @@ const CAMERA_FAR = 520
  * pass slots in after bloom, and the ACES exposure opens up a touch — the
  * only tone tweak, applied here so tier changes stay live.
  */
+/**
+ * Bloom mipmap-blur levels. postprocessing defaults to 8, which at the
+ * overworld's ~1000-1500px buffer means the deepest mips are 4-8px wide: they
+ * contribute a flat, uniform wash the eye cannot separate from the level
+ * below, while EACH level costs a downsample AND an upsample render — two
+ * render-target binds per level, every frame.
+ *
+ * 7 rather than 8 because the pyramid now starts one step lower (see
+ * BLOOM_RESOLUTION_SCALE): 7 levels from a half-res base bottoms out at the
+ * same ~7px mip the original 8-level full-res chain did, so the width of the
+ * glow is unchanged.
+ */
+const BLOOM_LEVELS = 7
+
+/**
+ * Resolution scale for bloom's prefilter + mip chain. postprocessing runs the
+ * luminance prefilter at FULL resolution (resolutionScale is ignored on the
+ * mipmapBlur path) and only then starts halving — so the first thing a
+ * 1572x817 frame does after the scene pass is a second 1.28-megapixel pass
+ * whose output is immediately downsampled. Bloom is low-frequency by
+ * construction; prefiltering at half resolution is visually indistinguishable
+ * and removes one full-res pass plus the widest two mip levels — about 3.5
+ * megapixels of fill per frame at the overworld's default buffer.
+ */
+const BLOOM_RESOLUTION_SCALE = 0.5
+
+/** EffectComposer MSAA sample count (0 = off). */
+const COMPOSER_MSAA = 0
+
+/**
+ * Owns the overworld's BloomEffect instance directly instead of going through
+ * the <Bloom> wrapper, for two reasons.
+ *
+ * 1. RESOLUTION. `resolutionScale` is a no-op on the mipmapBlur path —
+ *    BloomEffect.setSize forwards the raw buffer size straight to the
+ *    luminance prefilter and the mip pyramid. Wrapping setSize on the instance
+ *    is the only way to start the chain a step down, and owning the instance
+ *    means the wrap is installed at construction, before the composer ever
+ *    sizes it.
+ * 2. GRADING WITHOUT A REBUILD. Every @react-three/postprocessing effect
+ *    wrapper re-derives its constructor `args` from the props, so changing
+ *    intensity/threshold (day↔night grading) rebuilds the effect and its
+ *    EffectPass — a shader relink mid-gameplay. Driving those three uniforms
+ *    imperatively keeps one instance alive for the life of the scene.
+ */
+function useOverworldBloom(intensity: number, threshold: number, smoothing: number) {
+  const size = useThree((s) => s.size)
+  const scale = QA_GFX.bloomRes ?? BLOOM_RESOLUTION_SCALE
+  const levels = QA_GFX.bloomLevels ?? BLOOM_LEVELS
+  const effect = useMemo(() => {
+    const bloom = new BloomEffect({ mipmapBlur: true, levels })
+    if (scale > 0 && scale < 1) {
+      const base = bloom.setSize.bind(bloom)
+      bloom.setSize = (width: number, height: number) => {
+        base(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)))
+      }
+    }
+    return bloom
+  }, [levels, scale])
+  useEffect(() => () => effect.dispose(), [effect])
+  useEffect(() => {
+    effect.setSize(size.width, size.height)
+  }, [effect, size.width, size.height])
+  useEffect(() => {
+    effect.intensity = intensity
+    effect.luminanceMaterial.threshold = threshold
+    effect.luminanceMaterial.smoothing = smoothing
+  }, [effect, intensity, threshold, smoothing])
+  return effect
+}
+
 const OverworldEffects = memo(function OverworldEffects({
   tier,
   shakeRef,
@@ -449,6 +526,11 @@ const OverworldEffects = memo(function OverworldEffects({
   const caOffset = useMemo(() => new THREE.Vector2(0.0005, 0.0005), [])
   const high = tier === 'high'
   const gl = useThree((s) => s.gl)
+  const bloom = useOverworldBloom(
+    tier === 'low' ? 0.5 : cleanGrade ? 0.85 : 0.9,
+    cleanGrade ? 0.88 : 0.68,
+    cleanGrade ? 0.18 : 0.24,
+  )
   useEffect(() => {
     gl.toneMappingExposure = cleanGrade ? (godRays ? 1.18 : 1.14) : godRays ? 1.12 : 1.08
     return () => {
@@ -469,15 +551,8 @@ const OverworldEffects = memo(function OverworldEffects({
     // retina GPUs — the open city reads fine grounded by the sun shadow + fog
     // without it. Ambient occlusion stays in the tighter cinematic arenas where
     // the scene is small and the camera is authored, so it's affordable there.
-    out.push(
-      <Bloom
-        key="bloom"
-        mipmapBlur
-        intensity={tier === 'low' ? 0.5 : cleanGrade ? 0.85 : 0.9}
-        luminanceThreshold={cleanGrade ? 0.88 : 0.68}
-        luminanceSmoothing={cleanGrade ? 0.18 : 0.24}
-      />,
-    )
+    if (QA_GFX.post !== 'nobloom') out.push(<primitive key="bloom" object={bloom} />)
+    if (QA_GFX.post === 'bloomonly') return out
     if (high && godRays) {
       // ULTRA: sun shafts through the skyline at dawn/dusk. Fused into the
       // same effect pass — idle cost is one uniform branch outside the window.
@@ -504,13 +579,14 @@ const OverworldEffects = memo(function OverworldEffects({
       )
       out.push(<Scanline key="scan" density={1.15} opacity={0.05} />)
       out.push(<Noise key="grain" opacity={0.045} />)
-      out.push(<SMAA key="smaa" />)
+      if (QA_GFX.post !== 'nosmaa') out.push(<SMAA key="smaa" />)
     }
     return out
-  }, [tier, high, godRays, caOffset, cleanGrade])
+  }, [tier, high, godRays, caOffset, cleanGrade, bloom])
 
+  if (QA_GFX.post === 'off') return null
   return (
-    <EffectComposer multisampling={0} enableNormalPass={false}>
+    <EffectComposer multisampling={QA_GFX.msaa ?? COMPOSER_MSAA} enableNormalPass={false}>
       {passes}
     </EffectComposer>
   )
@@ -1035,20 +1111,26 @@ function BootWarmup({ gate, onStable }: { gate: boolean; onStable: () => void })
  */
 function JankMeter({
   enabled,
+  meter,
   onFrame,
 }: {
   enabled: boolean
-  onFrame: (frameMs: number, now: number) => void
+  /** Measures how long the main thread WORKED on each frame, so the governor
+   *  can tell a struggling machine from a capped display. Armed here because
+   *  this runs at the top of the frame. */
+  meter: FrameCostMeter
+  onFrame: (frameMs: number, now: number, cost: FrameCost) => void
 }) {
-  const last = useRef(0)
   const enabledRef = useRef(enabled)
   enabledRef.current = enabled
   useFrame(() => {
     const now = performance.now()
-    const prev = last.current
-    last.current = now
-    if (!enabledRef.current || prev === 0) return
-    onFrame(now - prev, now)
+    // beginFrame both reports the wall delta and posts the message whose
+    // return marks the end of this frame's main-thread work, so it must run
+    // every frame — including the ones the governor is not listening to.
+    const delta = meter.beginFrame(now)
+    if (!enabledRef.current || delta <= 0) return
+    onFrame(delta, now, meter.cost())
   })
   return null
 }
@@ -1060,10 +1142,10 @@ export function Overworld3DPage() {
 }
 
 function HydratedOverworld3DPage() {
-  // Dev-only render counter: perf probes read window.__owRenders to measure
+  // QA-only render counter: perf probes read window.__owRenders to measure
   // how often this (very large) page re-renders during gameplay — a
   // load-independent proxy for the React reconcile cost. Stripped in prod.
-  if (import.meta.env.DEV) {
+  if (QA_SEAMS) {
     ;(window as unknown as { __owRenders?: number }).__owRenders =
       ((window as unknown as { __owRenders?: number }).__owRenders ?? 0) + 1
   }
@@ -1090,17 +1172,21 @@ function HydratedOverworld3DPage() {
   // ULTRA grind), then the invisible governor is the only mid-session
   // downshifter. A session hint means refreshes restart near the last stable
   // notch. There is no Graphics panel.
-  const [gfxNotch, setGfxNotch] = useState(() => resolveBootNotch())
+  const [gfxNotch, setGfxNotch] = useState(() => QA_GFX.notch ?? resolveBootNotch())
   // Meshy building swaps are disabled — wipe any stale hide-set (HMR / a
   // prior session) so the procedural city never boots with invisible boxes,
   // even when the Meshy layer itself is unmounted at the safety floor.
   useEffect(() => {
     setMeshyHiddenBuildings([])
   }, [])
-  const profile = useMemo(
-    () => governedProfile(gfxNotch, readDeviceCaps().devicePixelRatio),
-    [gfxNotch],
-  )
+  // deviceDpr(), never readDeviceCaps(): the full caps read allocates a
+  // throwaway WebGL2 context to answer a question this call does not ask, and
+  // this memo re-runs on every governor notch change — synchronously, inside
+  // the commit that rebuilds the scene for the new notch. Profiled on the
+  // production build, that one call accounted for 47% of all long-task time
+  // during traversal, and the stall it caused read as jank, which demoted the
+  // notch again.
+  const profile = useMemo(() => governedProfile(gfxNotch, deviceDpr()), [gfxNotch])
   // Render resolution adapts to the live frame rate: full sharpness on capable
   // GPUs, automatically dialled back when the horde gets thick so the game keeps
   // running smoothly instead of dropping frames. The profile sets the window.
@@ -1182,35 +1268,67 @@ function HydratedOverworld3DPage() {
 
   // Governor wiring: PerformanceMonitor FPS samples feed the pure stepper.
   const fpsRef = useRef(0)
+  // One meter for the whole session: both demote signals read the same frame's
+  // cost, so the fps path and the jank path can never disagree about whether
+  // the machine was actually working. Disposal is safe to run and then keep
+  // using — StrictMode's mount/cleanup/mount would otherwise leave the meter
+  // dead for the whole of development.
+  const [frameCost] = useState(createFrameCostMeter)
+  useEffect(() => () => frameCost.dispose(), [frameCost])
   const governorRef = useRef(initialGovernorState(resolveBootNotch()))
   const lastSampleRef = useRef(0)
   const mountedAtRef = useRef(performance.now())
+  // Every protected window shares one deadline: while `now` is below it the
+  // governor and the adaptive-resolution stepper both ignore whatever the
+  // frame loop is reporting, because the frames are not evidence about how
+  // expensive the SCENE is. Two things open a window — returning from a
+  // suspension (tab switch / freeze) and the boot veil dropping.
+  const perfGraceUntilRef = useRef(0)
+  const enterPerfGrace = useCallback((ms: number) => {
+    perfGraceUntilRef.current = Math.max(perfGraceUntilRef.current, performance.now() + ms)
+    lastSampleRef.current = 0
+    // A below-floor (or above-recovery) streak must not survive the window:
+    // "sustained" means continuous wall-clock evidence, and a pre-hide streak
+    // completing right after return demoted the notch on every tab switch.
+    // The jank tally resets for the same reason.
+    governorRef.current = {
+      ...governorRef.current,
+      belowMs: 0,
+      aboveMs: 0,
+      jankWindowStart: 0,
+      jankCount: 0,
+    }
+  }, [])
+
+  // THE BOOT GRACE IS ANCHORED TO THE VEIL, NOT TO MOUNT.
+  //
+  // GOVERNOR_WARMUP_MS exists so first-load compiles and asset decode cannot
+  // demote a strong machine. Anchored at mount it protected the wrong window:
+  // the veil holds until the entire Meshy inventory has decoded, which is tens
+  // of seconds on this class of hardware, so by the time the city became
+  // VISIBLE the grace had long expired. The boot TAIL that keeps running past
+  // the veil — district streaming, first-encounter shader links, texture
+  // uploads — then landed on a completely unprotected governor. Measured on
+  // the production build: notch 0 -> 1 -> 2 -> 3 within ~15s of the veil
+  // dropping ("at 19 fps"), after which the session was stuck on the safety
+  // floor for good — even though a pinned notch 0 holds ~49fps with about one
+  // long frame per second once the scene settles. Sessions were throwing away
+  // the product look to escape jank that was never steady-state cost.
+  useEffect(() => {
+    if (!bootReady) return
+    mountedAtRef.current = performance.now()
+    enterPerfGrace(GOVERNOR_VEIL_GRACE_MS)
+  }, [bootReady, enterPerfGrace])
+
   // Tab-switch guard: rAF stops while the page is hidden, so the first
   // samples after a return report garbage fps over the whole hidden gap —
   // folding those in demoted the notch on EVERY tab switch (and stepping
   // back up later re-armed the Meshy preload: the mid-gameplay loading
   // screen). Hidden samples are dropped and a short grace after returning
   // lets the compositor settle before the governor listens again.
-  const visibilityGraceUntilRef = useRef(0)
   useEffect(() => {
-    const enterGrace = () => {
-      visibilityGraceUntilRef.current = performance.now() + 4_000
-      lastSampleRef.current = 0
-      // A below-floor (or above-recovery) streak must not survive the
-      // suspension: "sustained" means continuous wall-clock evidence, and a
-      // pre-hide streak completing right after return demoted the notch on
-      // every tab switch. The jank tally resets for the same reason — the
-      // first frames back from a suspension are compositor artifacts.
-      governorRef.current = {
-        ...governorRef.current,
-        belowMs: 0,
-        aboveMs: 0,
-        jankWindowStart: 0,
-        jankCount: 0,
-      }
-    }
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') enterGrace()
+      if (document.visibilityState === 'visible') enterPerfGrace(4_000)
       else lastSampleRef.current = 0
     }
     document.addEventListener('visibilitychange', onVisibility)
@@ -1220,19 +1338,22 @@ function HydratedOverworld3DPage() {
     let lastBeat = performance.now()
     const beat = window.setInterval(() => {
       const now = performance.now()
-      if (now - lastBeat > 2_500) enterGrace()
+      if (now - lastBeat > 2_500) enterPerfGrace(4_000)
       lastBeat = now
     }, 1_000)
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
       window.clearInterval(beat)
     }
-  }, [])
+  }, [enterPerfGrace])
   const perfSignalsBlocked = useCallback(() => {
+    // A pinned notch (QA A/B run) freezes the ladder: two captures can only be
+    // compared when the pipeline is identical for both.
+    if (QA_GFX.notch != null) return true
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
       return true
     }
-    return performance.now() < visibilityGraceUntilRef.current
+    return performance.now() < perfGraceUntilRef.current
   }, [])
   const handlePerfChange = useCallback((api: PerformanceMonitorApi) => {
     fpsRef.current = api.fps
@@ -1247,7 +1368,10 @@ function HydratedOverworld3DPage() {
     // rate on every machine — don't let boot jank demote strong devices.
     if (now - mountedAtRef.current < GOVERNOR_WARMUP_MS) return
     if (dtMs <= 0 || dtMs > 20_000) return // first sample / tab was hidden
-    const step = stepGovernor(governorRef.current, api.fps, dtMs, now)
+    // averagedCost, not cost: api.fps is itself an average over the sample, so
+    // judging it by one instantaneous frame would let a single cheap frame at
+    // sample time veto seconds of real evidence.
+    const step = stepGovernor(governorRef.current, api.fps, dtMs, now, frameCost.averagedCost())
     governorRef.current = step.state
     if (step.changed) {
       const notch = step.state.notch
@@ -1258,7 +1382,7 @@ function HydratedOverworld3DPage() {
       )
       setGfxNotch(notch)
     }
-  }, [perfSignalsBlocked])
+  }, [perfSignalsBlocked, frameCost])
 
   // Jank-aware demote signal: every rAF frame duration feeds the pure
   // long-frame detector (stepJankFrame). Average fps can hold 50+ while a
@@ -1268,10 +1392,10 @@ function HydratedOverworld3DPage() {
   // context restore (mountedAtRef resets) never feed frames, and the JankMeter
   // itself is gated on the boot veil having dropped.
   const handleJankFrame = useCallback(
-    (frameMs: number, now: number) => {
+    (frameMs: number, now: number, cost: FrameCost) => {
       if (perfSignalsBlocked()) return
       if (now - mountedAtRef.current < GOVERNOR_WARMUP_MS) return
-      const step = stepJankFrame(governorRef.current, frameMs, now)
+      const step = stepJankFrame(governorRef.current, frameMs, now, cost)
       governorRef.current = step.state
       if (step.changed) {
         const notch = step.state.notch
@@ -1316,7 +1440,7 @@ function HydratedOverworld3DPage() {
   // Dev-only QA seam (?nohorde): scripted probes measure collision /
   // streaming / pacing on long routes the horde would otherwise cut short.
   // DEV-guarded — production ignores the parameter entirely.
-  const probeNoHorde = import.meta.env.DEV && location.search.includes('nohorde')
+  const probeNoHorde = QA_SEAMS && location.search.includes('nohorde')
 
   // The progress every DERIVED surface reads (beats, leg HUD, world map,
   // dojo/boss gating). During a fresh run this is a masked SUBSET of durable
@@ -1753,7 +1877,7 @@ function HydratedOverworld3DPage() {
   // walk-through audits steer by heading, not the chase camera). Stripped
   // from production builds.
   useEffect(() => {
-    if (!import.meta.env.DEV) return
+    if (!QA_SEAMS) return
     const w = window as unknown as {
       __alphaPlayer?: { pos: () => { x: number; z: number; h: number } }
     }
@@ -3259,7 +3383,7 @@ function HydratedOverworld3DPage() {
       >
         <Canvas
           key={glGeneration}
-          shadows
+          shadows={QA_GFX.shadows !== false}
           dpr={dpr}
           gl={{
             // The scene is composited through the EffectComposer (offscreen
@@ -3271,11 +3395,15 @@ function HydratedOverworld3DPage() {
             toneMappingExposure: 1.08,
           }}
           camera={{ fov: 60, near: 0.3, far: CAMERA_FAR, position: [START_3D.x, 2.6, START_3D.z - 10] }}
-          onCreated={({ gl }) => {
-            // Dev-only perf instrumentation: e2e specs read renderer.info
-            // (draw calls / triangles) through this handle. Stripped in prod.
-            if (import.meta.env.DEV) {
-              ;(window as unknown as { __alphaGl?: unknown }).__alphaGl = gl
+          onCreated={({ gl, scene }) => {
+            tuneRenderer(gl)
+            // QA-only perf instrumentation: e2e specs read renderer.info
+            // (draw calls / triangles) through this handle, and the scene
+            // handle backs the triangle-budget audit. Stripped in prod.
+            if (QA_SEAMS) {
+              const w = window as unknown as { __alphaGl?: unknown; __alphaScene?: unknown }
+              w.__alphaGl = gl
+              w.__alphaScene = scene
             }
             // WebGL context-loss recovery. By spec the browser only re-issues a
             // context if `preventDefault()` is called on the loss event — without
@@ -3343,7 +3471,7 @@ function HydratedOverworld3DPage() {
           />
           {/* Long-frame (jank) demote signal — armed only after the boot veil
               has dropped, so compile/decode jank behind the veil never counts. */}
-          <JankMeter enabled={bootReady} onFrame={handleJankFrame} />
+          <JankMeter enabled={bootReady} meter={frameCost} onFrame={handleJankFrame} />
           {!bootStable && <BootWarmup gate={preloadReady} onStable={handleBootStable} />}
           {/* Clear-air fog (the driver re-writes it every frame). */}
           <fog attach="fog" args={['#c6d4e0', 135, 460]} />

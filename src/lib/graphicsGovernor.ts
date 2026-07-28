@@ -44,6 +44,16 @@ export const GOVERNOR_MAX_NOTCH = 3
  *  session off as broken. */
 export const GOVERNOR_WARMUP_MS = 5_000
 
+/** Protected window opened when the boot VEIL drops (the page anchors the
+ *  grace there, not at mount — see the comment at its call site). The veil
+ *  waits for the model inventory, but district streaming, first-encounter
+ *  shader links and texture uploads keep running for several seconds into
+ *  visible gameplay; measured on the production build, that unprotected tail
+ *  walked the notch from ULTRA to the safety floor before the scene had ever
+ *  reached steady state. Longer than the mount warmup because it covers the
+ *  tail rather than the load itself. */
+export const GOVERNOR_VEIL_GRACE_MS = 10_000
+
 /** Step down when sustained below this for DOWN_HOLD_MS. Set above a bare
  *  "playable" 30 so a device stuck in the choppy 30–38 band is actually
  *  rescued toward a lighter, smoother notch. */
@@ -63,8 +73,13 @@ export const GOVERNOR_UP_COOLDOWN_MS = 10_000
    sustained jank steps the same notch ladder down one notch — the ladder's
    levers (dpr window, shadow-map scale, god-rays, density) are exactly the
    recompile-free GPU costs behind those spikes. Promotion stays owned by the
-   average-fps path (sustained >UP_FPS after the cooldown), so a jank demote
-   cannot oscillate: the same hysteresis window guards both signals. */
+   average-fps path (sustained >UP_FPS after the cooldown), and the two share
+   one hysteresis window, so the signals cannot fight over a single sample.
+   They can still trade places slowly: a machine averaging above UP_FPS while
+   spilling enough long frames to trip the jank count will demote and then
+   promote back on the cooldown, roughly every 15s. That is a genuinely
+   marginal machine sitting on the boundary between two notches, and the
+   cooldown is what bounds how often it can flip. */
 
 /** A frame slower than this (ms) counts as jank — ≥2 missed vsyncs at 60Hz. */
 export const JANK_FRAME_MS = 33.4
@@ -78,6 +93,112 @@ export const JANK_DEMOTE_COUNT = 12
 /** Frames beyond this (ms) are suspension artifacts (tab switch, bg throttle,
  *  debugger pause) — never evidence about rendering cost. Ignored. */
 export const JANK_FRAME_MAX_MS = 1_000
+
+/* ------------------------------------------------------- cost evidence gate
+   A LATE frame and an EXPENSIVE frame are not the same thing, and only the
+   second one is a reason to spend quality.
+
+   Measured on the production build: the window presented at 30Hz, so every
+   frame delta read 33.3ms — indistinguishable from a machine that cannot hold
+   60fps. The governor duly walked ULTRA → safety floor, while the frames it
+   was judging spent 3ms in JavaScript and 2.4ms inside gl.render: roughly 90%
+   of every "slow" frame was the main thread sitting idle waiting on the
+   display. Any presentation cap does this — low power mode, a 30Hz or
+   variable-refresh external panel, a compositor hiccup — and once the ladder
+   is down it only climbs back on sustained high fps, which a capped display
+   can never report. Sessions ended up permanently ugly for no gain.
+
+   The principle: LOWERING QUALITY ONLY HELPS IF WE ARE THE BOTTLENECK. So a
+   demote signal now needs at least one of three pieces of evidence.
+
+     1. The frame did real WORK (workMs ≥ COST_EVIDENCE_MS) — the machine was
+        busy making it, whatever it was busy with.
+     2. The frame broke CADENCE (frameMs ≫ the recent frame-interval floor).
+        This is what GPU-bound stutter looks like, and it is the traversal
+        case the jank signal was built for: a scene holding a 16.7ms median
+        and spilling 40-60ms frames. A presentation cap cannot produce it —
+        capped frames are metronomic, arriving at the floor every single time.
+     3. The beat itself is SLOWER THAN ANY DISPLAY PRESENTS (floorMs beyond
+        MAX_DISPLAY_INTERVAL_MS). Without this, rules 1 and 2 have a hole big
+        enough to lose the whole governor through: a machine that is slow ALL
+        the time never breaks cadence, because the floor rises to meet the
+        slowness, and if it is GPU-bound the main thread is idle so no work is
+        recorded either. Every frame at a uniform 200ms would be excused as
+        "the cadence" and the ladder would never move — the exact device the
+        governor exists to rescue.
+
+   None of the three means cheap frames arriving on a beat that some display
+   could plausibly have chosen, and there is nothing to win by demoting.
+
+   WHAT IS DELIBERATELY LEFT AMBIGUOUS, AND WHY THE GATE STOPS HERE. A machine
+   GPU-bound at a perfectly steady 24-40fps with an idle main thread is
+   indistinguishable, in this data, from a display presenting at 24-40Hz: the
+   numbers are identical. Such a machine keeps its quality rather than being
+   walked down. Two sharper rules were tried and both were worse:
+
+     - comparing the beat against a long-horizon estimate of what the display
+       has recently managed. It does separate the two cases, but only while
+       that estimate is current — a display that GENUINELY slows mid-session
+       (low power mode, an external panel) spends the settling period looking
+       exactly like a scene that fell behind, and measured, it walked the
+       ladder to the safety floor within 8 seconds of the change.
+     - letting cheap on-cadence frames count as recovery, so any such mistake
+       would undo itself. Measured, this made a spiky-but-cheap GPU-bound
+       machine — the fanless-laptop profile this whole pass is about —
+       sawtooth between notches every 11 seconds indefinitely, because the
+       jank path demoted on the spikes while the fps path read the cheap mean
+       as recovery.
+
+   Holding position on an ambiguous reading is the only stable answer. It
+   takes a genuinely static view to sit in that band at all: any camera
+   movement or scene change produces the faster frame that arms rule 2, and
+   any real cost spike arms rule 1.
+
+   Evidence is OPTIONAL: callers that cannot measure work pass nothing and get
+   the original always-demote behaviour, so a caller which has not been taught
+   the new signal can never become silently deaf to real jank. */
+
+/** Main-thread work (ms) at or above which a frame counts as expensive. Set
+ *  just under a 60Hz budget: a frame that burned 14ms of the 16.7ms it had is
+ *  genuinely close to the edge, whichever side of the pipeline burned it. */
+export const COST_EVIDENCE_MS = 14
+
+/** A frame this many times the recent cadence floor has broken the beat and
+ *  is real stutter regardless of how cheap it was. 1.5 sits above the jitter
+ *  of a steady cap (measured p95/p50 ≈ 1.06) and below a dropped vsync (2x). */
+export const CADENCE_BREAK_RATIO = 1.5
+
+/** Slowest interval any real display presents at — 24Hz, the cinema mode at
+ *  the bottom of the range (30Hz half-vsync and low power mode sit above it).
+ *  A steady beat slower than this is not a display doing anything; it is us. */
+export const MAX_DISPLAY_INTERVAL_MS = 42
+
+/**
+ * What a frame actually cost, when the caller can measure it.
+ *
+ * `workMs` — main-thread time spent producing the frame (simulation +
+ *   render submission), NOT the wall-clock interval between frames.
+ * `floorMs` — shortest frame interval in the last few seconds: the current
+ *   beat. Compared against the frame length to tell stutter from a steady cap.
+ */
+export interface FrameCost {
+  workMs: number
+  floorMs: number
+}
+
+/**
+ * Does this frame justify spending quality? See the block comment above.
+ * No evidence supplied (or unusable numbers) means yes — fail safe toward the
+ * old behaviour rather than toward ignoring genuine jank.
+ */
+export function frameJustifiesDemote(frameMs: number, cost?: FrameCost): boolean {
+  if (!cost || !Number.isFinite(cost.workMs) || !Number.isFinite(cost.floorMs)) return true
+  if (cost.workMs >= COST_EVIDENCE_MS) return true
+  if (cost.floorMs <= 0) return true
+  // No display presents this slowly, so this beat is ours to fix.
+  if (cost.floorMs > MAX_DISPLAY_INTERVAL_MS) return true
+  return frameMs > cost.floorMs * CADENCE_BREAK_RATIO
+}
 
 export interface GovernorState {
   /** Current notch (0 = ULTRA … 3 = safety floor). */
@@ -125,11 +246,22 @@ export function stepGovernor(
   fps: number,
   dtMs: number,
   now: number,
+  cost?: FrameCost,
 ): GovernorStep {
   if (!Number.isFinite(fps) || fps <= 0 || dtMs <= 0) return { state, changed: false }
   const next: GovernorState = { ...state }
 
-  if (fps < GOVERNOR_DOWN_FPS) {
+  // Below-floor fps is only evidence when the frames were expensive to make.
+  // A capped display reports a low, perfectly steady fps forever; demoting
+  // against it trades the product look for nothing. The average frame length
+  // over the sample stands in for the frame length here.
+  // Cheap frames hold position: they are not evidence to demote, and they are
+  // not evidence to promote either. Treating them as recovery was tried and
+  // made a spiky GPU-bound machine sawtooth between notches forever — see the
+  // cost-evidence block above.
+  const cheapAndOnCadence = fps < GOVERNOR_DOWN_FPS && !frameJustifiesDemote(1000 / fps, cost)
+
+  if (fps < GOVERNOR_DOWN_FPS && !cheapAndOnCadence) {
     next.belowMs += dtMs
     next.aboveMs = 0
   } else if (fps > GOVERNOR_UP_FPS) {
@@ -178,15 +310,22 @@ export function stepGovernor(
  * The caller owns the protected windows exactly like stepGovernor: don't feed
  * frames during boot warmup, while hidden, inside the visibility grace, or
  * across a context restore.
+ *
+ * `cost` is the frame's measured work and the recent cadence floor — see the
+ * cost-evidence block above. Omit it and every long frame counts, as before.
  */
 export function stepJankFrame(
   state: GovernorState,
   frameMs: number,
   now: number,
+  cost?: FrameCost,
 ): GovernorStep {
   if (!Number.isFinite(frameMs) || frameMs <= JANK_FRAME_MS || frameMs > JANK_FRAME_MAX_MS) {
     return { state, changed: false }
   }
+  // Long, but was it expensive? A metronomic 33.3ms frame that only worked
+  // for 3ms is a display cap, not jank the ladder can do anything about.
+  if (!frameJustifiesDemote(frameMs, cost)) return { state, changed: false }
   const next: GovernorState = { ...state }
   // Rolling window: a stale tally (last long frame more than a window ago)
   // restarts the count, so isolated hitches minutes apart never accumulate.

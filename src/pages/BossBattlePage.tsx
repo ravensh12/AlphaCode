@@ -40,6 +40,7 @@ import {
   selectRealmCombatMastery,
 } from '../lib/combatMastery'
 import { runDurableTransition } from '../lib/durableTransition'
+import { QA_SEAMS } from '../lib/qaSeams'
 import './BossBattlePage.css'
 
 // Only the final world uses the heavy cinematic VEX fight (the full post stack,
@@ -129,7 +130,13 @@ export function BossBattlePage() {
   )
   const combatScale = combatScaleForMastery(combatMastery.ability)
 
-  const [phase, setPhase] = useState<Phase>('intro')
+  // QA seam: `?qafight` drops straight into the arena past the guest/mastery
+  // gates so the frame-time probes can measure a boss fight on a real
+  // production bundle. Stripped from shipped builds (see qaSeams).
+  const qaFight =
+    QA_SEAMS && typeof window !== 'undefined' && window.location.search.includes('qafight')
+
+  const [phase, setPhase] = useState<Phase>(qaFight ? 'fight' : 'intro')
   // Bump to remount the arena for a fresh fight attempt.
   const [fightRun, setFightRun] = useState(0)
   // Bump to remount the quiz for a retake.
@@ -364,8 +371,8 @@ export function BossBattlePage() {
 
   if (!world) return <Navigate to="/quest" replace />
   if (!ready) return <Loader label="Entering the arena" />
-  if (isGuest) return <Navigate to="/auth" replace />
-  if (!realmId || !canBattle) return <Navigate to="/quest" replace />
+  if (isGuest && !qaFight) return <Navigate to="/auth" replace />
+  if ((!realmId || !canBattle) && !qaFight) return <Navigate to="/quest" replace />
 
   const accent = world.theme.accent
   const lessonTitle = assessment?.lesson.title ?? world.name

@@ -21,6 +21,7 @@ import { Boss3D, type BossAnim } from './Boss3D'
 import { useKeys } from './useKeys'
 import { SimulationDriver } from './SimulationDriver'
 import { applyArenaPulse } from './simulation'
+import { tuneRenderer } from './rendererTuning'
 import { asphaltMaps, concreteMaps } from './proceduralTextures'
 import { NightRain, NightSkyline } from './NightCityStage'
 import { realmStage, type RealmStageSpec } from './realmStages'
@@ -2659,6 +2660,7 @@ export function BossArena({
         // framebuffer would only cost memory/bandwidth for no visible benefit.
         gl={{ antialias: false, powerPreference: 'high-performance', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
         camera={{ position: [CAM_SIDE, CAM_HEIGHT, 12 + CAM_BACK], fov: 58, near: 0.1, far: 140 }}
+        onCreated={({ gl }) => tuneRenderer(gl)}
       >
         <color attach="background" args={[stage.bg]} />
         <fog attach="fog" args={stage.fog} />

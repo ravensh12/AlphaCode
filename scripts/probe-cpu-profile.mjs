@@ -10,6 +10,9 @@ const arg = (n, d = null) =>
 const base = arg('base', 'http://localhost:5173')
 const path = arg('path', '/quest')
 const secs = Number(arg('secs', '10'))
+// Keys held for the whole capture. Default engages the horde (fire + strafe);
+// `--keys=w` profiles pure base-city traversal instead.
+const keys = arg('keys', 'f,a').split(',').filter(Boolean)
 
 const browser = await chromium.launch({
   ...(process.env.E2E_CHANNEL ? { channel: process.env.E2E_CHANNEL } : {}),
@@ -51,8 +54,7 @@ await page.waitForFunction(() => !/RENDERING CODE CITY/i.test(document.body.inne
 await page.waitForTimeout(2500)
 await page.locator('canvas').first().click({ position: { x: 800, y: 500 }, force: true, noWaitAfter: true }).catch(() => {})
 
-await page.keyboard.down('f')
-await page.keyboard.down('a')
+for (const k of keys) await page.keyboard.down(k)
 await page.waitForTimeout(4000)
 
 const client = await page.context().newCDPSession(page)
@@ -60,13 +62,12 @@ await client.send('Profiler.enable')
 await client.send('Profiler.setSamplingInterval', { interval: 200 }) // 200us
 await client.send('Profiler.start')
 await page.waitForTimeout(secs * 1000)
-// keep moving mid-profile
-await page.keyboard.up('a')
-await page.keyboard.down('d')
+// Keep steering mid-profile so streaming/culling stay in the sample.
+await page.keyboard.down('ArrowLeft')
 await page.waitForTimeout(1000)
+await page.keyboard.up('ArrowLeft').catch(() => {})
 const { profile } = await client.send('Profiler.stop')
-await page.keyboard.up('d').catch(() => {})
-await page.keyboard.up('f').catch(() => {})
+for (const k of keys) await page.keyboard.up(k).catch(() => {})
 
 // Aggregate self time by function (nodeId -> hitCount) and by function name.
 const byId = new Map()

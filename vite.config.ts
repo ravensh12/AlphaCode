@@ -42,6 +42,11 @@ const gltfDecoderAssets = [
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Perf probes need renderer handles and the ?nohorde seam against a REAL
+  // production bundle (dev's jsxDEV overhead distorts every frame-time number
+  // by 3-5x). `VITE_QA_SEAMS=1 npm run build` keeps the seams; the normal
+  // build folds this to `false` and the guarded blocks are dead-code stripped.
+  define: { __QA_SEAMS__: JSON.stringify(process.env.VITE_QA_SEAMS === '1') },
   plugins: [
     react(),
     // loadPyodide requires these exact adjacent filenames. The plugin serves
@@ -56,11 +61,15 @@ export default defineConfig({
     // Pyodide is dynamically imported by pythonJudge.worker.ts only.
     exclude: ['pyodide'],
   },
-  server: {
-    // Some environments don't deliver native FS events reliably; poll so edits
-    // are always detected and hot-reloaded.
-    watch: { usePolling: true, interval: 200 },
-  },
+  // NOTE: no `server.watch.usePolling`. It was set to a 200ms poll in the
+  // project's first commit, defensively ("some environments don't deliver
+  // native FS events reliably") rather than to fix an observed failure. macOS
+  // FSEvents is reliable, and the repo has since grown to thousands of files
+  // plus ~100MB of assets: re-statting that tree five times a second costs a
+  // continuous 20-30% of a core on this laptop, which is felt during a
+  // gameplay session running beside the dev server. Native watching is the
+  // default. Restore the poll only if edits genuinely stop triggering HMR
+  // (an unusual filesystem — a network mount, or a container bind mount).
   test: {
     // Pure-logic unit tests (learner model, mastery, progress merge) run in
     // Node — no DOM needed. Co-located as `*.test.ts` next to the source.

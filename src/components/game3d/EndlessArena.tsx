@@ -15,6 +15,7 @@ import { EffectComposer, Bloom, Vignette, SMAA } from '@react-three/postprocessi
 import * as THREE from 'three'
 import { Avatar, type AvatarAnim } from './Avatar'
 import { useKeys } from './useKeys'
+import { tuneRenderer } from './rendererTuning'
 import { ZombieHorde } from './ZombieHorde'
 import { CombatFx, type CombatFxApi } from './CombatFx'
 import {
@@ -1126,6 +1127,7 @@ export function EndlessArena({
         dpr={[1, 1.7]}
         gl={{ antialias: false, powerPreference: 'high-performance', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
         camera={{ position: [0, CAM_HEIGHT, 6 + CAM_BACK], fov: 55, near: 0.1, far: 150 }}
+        onCreated={({ gl }) => tuneRenderer(gl)}
       >
         <color attach="background" args={['#37315a']} />
         <fog attach="fog" args={['#37315a', 32, 96]} />
